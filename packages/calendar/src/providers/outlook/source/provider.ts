@@ -117,11 +117,15 @@ class OutlookSourceProvider extends OAuthSourceProvider<OutlookSourceConfig> {
         description: eventStatesTable.description,
         id: eventStatesTable.id,
         endTime: eventStatesTable.endTime,
+        exceptionDates: eventStatesTable.exceptionDates,
         isAllDay: eventStatesTable.isAllDay,
         location: eventStatesTable.location,
+        recurrenceId: eventStatesTable.recurrenceId,
+        recurrenceRule: eventStatesTable.recurrenceRule,
         sourceEventType: eventStatesTable.sourceEventType,
         sourceEventUid: eventStatesTable.sourceEventUid,
         startTime: eventStatesTable.startTime,
+        startTimeZone: eventStatesTable.startTimeZone,
         title: eventStatesTable.title,
       })
       .from(eventStatesTable)
