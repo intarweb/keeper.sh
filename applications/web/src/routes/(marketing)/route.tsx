@@ -102,6 +102,7 @@ function MarketingLayout() {
             <MarketingFooterNavGroup>
               <MarketingFooterNavGroupLabel>Resources</MarketingFooterNavGroupLabel>
               <MarketingFooterNavItem to="/blog">Blog</MarketingFooterNavItem>
+              <MarketingFooterNavItem to="/compare">Compare</MarketingFooterNavItem>
               <MarketingFooterNavItem href="https://github.com/ridafkih/keeper.sh">GitHub</MarketingFooterNavItem>
             </MarketingFooterNavGroup>
             <MarketingFooterNavGroup>

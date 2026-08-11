@@ -17,6 +17,11 @@ const staticEntries: SitemapEntry[] = [
   { loc: `${SITE_URL}/blog`, lastmod: "2026-03-09" },
   { loc: `${SITE_URL}/privacy`, lastmod: "2025-12-01" },
   { loc: `${SITE_URL}/terms`, lastmod: "2025-12-01" },
+  { loc: `${SITE_URL}/compare`, lastmod: "2026-08-11" },
+  { loc: `${SITE_URL}/compare/open-source-calendar-sync`, lastmod: "2026-08-11" },
+  { loc: `${SITE_URL}/compare/onecal-alternative`, lastmod: "2026-08-11" },
+  { loc: `${SITE_URL}/compare/calendarbridge-alternative`, lastmod: "2026-08-11" },
+  { loc: `${SITE_URL}/compare/reclaim-alternative`, lastmod: "2026-08-11" },
 ];
 
 function parseFrontmatter(raw: string): Record<string, unknown> {
