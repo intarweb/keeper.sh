@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { MS_PER_DAY } from "@keeper.sh/constants";
 import {
+  DEFAULT_FUTURE_SYNC_RANGE,
+  DEFAULT_HISTORIC_SYNC_RANGE,
   createSyncWindow,
+  getStartOfToday,
   getEffectiveSyncRanges,
   getConfigurableSyncWindow,
   getWiderSyncRange,
@@ -50,6 +54,58 @@ describe("configurable sync ranges", () => {
       futureRange: "1_month",
       historicRange: "12_months",
     });
+  });
+
+  it("reproduces the pre-configurable window for a migrated calendar", () => {
+    const now = new Date(2026, 6, 20, 15, 42, 10);
+    const startOfToday = getStartOfToday(now);
+
+    const migrated = getConfigurableSyncWindow(
+      DEFAULT_HISTORIC_SYNC_RANGE,
+      DEFAULT_FUTURE_SYNC_RANGE,
+      now,
+    );
+
+    expect(migrated).toEqual({
+      timeMin: new Date(startOfToday.getTime() - 7 * MS_PER_DAY),
+      timeMax: new Date(
+        startOfToday.getFullYear() + 2,
+        startOfToday.getMonth(),
+        startOfToday.getDate(),
+      ),
+    });
+  });
+
+  it("advances the window by exactly one day across a day boundary", () => {
+    const firstTick = new Date(2026, 6, 20, 9, 0, 0);
+    const laterSameDay = new Date(2026, 6, 20, 23, 59, 59);
+    const nextDay = new Date(2026, 6, 21, 0, 0, 1);
+
+    const first = getConfigurableSyncWindow("1_week", "1_month", firstTick);
+    const later = getConfigurableSyncWindow("1_week", "1_month", laterSameDay);
+    const next = getConfigurableSyncWindow("1_week", "1_month", nextDay);
+
+    expect(later).toEqual(first);
+    expect(next.timeMin.getTime() - first.timeMin.getTime()).toBe(MS_PER_DAY);
+    expect(next.timeMin.getTime()).toBeGreaterThan(first.timeMin.getTime());
+  });
+
+  it("anchors to local midnight in any server timezone", () => {
+    const originalTimeZone = process.env.TZ;
+    try {
+      for (const timeZone of ["UTC", "America/Los_Angeles", "Asia/Kolkata", "Pacific/Kiritimati"]) {
+        process.env.TZ = timeZone;
+        const now = new Date(2026, 6, 20, 15, 42, 10);
+        const window = getConfigurableSyncWindow("1_week", "1_month", now);
+
+        expect(window.timeMin.getHours()).toBe(0);
+        expect(window.timeMin.getMinutes()).toBe(0);
+        expect(window.timeMax.getHours()).toBe(0);
+        expect(window.timeMin.getTime()).toBeLessThan(window.timeMax.getTime());
+      }
+    } finally {
+      process.env.TZ = originalTimeZone;
+    }
   });
 
   it("rejects unrecognized ranges instead of ordering them as narrowest", () => {

@@ -17,7 +17,7 @@ import {
 } from "@keeper.sh/calendar";
 import { INGEST_SOURCE_TIMEOUT_MS, PROVIDER_INGEST_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
 import type { CalendarBackoffState, IngestionFetchEventsResult, IngestionPersistenceWork, RedisRateLimiter, TokenState } from "@keeper.sh/calendar";
-import { syncRangeSchema } from "@keeper.sh/data-schemas";
+import { syncRangeSchema, type Plan } from "@keeper.sh/data-schemas";
 import {
   createIcsSourceFetcher,
   interpretFullDayTimedEventsAsAllDay,
@@ -35,7 +35,7 @@ import {
   oauthCredentialsTable,
   sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
-import { and, arrayContains, eq, inArray, sql } from "drizzle-orm";
+import { and, arrayContains, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { withCronWideEvent } from "@/utils/with-wide-event";
 import { context, widelog } from "@/utils/logging";
 import { database, premiumService, refreshLockRedis, refreshLockStore } from "@/context";
@@ -239,17 +239,34 @@ const createIngestionPersistenceTransaction = (
         }
 
         if (changes.coverage) {
+          const { futureRange, historicRange, window } = changes.coverage;
           await setRemainingStatementTimeout();
+          /*
+           * Snapshot sources report coverage on every run. The window is anchored to
+           * the start of the day, so rewriting it unconditionally would churn this row
+           * (and its updatedAt) once per tick rather than once per day.
+           */
           await transaction
             .update(calendarsTable)
             .set({
-              ingestFutureRange: changes.coverage.futureRange,
-              ingestHistoricRange: changes.coverage.historicRange,
-              ingestWindowEnd: changes.coverage.window.timeMax,
+              ingestFutureRange: futureRange,
+              ingestHistoricRange: historicRange,
+              ingestWindowEnd: window.timeMax,
               ingestWindowRecordedAt: new Date(),
-              ingestWindowStart: changes.coverage.window.timeMin,
+              ingestWindowStart: window.timeMin,
             })
-            .where(eq(calendarsTable.id, calendarId));
+            .where(and(
+              eq(calendarsTable.id, calendarId),
+              or(
+                isNull(calendarsTable.ingestWindowRecordedAt),
+                isNull(calendarsTable.ingestWindowStart),
+                isNull(calendarsTable.ingestWindowEnd),
+                ne(calendarsTable.ingestFutureRange, futureRange),
+                ne(calendarsTable.ingestHistoricRange, historicRange),
+                ne(calendarsTable.ingestWindowStart, window.timeMin),
+                ne(calendarsTable.ingestWindowEnd, window.timeMax),
+              ),
+            ));
           signal.throwIfAborted();
         }
 
@@ -294,6 +311,22 @@ const resolveRateLimiter = (provider: string, userId: string): RedisRateLimiter 
   );
 };
 
+/*
+ * Plans are read once per user per ingestion run. Without this every source
+ * re-reads the plan of every owner it is mapped to, on every tick.
+ */
+const planCacheByUserId = new Map<string, Promise<Plan>>();
+
+const getCachedUserPlan = (userId: string): Promise<Plan> => {
+  const cached = planCacheByUserId.get(userId);
+  if (cached) {
+    return cached;
+  }
+  const plan = premiumService.getUserPlan(userId);
+  planCacheByUserId.set(userId, plan);
+  return plan;
+};
+
 const getRequiredSourceRanges = async (
   sourceCalendarId: string,
 ): Promise<RequiredSourceRanges> => {
@@ -315,7 +348,7 @@ const getRequiredSourceRanges = async (
     ));
   const plansByUserId = new Map(
     await Promise.all([...new Set(mappings.map(({ userId }) => userId))].map(
-      async (userId) => [userId, await premiumService.getUserPlan(userId)] as const,
+      async (userId) => [userId, await getCachedUserPlan(userId)] as const,
     )),
   );
   return createRequiredSourceRanges(mappings.map((mapping) => {
@@ -950,6 +983,7 @@ const ingestIcsSources = async (): Promise<IngestionBatchResult> => {
 
 export default withCronWideEvent({
   async callback() {
+    planCacheByUserId.clear();
     const settlements = await Promise.allSettled([
       ingestOAuthSources(),
       ingestCalDAVSources(),
