@@ -287,6 +287,8 @@ const createDestinationReconciliationWideEventFields = (
   "local_event_states.materialized_count": context.eventReadDiagnostics.materializedEventCount,
   "local_event_states.missing_source_event_uid_count": context.eventReadDiagnostics.missingSourceEventUidCount,
   "local_event_states.outside_reconciliation_window_count": context.eventReadDiagnostics.outsideReconciliationWindowCount,
+  "local_event_states.over_budget_series_count": context.eventReadDiagnostics.overBudgetSourceEventUids.length,
+  "local_event_states.over_budget_series_uids": context.eventReadDiagnostics.overBudgetSourceEventUids.join(","),
   "local_event_states.syncable_count": context.eventReadDiagnostics.syncableEventCount,
   "reconciliation.local_read.duration_ms": context.localReadDurationMs,
   "reconciliation.remote_read.duration_ms": context.remoteReadDurationMs,

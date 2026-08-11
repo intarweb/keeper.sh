@@ -85,7 +85,7 @@ describe("createDestinationReconciliationWideEventFields", () => {
     materializedEventCount: 5,
     missingSourceEventUidCount: 1,
     outsideReconciliationWindowCount: 1,
-    overBudgetSourceEventUids: [],
+    overBudgetSourceEventUids: ["pathological-series"],
     syncableEventCount: 4,
   };
 
@@ -111,6 +111,8 @@ describe("createDestinationReconciliationWideEventFields", () => {
       "local_event_states.materialized_count": 5,
       "local_event_states.missing_source_event_uid_count": 1,
       "local_event_states.outside_reconciliation_window_count": 1,
+      "local_event_states.over_budget_series_count": 1,
+      "local_event_states.over_budget_series_uids": "pathological-series",
       "local_event_states.syncable_count": 4,
       "reconciliation.local_read.duration_ms": 12.5,
       "reconciliation.remote_read.duration_ms": 42.25,
