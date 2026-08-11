@@ -18,35 +18,37 @@ const staticEntries: SitemapEntry[] = [
   { loc: `${SITE_URL}/privacy`, lastmod: "2025-12-01" },
   { loc: `${SITE_URL}/terms`, lastmod: "2025-12-01" },
   { loc: `${SITE_URL}/compare`, lastmod: "2026-08-11" },
-  { loc: `${SITE_URL}/compare/open-source-calendar-sync`, lastmod: "2026-08-11" },
-  { loc: `${SITE_URL}/compare/onecal-alternative`, lastmod: "2026-08-11" },
-  { loc: `${SITE_URL}/compare/calendarbridge-alternative`, lastmod: "2026-08-11" },
-  { loc: `${SITE_URL}/compare/reclaim-alternative`, lastmod: "2026-08-11" },
 ];
 
-function parseFrontmatter(raw: string): Record<string, unknown> {
-  const [, match] = raw.match(FRONTMATTER_PATTERN);
-  if (!match) return {};
-  return parseYaml(match);
+function parseFrontmatter(raw: string, file: string): Record<string, unknown> {
+  const match = raw.match(FRONTMATTER_PATTERN);
+  if (!match) {
+    throw new Error(`"${file}" is missing a YAML frontmatter block.`);
+  }
+  return parseYaml(match[1]);
 }
 
-function discoverBlogEntries(blogDir: string): SitemapEntry[] {
-  const files = readdirSync(blogDir).filter((f) => f.endsWith(".mdx"));
+function discoverContentEntries(
+  directory: string,
+  basePath: string,
+  label: string,
+): SitemapEntry[] {
+  const files = readdirSync(directory).filter((file) => file.endsWith(".mdx"));
 
   return files.map((file) => {
-    const raw = readFileSync(join(blogDir, file), "utf-8");
-    const frontmatter = parseFrontmatter(raw);
+    const raw = readFileSync(join(directory, file), "utf-8");
+    const frontmatter = parseFrontmatter(raw, file);
 
     if (typeof frontmatter.slug !== "string") {
-      throw new Error(`Blog post "${file}" is missing a slug.`);
+      throw new Error(`${label} "${file}" is missing a slug.`);
     }
 
     if (typeof frontmatter.updatedAt !== "string") {
-      throw new Error(`Blog post "${file}" is missing updatedAt.`);
+      throw new Error(`${label} "${file}" is missing updatedAt.`);
     }
 
     return {
-      loc: `${SITE_URL}/blog/${frontmatter.slug}`,
+      loc: `${SITE_URL}${basePath}/${frontmatter.slug}`,
       lastmod: frontmatter.updatedAt.slice(0, 10),
     };
   });
@@ -75,6 +77,7 @@ function buildSitemapXml(entries: SitemapEntry[]): string {
 
 export function sitemapPlugin(): Plugin {
   let blogDir: string;
+  let compareDir: string;
 
   return {
     name: "keeper-sitemap",
@@ -82,11 +85,15 @@ export function sitemapPlugin(): Plugin {
 
     configResolved(config) {
       blogDir = resolve(config.root, "src/content/blog");
+      compareDir = resolve(config.root, "src/content/compare");
     },
 
     generateBundle() {
-      const blogEntries = discoverBlogEntries(blogDir);
-      const entries = [...staticEntries, ...blogEntries];
+      const entries = [
+        ...staticEntries,
+        ...discoverContentEntries(blogDir, "/blog", "Blog post"),
+        ...discoverContentEntries(compareDir, "/compare", "Compare article"),
+      ];
 
       this.emitFile({
         type: "asset",

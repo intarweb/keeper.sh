@@ -32,10 +32,7 @@ import { Route as dashboardDashboardIndexRouteImport } from './../../routes/(das
 import { Route as oauthOauthConsentRouteImport } from './../../routes/(oauth)/oauth/consent'
 import { Route as oauthAuthOutlookRouteImport } from './../../routes/(oauth)/auth/outlook'
 import { Route as oauthAuthGoogleRouteImport } from './../../routes/(oauth)/auth/google'
-import { Route as marketingCompareReclaimAlternativeRouteImport } from './../../routes/(marketing)/compare/reclaim-alternative'
-import { Route as marketingCompareOpenSourceCalendarSyncRouteImport } from './../../routes/(marketing)/compare/open-source-calendar-sync'
-import { Route as marketingCompareOnecalAlternativeRouteImport } from './../../routes/(marketing)/compare/onecal-alternative'
-import { Route as marketingCompareCalendarbridgeAlternativeRouteImport } from './../../routes/(marketing)/compare/calendarbridge-alternative'
+import { Route as marketingCompareSlugRouteImport } from './../../routes/(marketing)/compare/$slug'
 import { Route as marketingBlogSlugRouteImport } from './../../routes/(marketing)/blog/$slug'
 import { Route as dashboardDashboardReportRouteImport } from './../../routes/(dashboard)/dashboard/report'
 import { Route as dashboardDashboardIcalRouteImport } from './../../routes/(dashboard)/dashboard/ical'
@@ -176,30 +173,11 @@ const oauthAuthGoogleRoute = oauthAuthGoogleRouteImport.update({
   path: '/google',
   getParentRoute: () => oauthAuthRouteRoute,
 } as any)
-const marketingCompareReclaimAlternativeRoute =
-  marketingCompareReclaimAlternativeRouteImport.update({
-    id: '/reclaim-alternative',
-    path: '/reclaim-alternative',
-    getParentRoute: () => marketingCompareRouteRoute,
-  } as any)
-const marketingCompareOpenSourceCalendarSyncRoute =
-  marketingCompareOpenSourceCalendarSyncRouteImport.update({
-    id: '/open-source-calendar-sync',
-    path: '/open-source-calendar-sync',
-    getParentRoute: () => marketingCompareRouteRoute,
-  } as any)
-const marketingCompareOnecalAlternativeRoute =
-  marketingCompareOnecalAlternativeRouteImport.update({
-    id: '/onecal-alternative',
-    path: '/onecal-alternative',
-    getParentRoute: () => marketingCompareRouteRoute,
-  } as any)
-const marketingCompareCalendarbridgeAlternativeRoute =
-  marketingCompareCalendarbridgeAlternativeRouteImport.update({
-    id: '/calendarbridge-alternative',
-    path: '/calendarbridge-alternative',
-    getParentRoute: () => marketingCompareRouteRoute,
-  } as any)
+const marketingCompareSlugRoute = marketingCompareSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => marketingCompareRouteRoute,
+} as any)
 const marketingBlogSlugRoute = marketingBlogSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
@@ -382,10 +360,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/ical': typeof dashboardDashboardIcalRoute
   '/dashboard/report': typeof dashboardDashboardReportRoute
   '/blog/$slug': typeof marketingBlogSlugRoute
-  '/compare/calendarbridge-alternative': typeof marketingCompareCalendarbridgeAlternativeRoute
-  '/compare/onecal-alternative': typeof marketingCompareOnecalAlternativeRoute
-  '/compare/open-source-calendar-sync': typeof marketingCompareOpenSourceCalendarSyncRoute
-  '/compare/reclaim-alternative': typeof marketingCompareReclaimAlternativeRoute
+  '/compare/$slug': typeof marketingCompareSlugRoute
   '/auth/google': typeof oauthAuthGoogleRoute
   '/auth/outlook': typeof oauthAuthOutlookRoute
   '/oauth/consent': typeof oauthOauthConsentRoute
@@ -430,10 +405,7 @@ export interface FileRoutesByTo {
   '/dashboard/ical': typeof dashboardDashboardIcalRoute
   '/dashboard/report': typeof dashboardDashboardReportRoute
   '/blog/$slug': typeof marketingBlogSlugRoute
-  '/compare/calendarbridge-alternative': typeof marketingCompareCalendarbridgeAlternativeRoute
-  '/compare/onecal-alternative': typeof marketingCompareOnecalAlternativeRoute
-  '/compare/open-source-calendar-sync': typeof marketingCompareOpenSourceCalendarSyncRoute
-  '/compare/reclaim-alternative': typeof marketingCompareReclaimAlternativeRoute
+  '/compare/$slug': typeof marketingCompareSlugRoute
   '/auth/google': typeof oauthAuthGoogleRoute
   '/auth/outlook': typeof oauthAuthOutlookRoute
   '/oauth/consent': typeof oauthOauthConsentRoute
@@ -485,10 +457,7 @@ export interface FileRoutesById {
   '/(dashboard)/dashboard/ical': typeof dashboardDashboardIcalRoute
   '/(dashboard)/dashboard/report': typeof dashboardDashboardReportRoute
   '/(marketing)/blog/$slug': typeof marketingBlogSlugRoute
-  '/(marketing)/compare/calendarbridge-alternative': typeof marketingCompareCalendarbridgeAlternativeRoute
-  '/(marketing)/compare/onecal-alternative': typeof marketingCompareOnecalAlternativeRoute
-  '/(marketing)/compare/open-source-calendar-sync': typeof marketingCompareOpenSourceCalendarSyncRoute
-  '/(marketing)/compare/reclaim-alternative': typeof marketingCompareReclaimAlternativeRoute
+  '/(marketing)/compare/$slug': typeof marketingCompareSlugRoute
   '/(oauth)/auth/google': typeof oauthAuthGoogleRoute
   '/(oauth)/auth/outlook': typeof oauthAuthOutlookRoute
   '/(oauth)/oauth/consent': typeof oauthOauthConsentRoute
@@ -538,10 +507,7 @@ export interface FileRouteTypes {
     | '/dashboard/ical'
     | '/dashboard/report'
     | '/blog/$slug'
-    | '/compare/calendarbridge-alternative'
-    | '/compare/onecal-alternative'
-    | '/compare/open-source-calendar-sync'
-    | '/compare/reclaim-alternative'
+    | '/compare/$slug'
     | '/auth/google'
     | '/auth/outlook'
     | '/oauth/consent'
@@ -586,10 +552,7 @@ export interface FileRouteTypes {
     | '/dashboard/ical'
     | '/dashboard/report'
     | '/blog/$slug'
-    | '/compare/calendarbridge-alternative'
-    | '/compare/onecal-alternative'
-    | '/compare/open-source-calendar-sync'
-    | '/compare/reclaim-alternative'
+    | '/compare/$slug'
     | '/auth/google'
     | '/auth/outlook'
     | '/oauth/consent'
@@ -640,10 +603,7 @@ export interface FileRouteTypes {
     | '/(dashboard)/dashboard/ical'
     | '/(dashboard)/dashboard/report'
     | '/(marketing)/blog/$slug'
-    | '/(marketing)/compare/calendarbridge-alternative'
-    | '/(marketing)/compare/onecal-alternative'
-    | '/(marketing)/compare/open-source-calendar-sync'
-    | '/(marketing)/compare/reclaim-alternative'
+    | '/(marketing)/compare/$slug'
     | '/(oauth)/auth/google'
     | '/(oauth)/auth/outlook'
     | '/(oauth)/oauth/consent'
@@ -841,32 +801,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof oauthAuthGoogleRouteImport
       parentRoute: typeof oauthAuthRouteRoute
     }
-    '/(marketing)/compare/reclaim-alternative': {
-      id: '/(marketing)/compare/reclaim-alternative'
-      path: '/reclaim-alternative'
-      fullPath: '/compare/reclaim-alternative'
-      preLoaderRoute: typeof marketingCompareReclaimAlternativeRouteImport
-      parentRoute: typeof marketingCompareRouteRoute
-    }
-    '/(marketing)/compare/open-source-calendar-sync': {
-      id: '/(marketing)/compare/open-source-calendar-sync'
-      path: '/open-source-calendar-sync'
-      fullPath: '/compare/open-source-calendar-sync'
-      preLoaderRoute: typeof marketingCompareOpenSourceCalendarSyncRouteImport
-      parentRoute: typeof marketingCompareRouteRoute
-    }
-    '/(marketing)/compare/onecal-alternative': {
-      id: '/(marketing)/compare/onecal-alternative'
-      path: '/onecal-alternative'
-      fullPath: '/compare/onecal-alternative'
-      preLoaderRoute: typeof marketingCompareOnecalAlternativeRouteImport
-      parentRoute: typeof marketingCompareRouteRoute
-    }
-    '/(marketing)/compare/calendarbridge-alternative': {
-      id: '/(marketing)/compare/calendarbridge-alternative'
-      path: '/calendarbridge-alternative'
-      fullPath: '/compare/calendarbridge-alternative'
-      preLoaderRoute: typeof marketingCompareCalendarbridgeAlternativeRouteImport
+    '/(marketing)/compare/$slug': {
+      id: '/(marketing)/compare/$slug'
+      path: '/$slug'
+      fullPath: '/compare/$slug'
+      preLoaderRoute: typeof marketingCompareSlugRouteImport
       parentRoute: typeof marketingCompareRouteRoute
     }
     '/(marketing)/blog/$slug': {
@@ -1189,22 +1128,12 @@ const marketingBlogRouteRouteWithChildren =
   marketingBlogRouteRoute._addFileChildren(marketingBlogRouteRouteChildren)
 
 interface marketingCompareRouteRouteChildren {
-  marketingCompareCalendarbridgeAlternativeRoute: typeof marketingCompareCalendarbridgeAlternativeRoute
-  marketingCompareOnecalAlternativeRoute: typeof marketingCompareOnecalAlternativeRoute
-  marketingCompareOpenSourceCalendarSyncRoute: typeof marketingCompareOpenSourceCalendarSyncRoute
-  marketingCompareReclaimAlternativeRoute: typeof marketingCompareReclaimAlternativeRoute
+  marketingCompareSlugRoute: typeof marketingCompareSlugRoute
   marketingCompareIndexRoute: typeof marketingCompareIndexRoute
 }
 
 const marketingCompareRouteRouteChildren: marketingCompareRouteRouteChildren = {
-  marketingCompareCalendarbridgeAlternativeRoute:
-    marketingCompareCalendarbridgeAlternativeRoute,
-  marketingCompareOnecalAlternativeRoute:
-    marketingCompareOnecalAlternativeRoute,
-  marketingCompareOpenSourceCalendarSyncRoute:
-    marketingCompareOpenSourceCalendarSyncRoute,
-  marketingCompareReclaimAlternativeRoute:
-    marketingCompareReclaimAlternativeRoute,
+  marketingCompareSlugRoute: marketingCompareSlugRoute,
   marketingCompareIndexRoute: marketingCompareIndexRoute,
 }
 

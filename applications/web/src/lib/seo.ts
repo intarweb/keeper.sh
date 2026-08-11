@@ -198,6 +198,33 @@ export const authorPersonSchema = {
   sameAs: ["https://github.com/ridafkih"],
 };
 
+export function compareArticleSchema(article: {
+  title: string;
+  description: string;
+  slug: string;
+  createdAt: string;
+  updatedAt: string;
+  tags: string[];
+}) {
+  const url = canonicalUrl(`/compare/${article.slug}`);
+  return {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "@id": `${url}/#article`,
+    headline: article.title,
+    description: article.description,
+    image: `${SITE_URL}/open-graph.png`,
+    url,
+    datePublished: article.createdAt,
+    dateModified: article.updatedAt,
+    keywords: article.tags,
+    author: authorPersonSchema,
+    publisher: { "@id": `${SITE_URL}/#organization` },
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+  };
+}
+
 export function blogPostingSchema(post: {
   title: string;
   description: string;

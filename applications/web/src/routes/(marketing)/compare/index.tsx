@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Heading1, Heading3 } from "@/components/ui/primitives/heading";
 import { Text } from "@/components/ui/primitives/text";
-import { COMPARE_PAGES } from "@/lib/compare";
+import { compareArticles } from "@/lib/compare-articles";
 import {
   breadcrumbSchema,
   canonicalUrl,
@@ -10,6 +10,7 @@ import {
   seoMeta,
   webPageSchema,
 } from "@/lib/seo";
+import { formatIsoDate } from "@/utils/date";
 
 const PAGE_DESCRIPTION =
   "Honest comparisons between Keeper.sh and the other tools people use to keep calendars in sync, with every third-party claim linked to its source.";
@@ -34,7 +35,10 @@ export const Route = createFileRoute("/(marketing)/compare/")({
       jsonLdScript(
         itemListSchema(
           "Keeper.sh calendar sync comparisons",
-          COMPARE_PAGES.map((page) => ({ name: page.title, path: page.path })),
+          compareArticles.map((article) => ({
+            name: article.metadata.title,
+            path: `/compare/${article.slug}`,
+          })),
         ),
       ),
     ],
@@ -46,10 +50,10 @@ function CompareDirectoryPage() {
     <div className="flex flex-col gap-8 py-16">
       <header className="flex flex-col gap-1.5">
         <Heading1>Compare</Heading1>
-        <Text size="base" tone="muted" className="max-w-[68ch] leading-6">
+        <Text size="base" tone="muted" className="leading-6">
           {PAGE_DESCRIPTION}
         </Text>
-        <Text size="sm" tone="muted" className="max-w-[68ch] leading-6">
+        <Text size="sm" tone="muted" className="leading-6">
           Every claim we make about another product is taken from that product&rsquo;s own public
           pages, linked at the bottom of each comparison with the date we checked it. Where the other
           tool is the better fit, these pages say so.
@@ -57,18 +61,22 @@ function CompareDirectoryPage() {
       </header>
 
       <div className="flex flex-col gap-3">
-        {COMPARE_PAGES.map((page) => (
+        {compareArticles.map((article) => (
           <Link
-            key={page.path}
+            key={article.slug}
             className="group block rounded-2xl border border-interactive-border bg-background p-5 shadow-xs transition-colors hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            to={page.path}
+            params={{ slug: article.slug }}
+            to="/compare/$slug"
           >
             <article className="flex flex-col gap-1">
               <Heading3 as="h2" className="group-hover:text-foreground-hover">
-                {page.title}
+                {article.metadata.title}
               </Heading3>
+              <Text size="xs" tone="muted" className="opacity-75">
+                Checked {formatIsoDate(article.metadata.checkedAt)}
+              </Text>
               <Text size="sm" tone="muted" className="leading-6">
-                {page.blurb}
+                {article.metadata.blurb}
               </Text>
             </article>
           </Link>

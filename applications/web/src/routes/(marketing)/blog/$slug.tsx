@@ -1,10 +1,11 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { Streamdown } from "streamdown";
 import { Heading1 } from "@/components/ui/primitives/heading";
-import { markdownComponents } from "@/components/ui/primitives/markdown-component-map";
+import { Prose } from "@/components/ui/primitives/prose";
+import { ExternalTextLink } from "@/components/ui/primitives/text-link";
 import { Text } from "@/components/ui/primitives/text";
-import { BlogPostCta } from "@/features/blog/components/blog-post-cta";
-import { findBlogPostBySlug, formatIsoDate } from "@/lib/blog-posts";
+import { ArticleCta } from "@/features/marketing/components/article-cta";
+import { findBlogPostBySlug } from "@/lib/blog-posts";
+import { formatIsoDate } from "@/utils/date";
 import { canonicalUrl, jsonLdScript, seoMeta, blogPostingSchema, breadcrumbSchema } from "@/lib/seo";
 
 export const Route = createFileRoute("/(marketing)/blog/$slug")({
@@ -70,22 +71,25 @@ function BlogPostPage() {
         <div className="flex flex-col">
           <Text size="sm" tone="muted" align="left">
             By{" "}
-            <a href="https://rida.dev" target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">
-              Rida F'kih
-            </a>
+            <ExternalTextLink
+              align="left"
+              href="https://rida.dev"
+              rel="noopener noreferrer"
+              size="sm"
+              target="_blank"
+              tone="default"
+            >
+              Rida F&apos;kih
+            </ExternalTextLink>
             {" · "}{createdDate}
             {showUpdated && <> · Updated {updatedDate}</>}
           </Text>
         </div>
       </header>
 
-      <article className="flex flex-col gap-2">
-        <Streamdown components={markdownComponents}>
-          {blogPost.content}
-        </Streamdown>
-      </article>
+      <Prose>{blogPost.content}</Prose>
 
-      <BlogPostCta />
+      <ArticleCta />
     </div>
   );
 }
