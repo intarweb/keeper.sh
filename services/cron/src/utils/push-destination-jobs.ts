@@ -12,10 +12,23 @@ interface PushDestinationJob {
   };
 }
 
+const createPushDestinationJobId = (
+  userId: string,
+  calendarId: string,
+  correlationId: string,
+  correlated: boolean,
+): string => {
+  if (correlated) {
+    return `sync-${userId}-${calendarId}-${correlationId}`;
+  }
+  return `sync-${userId}-${calendarId}`;
+};
+
 const buildPushDestinationJobs = (
   destinations: DestinationCalendarRef[],
   plan: Plan,
   correlationId: string,
+  options: { correlatedJobIds?: boolean } = {},
 ): PushDestinationJob[] => destinations
   .toSorted((first, second) =>
     first.userId.localeCompare(second.userId)
@@ -24,7 +37,12 @@ const buildPushDestinationJobs = (
     name: `sync-${userId}-${calendarId}`,
     data: { calendarId, userId, plan, correlationId },
     opts: {
-      jobId: `sync-${userId}-${calendarId}`,
+      jobId: createPushDestinationJobId(
+        userId,
+        calendarId,
+        correlationId,
+        options.correlatedJobIds ?? false,
+      ),
       removeOnComplete: true,
       removeOnFail: true,
     },

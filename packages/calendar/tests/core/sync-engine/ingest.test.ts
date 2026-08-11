@@ -909,6 +909,10 @@ describe("ingestSource", () => {
         events: [sourceMaster],
         nextSyncToken: "must-not-be-persisted",
         snapshot: { contentHash: "must-not-be-persisted", ical: "BEGIN:VCALENDAR" },
+        syncWindow: {
+          timeMax: new Date("2040-01-02T00:00:00.000Z"),
+          timeMin: new Date("2040-01-01T00:00:00.000Z"),
+        },
       }),
       flush: () => {
         persistenceFlushed = true;

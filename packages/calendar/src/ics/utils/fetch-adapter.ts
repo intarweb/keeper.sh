@@ -7,13 +7,7 @@ import { parseIcsEvents } from "./parse-ics-events";
 import { pullRemoteCalendar } from "./pull-remote-calendar";
 import { prepareCalendarSnapshot } from "./create-snapshot";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import type { SyncRange } from "@keeper.sh/data-schemas";
-import type { ConfigurableSyncWindow } from "../../core/sync/sync-range";
-import {
-  DEFAULT_FUTURE_SYNC_RANGE,
-  DEFAULT_HISTORIC_SYNC_RANGE,
-  getConfigurableSyncWindow,
-} from "../../core/sync/sync-range";
+import type { SourceIngestionPlan } from "../../core/sync/sync-range";
 import { normalizeTimezone } from "./normalize-timezone";
 import {
   assertNoUnsupportedRecurrenceDates,
@@ -27,9 +21,7 @@ interface IcsSourceFetcherConfig {
   url: string;
   database: BunSQLDatabase;
   safeFetchOptions?: SafeFetchOptions;
-  syncWindow?: ConfigurableSyncWindow;
-  historicRange?: SyncRange;
-  futureRange?: SyncRange;
+  plan: SourceIngestionPlan;
 }
 
 interface IcsSourceEventContext {
@@ -153,12 +145,7 @@ const createIcsSourceFetcher = (config: IcsSourceFetcherConfig): IcsSourceFetche
   };
 
   const fetchEvents = async (options: FetchIcsSourceEventsOptions = {}): Promise<FetchEventsResult> => {
-    const historicRange = config.historicRange ?? DEFAULT_HISTORIC_SYNC_RANGE;
-    const futureRange = config.futureRange ?? DEFAULT_FUTURE_SYNC_RANGE;
-    const syncWindow = config.syncWindow ?? getConfigurableSyncWindow(
-      historicRange,
-      futureRange,
-    );
+    const { futureRange, historicRange, window: syncWindow } = config.plan;
     const ical = await fetchRemoteIcal();
     if (!ical) {
       /*
@@ -166,7 +153,7 @@ const createIcsSourceFetcher = (config: IcsSourceFetcherConfig): IcsSourceFetche
        * but if a future change ever returns an empty string here, treat it as
        * unchanged rather than authoritative-empty to keep the no-wipe invariant.
        */
-      return { events: [], unchanged: true };
+      return { events: [], syncWindow, unchanged: true };
     }
     assertNoUnsupportedRecurrenceDates(ical);
     const snapshotResult = await prepareCalendarSnapshot(config.database, config.calendarId, ical);

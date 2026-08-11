@@ -27,6 +27,16 @@ const ORIGINAL_START = new Date("2027-03-08T16:00:00.000Z");
 const ORIGINAL_END = new Date("2027-03-08T17:00:00.000Z");
 const MOVED_START = new Date("2027-03-08T19:30:00.000Z");
 const MOVED_END = new Date("2027-03-08T20:30:00.000Z");
+const TEST_RECONCILIATION_SCOPE = {
+  authoritativeWindow: {
+    timeMax: new Date("2100-01-01T00:00:00.000Z"),
+    timeMin: new Date("2000-01-01T00:00:00.000Z"),
+  },
+  requestedWindow: {
+    timeMax: new Date("2100-01-01T00:00:00.000Z"),
+    timeMin: new Date("2000-01-01T00:00:00.000Z"),
+  },
+};
 
 type ScenarioKind = "ordinary event" | "recurring master" | "detached override";
 
@@ -227,7 +237,10 @@ const ingest = async (
 ): Promise<void> => {
   await ingestSource({
     calendarId: SOURCE_CALENDAR_ID,
-    fetchEvents: () => Promise.resolve({ events: [event] }),
+    fetchEvents: () => Promise.resolve({
+      events: [event],
+      syncWindow: TEST_RECONCILIATION_SCOPE.authoritativeWindow,
+    }),
     flush: store.flush,
     readExistingEvents: store.read,
   });
@@ -249,6 +262,7 @@ describe.each<ScenarioKind>([
 
     const runSync = () => syncCalendar({
       calendarId: DESTINATION_CALENDAR_ID,
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       flush: mappings.flush,
       isCurrent: () => Promise.resolve(true),
       provider,
@@ -356,8 +370,12 @@ it("repairs far-future Keeper orphans, retains user events, and converges", asyn
       localEvents: eventStates.syncableEvents(),
       remoteEvents: await provider.listRemoteEvents(),
     }),
-    timeBoundary: {
-      syncWindowStart: new Date("2026-07-10T00:00:00.000Z"),
+    reconciliationScope: {
+      authoritativeWindow: {
+        timeMax: new Date("2100-01-01T00:00:00.000Z"),
+        timeMin: new Date("2026-07-10T00:00:00.000Z"),
+      },
+      requestedWindow: TEST_RECONCILIATION_SCOPE.requestedWindow,
     },
     userId: "user-1",
   });
@@ -403,7 +421,7 @@ it("migrates a legacy recurring Google mapping in place and converges", async ()
     sourceCalendarId: SOURCE_CALENDAR_ID,
     startTime: occurrence.startTime,
     syncEventHash: "legacy-master-hash",
-    syncEventId: occurrence.eventStateId,
+    syncEventId: "recurring-master-state",
   });
   const remoteEvent: RemoteEvent = {
     deleteId: providerEventId,
@@ -428,6 +446,7 @@ it("migrates a legacy recurring Google mapping in place and converges", async ()
   };
   const runSync = () => syncCalendar({
     calendarId: DESTINATION_CALENDAR_ID,
+    reconciliationScope: TEST_RECONCILIATION_SCOPE,
     flush: mappings.flush,
     isCurrent: () => Promise.resolve(true),
     provider,
@@ -487,7 +506,16 @@ it("deletes an expired recurrence mapping when the cleanup window advances", asy
         remoteEvents: remoteEvents.filter((event) => event.endTime >= syncWindowStart),
       };
     },
-    timeBoundary: { cleanupWindowStart: syncWindowStart, syncWindowStart },
+    reconciliationScope: {
+      authoritativeWindow: {
+        timeMax: TEST_RECONCILIATION_SCOPE.authoritativeWindow.timeMax,
+        timeMin: syncWindowStart,
+      },
+      requestedWindow: {
+        timeMax: TEST_RECONCILIATION_SCOPE.requestedWindow.timeMax,
+        timeMin: syncWindowStart,
+      },
+    },
     userId: "user-1",
   });
 

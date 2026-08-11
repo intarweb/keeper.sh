@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildRemoveOperations,
-  computeSyncOperations,
+  buildRemoveOperations as buildRemoveOperationsStrict,
+  computeSyncOperations as computeSyncOperationsStrict,
   matchRemoteEventsToMappings,
 } from "../../../src/core/sync/operations";
+import type { ReconciliationScope } from "../../../src/core/sync/operations";
 import {
   createEditableEventContentHash,
   createSyncEventContentHash,
@@ -59,6 +60,65 @@ const EMPTY_STALE_REASON_COUNTS = {
   remoteMissing: 0,
   remoteTimeChanged: 0,
 };
+
+const TEST_WINDOW = {
+  timeMax: new Date("2100-01-01T00:00:00.000Z"),
+  timeMin: new Date("2000-01-01T00:00:00.000Z"),
+};
+
+interface LegacyBoundary {
+  cleanupWindowEnd?: Date;
+  cleanupWindowStart?: Date;
+  syncWindowEnd?: Date;
+  syncWindowStart: Date;
+}
+
+const toReconciliationScope = (
+  boundary: LegacyBoundary | ReconciliationScope | undefined,
+): ReconciliationScope => {
+  if (!boundary) {
+    return { authoritativeWindow: TEST_WINDOW, requestedWindow: TEST_WINDOW };
+  }
+  if ("authoritativeWindow" in boundary) {
+    return boundary;
+  }
+  return {
+    authoritativeWindow: {
+      timeMax: boundary.syncWindowEnd ?? TEST_WINDOW.timeMax,
+      timeMin: boundary.syncWindowStart,
+    },
+    requestedWindow: {
+      timeMax: boundary.cleanupWindowEnd ?? TEST_WINDOW.timeMax,
+      timeMin: boundary.cleanupWindowStart ?? TEST_WINDOW.timeMin,
+    },
+  };
+};
+
+const buildRemoveOperations = (
+  mappings: EventMapping[],
+  remoteEvents: RemoteEvent[],
+  localEventIds: Set<string>,
+  mappedRemoteIdentities: Set<string>,
+  boundary?: LegacyBoundary | ReconciliationScope,
+) => buildRemoveOperationsStrict(
+  mappings,
+  remoteEvents,
+  localEventIds,
+  mappedRemoteIdentities,
+  toReconciliationScope(boundary),
+);
+
+const computeSyncOperations = (
+  localEvents: MaterializedSyncableEvent[],
+  mappings: EventMapping[],
+  remoteEvents: RemoteEvent[],
+  boundary?: LegacyBoundary | ReconciliationScope,
+) => computeSyncOperationsStrict(
+  localEvents,
+  mappings,
+  remoteEvents,
+  toReconciliationScope(boundary),
+);
 
 describe("buildRemoveOperations", () => {
   it("does not remove mapped events from before the sync window", () => {
@@ -228,7 +288,6 @@ describe("computeSyncOperations", () => {
       syncWindowStart: new Date("2026-07-10T00:00:00.000Z"),
     })).toEqual({
       mappingUpdates: [],
-      mappingIdsToPrune: [],
       operations: [],
       staleMappingIds: [],
       staleReasonCounts: EMPTY_STALE_REASON_COUNTS,
@@ -265,7 +324,6 @@ describe("computeSyncOperations", () => {
 
     expect(computeSyncOperations([first, second], mappings, remotes)).toEqual({
       mappingUpdates: [],
-      mappingIdsToPrune: [],
       operations: [],
       staleMappingIds: [],
       staleReasonCounts: EMPTY_STALE_REASON_COUNTS,
@@ -286,7 +344,6 @@ describe("computeSyncOperations", () => {
       syncWindowStart: new Date("2026-03-03T00:00:00.000Z"),
     })).toEqual({
       mappingUpdates: [],
-      mappingIdsToPrune: [],
       operations: [{
         deleteId: mapping.deleteIdentifier,
         startTime: mapping.startTime,
@@ -445,7 +502,6 @@ describe("computeSyncOperations", () => {
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
       mappingUpdates: [],
-      mappingIdsToPrune: [],
       operations: [],
       staleMappingIds: [],
       staleReasonCounts: EMPTY_STALE_REASON_COUNTS,
@@ -504,7 +560,6 @@ describe("computeSyncOperations", () => {
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
       mappingUpdates: [],
-      mappingIdsToPrune: [],
       operations: [],
       staleMappingIds: [],
       staleReasonCounts: EMPTY_STALE_REASON_COUNTS,
@@ -557,7 +612,6 @@ describe("computeSyncOperations", () => {
     });
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
-      mappingIdsToPrune: [],
       mappingUpdates: [{
         deleteIdentifier: remoteEvent.deleteId,
         id: mapping.id,
@@ -608,7 +662,6 @@ describe("computeSyncOperations", () => {
     });
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
-      mappingIdsToPrune: [],
       mappingUpdates: [{
         deleteIdentifier: remoteEvent.deleteId,
         id: mapping.id,
@@ -768,6 +821,135 @@ describe("computeSyncOperations", () => {
       startTime: event.startTime,
       type: "remove",
       uid: mapping.destinationEventUid,
+    }]);
+  });
+
+  it("limits unverified reconciliation to explicit requested-window cleanup", () => {
+    const insideMapping = createEventMapping({
+      endTime: new Date("2026-03-08T15:00:00.000Z"),
+      startTime: new Date("2026-03-08T14:00:00.000Z"),
+    });
+    const outsideMapping = createEventMapping({
+      endTime: new Date("2026-02-01T15:00:00.000Z"),
+      id: "outside-mapping",
+      startTime: new Date("2026-02-01T14:00:00.000Z"),
+    });
+    const keeperOrphan = createRemoteEvent({
+      isKeeperEvent: true,
+      uid: "keeper-orphan",
+    });
+
+    const result = computeSyncOperationsStrict(
+      [],
+      [insideMapping, outsideMapping],
+      [keeperOrphan],
+      {
+        authoritativeWindow: null,
+        requestedWindow: {
+          timeMax: new Date("2026-04-01T00:00:00.000Z"),
+          timeMin: new Date("2026-03-01T00:00:00.000Z"),
+        },
+      },
+    );
+
+    expect(result.operations).toEqual([{
+      deleteId: outsideMapping.deleteIdentifier,
+      startTime: outsideMapping.startTime,
+      type: "remove",
+      uid: outsideMapping.destinationEventUid,
+    }]);
+  });
+
+  it("syncs verified sources without deleting mappings owned by an unverified source", () => {
+    const healthyEvent = createLocalEvent({
+      calendarId: "healthy-source",
+      id: "healthy-event",
+    });
+    const unverifiedMapping = createEventMapping({
+      id: "unverified-mapping",
+      sourceCalendarId: "unverified-source",
+      syncEventId: "unverified-event",
+    });
+
+    const result = computeSyncOperationsStrict(
+      [healthyEvent],
+      [unverifiedMapping],
+      [],
+      {
+        authoritativeSourceWindows: new Map([["healthy-source", TEST_WINDOW]]),
+        authoritativeWindow: null,
+        configuredSourceCalendarIds: new Set(["healthy-source", "unverified-source"]),
+        requestedWindow: TEST_WINDOW,
+      },
+    );
+
+    expect(result.operations).toEqual([{
+      event: healthyEvent,
+      type: "add",
+    }]);
+  });
+
+  it("uses a retained mapping tombstone to remove an untagged event from a deleted source", () => {
+    const deletedSourceMapping = createEventMapping({
+      id: "deleted-source-mapping",
+      sourceCalendarId: "deleted-source",
+      syncEventId: "deleted-source-event",
+    });
+    const remoteEvent = createRemoteEvent({
+      deleteId: deletedSourceMapping.deleteIdentifier,
+      isKeeperEvent: false,
+      uid: deletedSourceMapping.destinationEventUid,
+    });
+
+    const result = computeSyncOperationsStrict(
+      [],
+      [deletedSourceMapping],
+      [remoteEvent],
+      {
+        authoritativeSourceWindows: new Map(),
+        authoritativeWindow: TEST_WINDOW,
+        configuredSourceCalendarIds: new Set(),
+        requestedWindow: TEST_WINDOW,
+      },
+    );
+
+    expect(result.operations).toEqual([{
+      deleteId: deletedSourceMapping.deleteIdentifier,
+      startTime: deletedSourceMapping.startTime,
+      type: "remove",
+      uid: deletedSourceMapping.destinationEventUid,
+    }]);
+  });
+
+  it("removes a migration-window tombstone whose source identity was not backfilled", () => {
+    const deletedSourceMapping = createEventMapping({
+      id: "migration-window-tombstone",
+      sourceCalendarId: null,
+      syncEventId: "deleted-source-event",
+    });
+    const remoteEvent = createRemoteEvent({
+      deleteId: deletedSourceMapping.deleteIdentifier,
+      isKeeperEvent: false,
+      uid: deletedSourceMapping.destinationEventUid,
+    });
+
+    const result = computeSyncOperationsStrict(
+      [],
+      [deletedSourceMapping],
+      [remoteEvent],
+      {
+        authoritativeSourceWindows: new Map(),
+        authoritativeWindow: TEST_WINDOW,
+        configuredSourceCalendarIds: new Set(),
+        requestedWindow: TEST_WINDOW,
+      },
+    );
+
+    expect(result.operations).toEqual([{
+      deleteId: deletedSourceMapping.deleteIdentifier,
+      startTime: deletedSourceMapping.startTime,
+      type: "remove",
+      uid: deletedSourceMapping.destinationEventUid,
     }]);
   });
 });

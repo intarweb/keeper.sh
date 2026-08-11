@@ -1,5 +1,5 @@
 {
-  "id": "bb9b5904-480b-42d3-a73d-9ca3a4bcf046",
+  "id": "4872dccb-0a81-47b7-a8cd-aeeb32c34c88",
   "prevId": "0c8edcf1-1868-483f-9beb-b9696867770b",
   "version": "7",
   "dialect": "postgresql",
@@ -606,6 +606,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "ingestWindowRecordedAt": {
+          "name": "ingestWindowRecordedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "ingestWindowStart": {
           "name": "ingestWindowStart",
           "type": "timestamp",
@@ -844,7 +850,7 @@
           "name": "sourceCalendarId",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "startTime": {
           "name": "startTime",
@@ -896,21 +902,6 @@
           "columns": [
             {
               "expression": "eventStateId",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "event_mappings_source_calendar_idx": {
-          "name": "event_mappings_source_calendar_idx",
-          "columns": [
-            {
-              "expression": "sourceCalendarId",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -973,19 +964,6 @@
           "tableTo": "event_states",
           "columnsFrom": [
             "eventStateId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "event_mappings_sourceCalendarId_calendars_id_fk": {
-          "name": "event_mappings_sourceCalendarId_calendars_id_fk",
-          "tableFrom": "event_mappings",
-          "tableTo": "calendars",
-          "columnsFrom": [
-            "sourceCalendarId"
           ],
           "columnsTo": [
             "id"
@@ -1980,6 +1958,53 @@
         "user_subscriptions_userId_user_id_fk": {
           "name": "user_subscriptions_userId_user_id_fk",
           "tableFrom": "user_subscriptions",
+          "tableTo": "user",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user_sync_requests": {
+      "name": "user_sync_requests",
+      "schema": "",
+      "columns": {
+        "requestId": {
+          "name": "requestId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "requestedAt": {
+          "name": "requestedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_sync_requests_userId_user_id_fk": {
+          "name": "user_sync_requests_userId_user_id_fk",
+          "tableFrom": "user_sync_requests",
           "tableTo": "user",
           "columnsFrom": [
             "userId"

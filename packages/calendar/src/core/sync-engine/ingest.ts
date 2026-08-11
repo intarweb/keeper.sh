@@ -1,7 +1,6 @@
 import type { SourceEvent } from "../types";
 import type { SyncRange } from "@keeper.sh/data-schemas";
-import type { ConfigurableSyncWindow } from "../sync/sync-range";
-import { getOAuthSyncWindow } from "../oauth/sync-window";
+import type { SyncWindow } from "../sync/sync-range";
 import {
   assertSourceRecurrenceMaterializationWithinBudget,
   RecurrenceMaterializationLimitError,
@@ -25,11 +24,11 @@ interface FetchEventsResult {
   isDeltaSync?: boolean;
   fullSyncRequired?: boolean;
   unchanged?: boolean;
-  syncWindow?: ConfigurableSyncWindow;
+  syncWindow?: SyncWindow;
   coverage?: {
     futureRange: SyncRange;
     historicRange: SyncRange;
-    window: ConfigurableSyncWindow;
+    window: SyncWindow;
   };
 }
 
@@ -93,7 +92,27 @@ interface IngestionResult {
 }
 
 const EMPTY_RESULT: IngestionResult = { eventsAdded: 0, eventsRemoved: 0 };
-const RECURRENCE_VALIDATION_YEARS = 2;
+
+const getNonRecurringStoredEventIdsOutsideWindow = (
+  events: (Pick<StoredSourceEventState, "endTime" | "id" | "startTime"> & {
+    recurrenceRule: unknown;
+  })[],
+  window: SyncWindow | undefined,
+): string[] => {
+  if (!window) {
+    return [];
+  }
+  const eventIds: string[] = [];
+  for (const event of events) {
+    if (
+      !event.recurrenceRule
+      && (event.endTime <= window.timeMin || event.startTime >= window.timeMax)
+    ) {
+      eventIds.push(event.id);
+    }
+  }
+  return eventIds;
+};
 
 const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResult> => {
   const { calendarId, fetchEvents, isCurrent, onIngestEvent } = options;
@@ -111,17 +130,19 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
     const withPersistenceTransaction = resolvePersistenceTransaction(options);
     const fetchResult = await fetchEvents();
     wideEvent["source_events.count"] = fetchResult.events.length;
-    const recurrenceValidationWindow = fetchResult.syncWindow
-      ?? getOAuthSyncWindow(RECURRENCE_VALIDATION_YEARS);
-
-    assertSourceRecurrenceMaterializationWithinBudget(
-      calendarId,
-      fetchResult.events,
-      {
-        end: recurrenceValidationWindow.timeMax,
-        start: recurrenceValidationWindow.timeMin,
-      },
-    );
+    if (fetchResult.events.some((event) => event.recurrenceRule)) {
+      if (!fetchResult.syncWindow) {
+        throw new RangeError("Recurring source ingestion requires an explicit sync window");
+      }
+      assertSourceRecurrenceMaterializationWithinBudget(
+        calendarId,
+        fetchResult.events,
+        {
+          end: fetchResult.syncWindow.timeMax,
+          start: fetchResult.syncWindow.timeMin,
+        },
+      );
+    }
 
     if (isCurrent && !(await isCurrent())) {
       wideEvent["outcome"] = "superseded";
@@ -176,18 +197,10 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
       );
       const eventStateIdsToRemove = [...new Set([
         ...invalidStoredEventIdsToRemove,
-        ...existingEvents.flatMap((event) => {
-          if (!fetchResult.syncWindow || event.recurrenceRule) {
-            return [];
-          }
-          if (
-            event.endTime <= fetchResult.syncWindow.timeMin
-            || event.startTime >= fetchResult.syncWindow.timeMax
-          ) {
-            return [event.id];
-          }
-          return [];
-        }),
+        ...getNonRecurringStoredEventIdsOutsideWindow(
+          existingEvents,
+          fetchResult.syncWindow,
+        ),
         ...buildSourceEventStateIdsToRemove(
           existingEvents,
           fetchResult.events,

@@ -11,7 +11,7 @@ import { getDatabaseErrorDetails } from "@keeper.sh/database";
 import type { SyncProgressUpdate } from "../sync/types";
 import { createSyncEventContentHash } from "../events/content-hash";
 import { computeSyncOperations } from "../sync/operations";
-import type { RemoveOperationTimeBoundary, StaleReasonCounts } from "../sync/operations";
+import type { ReconciliationScope, StaleReasonCounts } from "../sync/operations";
 import type { CalendarSyncProvider, PendingChanges } from "./types";
 
 const resolveOutcome = (superseded: boolean, invalidated: boolean): string => {
@@ -488,7 +488,7 @@ interface SyncCalendarOptions {
   flush: (changes: PendingChanges) => Promise<void>;
   onSyncEvent?: (event: Record<string, unknown>) => void;
   onProgress?: (update: SyncProgressUpdate) => void;
-  timeBoundary?: RemoveOperationTimeBoundary;
+  reconciliationScope: ReconciliationScope;
 }
 
 interface SyncCalendarResult extends SyncResult {
@@ -551,7 +551,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     flush,
     onSyncEvent,
     onProgress,
-    timeBoundary,
+    reconciliationScope,
   } = options;
 
   const wideEvent: Record<string, unknown> = {
@@ -597,7 +597,6 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
 
     emitProgress("comparing", state.localEvents.length, state.remoteEvents.length);
     const {
-      mappingIdsToPrune,
       mappingUpdates,
       operations,
       staleMappingIds,
@@ -606,7 +605,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       state.localEvents,
       state.existingMappings,
       state.remoteEvents,
-      timeBoundary,
+      reconciliationScope,
     );
 
     const addCount = operations.filter((op) => op.type === "add" || op.type === "replace").length;
@@ -622,7 +621,6 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     if (
       operations.length === 0
       && staleMappingIds.length === 0
-      && mappingIdsToPrune.length === 0
       && mappingUpdates.length === 0
     ) {
       wideEvent["outcome"] = "in-sync";
@@ -673,8 +671,8 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
 
     const invalidated = checkpointInvalidated || outcome.checkpointRejected || (await isInvalidated?.() ?? false);
 
-    if (!invalidated && (mappingIdsToPrune.length > 0 || mappingUpdates.length > 0)) {
-      await flush({ deletes: mappingIdsToPrune, inserts: [], updates: mappingUpdates });
+    if (!invalidated && mappingUpdates.length > 0) {
+      await flush({ deletes: [], inserts: [], updates: mappingUpdates });
       flushed = true;
     }
 

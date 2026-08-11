@@ -6,12 +6,15 @@ import {
   createRedisRateLimiter,
   buildCalendarBackoffState,
   RESET_CALENDAR_BACKOFF_STATE,
+  createSyncWindow,
   getMappedSourceCalendarIds,
   withSourceIngestLocks,
-  getOAuthSyncWindow,
   getConfigurableSyncWindow,
+  getEffectiveSyncRanges,
+  intersectSyncWindows,
 } from "@keeper.sh/calendar";
 import { syncRangeSchema } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas";
 import type {
   EventMapping,
   DestinationEventReadDiagnostics,
@@ -19,18 +22,24 @@ import type {
   RefreshLockStore,
   RemoteEvent,
   SyncProgressUpdate,
+  SyncWindow,
 } from "@keeper.sh/calendar";
 import {
   calendarAccountsTable,
   calendarsTable,
 } from "@keeper.sh/database/schema";
-import { and, arrayContains, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, arrayContains, eq, inArray } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import type Redis from "ioredis";
 import { getErrorMessage, isBackoffEligibleError } from "./destination-errors";
 import { resolveSyncProvider } from "./resolve-provider";
 import type { OAuthConfig } from "./resolve-provider";
-import { createSyncLock, isCalendarInvalidated } from "./sync-lock";
+import {
+  createMappingMutationLockId,
+  createSyncLock,
+  isCalendarInvalidated,
+  type SyncLockHandle,
+} from "./sync-lock";
 
 const GOOGLE_REQUESTS_PER_MINUTE = 500;
 
@@ -74,6 +83,7 @@ interface SyncConfig {
   redis: Redis;
   encryptionKey?: string;
   oauthConfig: OAuthConfig;
+  plan: Plan;
   refreshLockStore?: RefreshLockStore | null;
   deadlineMs?: number;
   abortSignal?: AbortSignal;
@@ -105,48 +115,154 @@ interface DestinationLocalState {
 interface DestinationReconciliationContext {
   eventReadDiagnostics: DestinationEventReadDiagnostics;
   localReadDurationMs: number;
-  reconciliationWindow: {
-    timeMax: Date;
-    timeMin: Date;
-  };
+  authoritativeWindow: SyncWindow | null;
+  requestedWindow: SyncWindow;
   remoteReadDurationMs: number;
   sourceCalendarIdsAtLocalRead: string[];
   sourceCalendarIdsBeforeRemoteRead: string[];
+  verifiedSourceCalendarCount: number;
 }
 
 const roundDuration = (durationMs: number): number =>
   Math.round(durationMs * 100) / 100;
 
-const intersectWithSourceCoverage = async (
-  database: Pick<BunSQLDatabase, "select">,
+interface StoredSourceCoverage {
+  ingestFutureRange: string | null;
+  ingestHistoricRange: string | null;
+  ingestWindowEnd: Date | null;
+  ingestWindowRecordedAt: Date | null;
+  ingestWindowStart: Date | null;
+}
+
+const resolveStoredSourceCoverage = (source: StoredSourceCoverage): SyncWindow | null => {
+  if (
+    !source.ingestWindowStart
+    || !source.ingestWindowEnd
+    || !source.ingestWindowRecordedAt
+    || !Number.isFinite(source.ingestWindowRecordedAt.getTime())
+    || !syncRangeSchema.allows(source.ingestHistoricRange)
+    || !syncRangeSchema.allows(source.ingestFutureRange)
+  ) {
+    return null;
+  }
+  try {
+    return createSyncWindow(source.ingestWindowStart, source.ingestWindowEnd);
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+interface SourceAuthority {
+  aggregateWindow: SyncWindow | null;
+  sourceWindows: Map<string, SyncWindow>;
+}
+
+const createAggregateAuthorityWindow = (
   sourceCalendarIds: string[],
-  requestedWindow: { timeMin: Date; timeMax: Date },
-): Promise<{ timeMin: Date; timeMax: Date }> => {
+  sourceWindows: ReadonlyMap<string, SyncWindow>,
+  requestedWindow: SyncWindow,
+): SyncWindow | null => {
   if (sourceCalendarIds.length === 0) {
     return requestedWindow;
   }
-  const fallbackWindow = getOAuthSyncWindow(2);
+  if (sourceWindows.size !== sourceCalendarIds.length) {
+    return null;
+  }
+
+  let aggregateWindow: SyncWindow | null = requestedWindow;
+  for (const sourceCalendarId of sourceCalendarIds) {
+    const sourceWindow = sourceWindows.get(sourceCalendarId);
+    if (!sourceWindow) {
+      return null;
+    }
+    aggregateWindow = intersectSyncWindows(aggregateWindow, sourceWindow);
+    if (!aggregateWindow) {
+      return null;
+    }
+  }
+  return aggregateWindow;
+};
+
+const resolveSourceAuthority = async (
+  database: Pick<BunSQLDatabase, "select">,
+  sourceCalendarIds: string[],
+  requestedWindow: SyncWindow,
+): Promise<SourceAuthority> => {
+  if (sourceCalendarIds.length === 0) {
+    return { aggregateWindow: requestedWindow, sourceWindows: new Map() };
+  }
   const sources = await database
     .select({
+      id: calendarsTable.id,
+      ingestFutureRange: calendarsTable.ingestFutureRange,
+      ingestHistoricRange: calendarsTable.ingestHistoricRange,
       ingestWindowEnd: calendarsTable.ingestWindowEnd,
+      ingestWindowRecordedAt: calendarsTable.ingestWindowRecordedAt,
       ingestWindowStart: calendarsTable.ingestWindowStart,
     })
     .from(calendarsTable)
     .where(inArray(calendarsTable.id, sourceCalendarIds));
 
-  let { timeMin, timeMax } = requestedWindow;
+  const sourceWindows = new Map<string, SyncWindow>();
   for (const source of sources) {
-    const candidate = source.ingestWindowStart ?? fallbackWindow.timeMin;
-    if (candidate > timeMin) {
-      timeMin = candidate;
+    const sourceCoverage = resolveStoredSourceCoverage(source);
+    if (!sourceCoverage) {
+      continue;
     }
-    const endCandidate = source.ingestWindowEnd ?? fallbackWindow.timeMax;
-    if (endCandidate < timeMax) {
-      timeMax = endCandidate;
+    const sourceWindow = intersectSyncWindows(requestedWindow, sourceCoverage);
+    if (sourceWindow) {
+      sourceWindows.set(source.id, sourceWindow);
     }
   }
+  return {
+    aggregateWindow: createAggregateAuthorityWindow(
+      sourceCalendarIds,
+      sourceWindows,
+      requestedWindow,
+    ),
+    sourceWindows,
+  };
+};
 
-  return { timeMin, timeMax };
+const narrowSourceAuthority = (
+  initialSourceWindows: ReadonlyMap<string, SyncWindow>,
+  currentSourceWindows: ReadonlyMap<string, SyncWindow>,
+): Map<string, SyncWindow> => {
+  const narrowedSourceWindows = new Map<string, SyncWindow>();
+  for (const [sourceCalendarId, initialWindow] of initialSourceWindows) {
+    const currentWindow = currentSourceWindows.get(sourceCalendarId);
+    if (!currentWindow) {
+      continue;
+    }
+    const narrowedWindow = intersectSyncWindows(initialWindow, currentWindow);
+    if (narrowedWindow) {
+      narrowedSourceWindows.set(sourceCalendarId, narrowedWindow);
+    }
+  }
+  return narrowedSourceWindows;
+};
+
+const getBoundingSourceAuthorityWindow = (
+  sourceWindows: ReadonlyMap<string, SyncWindow>,
+): SyncWindow | null => {
+  let timeMin: Date | null = null;
+  let timeMax: Date | null = null;
+  for (const sourceWindow of sourceWindows.values()) {
+    const { timeMax: sourceTimeMax, timeMin: sourceTimeMin } = sourceWindow;
+    if (!timeMin || sourceTimeMin < timeMin) {
+      timeMin = sourceTimeMin;
+    }
+    if (!timeMax || sourceTimeMax > timeMax) {
+      timeMax = sourceTimeMax;
+    }
+  }
+  if (!timeMin || !timeMax) {
+    return null;
+  }
+  return createSyncWindow(timeMin, timeMax);
 };
 
 const haveSourceCalendarsChanged = (
@@ -177,12 +293,18 @@ const createDestinationReconciliationWideEventFields = (
   "reconciliation.remote_read.duration_ms": context.remoteReadDurationMs,
   "reconciliation.source_calendars.at_local_read_count": context.sourceCalendarIdsAtLocalRead.length,
   "reconciliation.source_calendars.before_remote_read_count": context.sourceCalendarIdsBeforeRemoteRead.length,
+  "reconciliation.source_calendars.verified_count": context.verifiedSourceCalendarCount,
   "reconciliation.source_calendars.changed_during_remote_read": haveSourceCalendarsChanged(
     context.sourceCalendarIdsBeforeRemoteRead,
     context.sourceCalendarIdsAtLocalRead,
   ),
-  "reconciliation.window.recurrence_time_max": context.reconciliationWindow.timeMax.toISOString(),
-  "reconciliation.window.time_min": context.reconciliationWindow.timeMin.toISOString(),
+  "reconciliation.authority.verified": context.authoritativeWindow !== null,
+  "reconciliation.window.requested_time_max": context.requestedWindow.timeMax.toISOString(),
+  "reconciliation.window.requested_time_min": context.requestedWindow.timeMin.toISOString(),
+  ...(context.authoritativeWindow && {
+    "reconciliation.window.authoritative_time_max": context.authoritativeWindow.timeMax.toISOString(),
+    "reconciliation.window.authoritative_time_min": context.authoritativeWindow.timeMin.toISOString(),
+  }),
 });
 
 const readDestinationReconciliationState = async (
@@ -226,6 +348,67 @@ interface SyncCallbacks {
   onCalendarError?: (failure: CalendarSyncFailure) => void;
 }
 
+interface DestinationAttempt {
+  accountId: string;
+  calendarId: string;
+  failureCount: number;
+  nextAttemptAt: Date | null;
+  provider: string;
+  syncFutureRange: string;
+  syncHistoricRange: string;
+  userId: string;
+}
+
+const getDestinationAttempt = async (
+  database: BunSQLDatabase,
+  userId: string,
+  calendarId: string,
+): Promise<DestinationAttempt | null> => {
+  const [destination] = await database
+    .select({
+      accountId: calendarsTable.accountId,
+      calendarId: calendarsTable.id,
+      failureCount: calendarsTable.failureCount,
+      nextAttemptAt: calendarsTable.nextAttemptAt,
+      provider: calendarAccountsTable.provider,
+      syncFutureRange: calendarsTable.syncFutureRange,
+      syncHistoricRange: calendarsTable.syncHistoricRange,
+      userId: calendarsTable.userId,
+    })
+    .from(calendarsTable)
+    .innerJoin(calendarAccountsTable, eq(calendarsTable.accountId, calendarAccountsTable.id))
+    .where(and(
+      eq(calendarsTable.userId, userId),
+      eq(calendarsTable.id, calendarId),
+      eq(calendarsTable.disabled, false),
+      arrayContains(calendarsTable.capabilities, ["push"]),
+    ))
+    .limit(1);
+  return destination ?? null;
+};
+
+const isDestinationAttemptEligible = (
+  destination: DestinationAttempt,
+  now: Date = new Date(),
+): boolean =>
+  destination.nextAttemptAt === null || destination.nextAttemptAt <= now;
+
+const isCompletedAttemptCurrent = async (
+  handle: SyncLockHandle,
+  redis: Redis,
+  calendarId: string,
+): Promise<boolean> =>
+  await handle.isCurrent() && !await isCalendarInvalidated(redis, calendarId);
+
+const resetDestinationBackoffIfNeeded = async (
+  database: BunSQLDatabase,
+  destination: DestinationAttempt,
+): Promise<void> => {
+  if (destination.failureCount > 0) {
+    await resetDestinationBackoff(database, destination.calendarId);
+  }
+};
+
 const syncDestinationsForUser = async (
   userId: string,
   config: SyncConfig,
@@ -236,25 +419,14 @@ const syncDestinationsForUser = async (
   const destinations = await database
     .select({
       calendarId: calendarsTable.id,
-      provider: calendarAccountsTable.provider,
-      userId: calendarsTable.userId,
-      accountId: calendarsTable.accountId,
-      failureCount: calendarsTable.failureCount,
-      syncFutureRange: calendarsTable.syncFutureRange,
-      syncHistoricRange: calendarsTable.syncHistoricRange,
     })
     .from(calendarsTable)
-    .innerJoin(calendarAccountsTable, eq(calendarsTable.accountId, calendarAccountsTable.id))
     .where(
       and(
         eq(calendarsTable.userId, userId),
         eq(calendarsTable.id, config.destinationCalendarId),
         eq(calendarsTable.disabled, false),
         arrayContains(calendarsTable.capabilities, ["push"]),
-        or(
-          isNull(calendarsTable.nextAttemptAt),
-          lte(calendarsTable.nextAttemptAt, new Date()),
-        ),
       ),
     );
 
@@ -277,20 +449,36 @@ const syncDestinationsForUser = async (
     { requestsPerMinute: GOOGLE_REQUESTS_PER_MINUTE },
   );
 
-  for (const destination of destinations) {
+  for (const destinationCandidate of destinations) {
     if (config.abortSignal?.aborted) {
       break;
     }
 
-    const lockResult = await syncLock.acquire(destination.calendarId, config.abortSignal);
+    const lockResult = await syncLock.acquire(
+      destinationCandidate.calendarId,
+      config.abortSignal,
+      createMappingMutationLockId(userId),
+    );
     if (!lockResult.acquired) {
       continue;
     }
 
     const { handle } = lockResult;
     const calendarAttempt: { syncEvent: Record<string, unknown> | null } = { syncEvent: null };
+    let attemptedDestination: DestinationAttempt | null = null;
 
     try {
+      const currentDestination = await getDestinationAttempt(
+        database,
+        userId,
+        destinationCandidate.calendarId,
+      );
+      if (!currentDestination || !isDestinationAttemptEligible(currentDestination)) {
+        continue;
+      }
+      const destination = currentDestination;
+      attemptedDestination = destination;
+
       const syncProvider = await resolveSyncProvider({
         database,
         provider: destination.provider,
@@ -314,16 +502,22 @@ const syncDestinationsForUser = async (
         database,
         destination.calendarId,
       );
-      const requestedWindow = getConfigurableSyncWindow(
+      const effectiveRanges = getEffectiveSyncRanges(
+        config.plan,
         syncRangeSchema.assert(destination.syncHistoricRange),
         syncRangeSchema.assert(destination.syncFutureRange),
       );
-      const initialReconciliationWindow = await intersectWithSourceCoverage(
+      const requestedWindow = getConfigurableSyncWindow(
+        effectiveRanges.historicRange,
+        effectiveRanges.futureRange,
+      );
+      const initialSourceAuthority = await resolveSourceAuthority(
         database,
         sourceCalendarIds,
         requestedWindow,
       );
-      let reconciliationWindow = initialReconciliationWindow;
+      let authoritativeSourceWindows = initialSourceAuthority.sourceWindows;
+      let authoritativeWindow = initialSourceAuthority.aggregateWindow;
       let eventReadDiagnostics: DestinationEventReadDiagnostics = {
         candidateEventStateCount: 0,
         excludedBySyncPolicyCount: 0,
@@ -335,12 +529,13 @@ const syncDestinationsForUser = async (
       let localReadDurationMs = 0;
       let remoteReadDurationMs = 0;
       let sourceCalendarIdsAtLocalRead = sourceCalendarIds;
+      let sourceCalendarsChangedDuringRemoteRead = false;
       const reconciliationState = await readDestinationReconciliationState(
         async () => {
           const startedAt = performance.now();
           try {
             return await providerRef.listRemoteEvents({
-              timeMin: initialReconciliationWindow.timeMin,
+              timeMin: requestedWindow.timeMin,
             });
           } finally {
             remoteReadDurationMs = roundDuration(performance.now() - startedAt);
@@ -357,6 +552,20 @@ const syncDestinationsForUser = async (
                   lockedDatabase,
                   destination.calendarId,
                 );
+                sourceCalendarsChangedDuringRemoteRead = haveSourceCalendarsChanged(
+                  sourceCalendarIds,
+                  sourceCalendarIdsAtLocalRead,
+                );
+                if (sourceCalendarsChangedDuringRemoteRead) {
+                  /*
+                   * The replacement set is not covered by the locks acquired
+                   * above. Supersede this run rather than reading an unlocked
+                   * source snapshot or acquiring nested locks out of order.
+                   */
+                  authoritativeWindow = null;
+                  authoritativeSourceWindows = new Map();
+                  return { existingMappings: [], localEvents: [] };
+                }
                 /*
                  * Source coverage can shrink while the destination provider is
                  * being read. Re-read it under the source ingest locks and only
@@ -364,19 +573,35 @@ const syncDestinationsForUser = async (
                  * because the remote read may not include the newly authoritative
                  * history yet.
                  */
-                reconciliationWindow = await intersectWithSourceCoverage(
+                const currentSourceAuthority = await resolveSourceAuthority(
                   lockedDatabase,
-                  sourceCalendarIds,
-                  initialReconciliationWindow,
+                  sourceCalendarIdsAtLocalRead,
+                  requestedWindow,
                 );
-                const eventRead = await getEventsForCalendarsWithDiagnostics(
-                  lockedDatabase,
-                  sourceCalendarIds,
-                  reconciliationWindow,
+                authoritativeSourceWindows = narrowSourceAuthority(
+                  initialSourceAuthority.sourceWindows,
+                  currentSourceAuthority.sourceWindows,
                 );
-                eventReadDiagnostics = eventRead.diagnostics;
+                authoritativeWindow = createAggregateAuthorityWindow(
+                  sourceCalendarIdsAtLocalRead,
+                  authoritativeSourceWindows,
+                  requestedWindow,
+                );
+                const localEvents: MaterializedSyncableEvent[] = [];
+                const localReadWindow = getBoundingSourceAuthorityWindow(
+                  authoritativeSourceWindows,
+                );
+                if (localReadWindow) {
+                  const eventRead = await getEventsForCalendarsWithDiagnostics(
+                    lockedDatabase,
+                    [...authoritativeSourceWindows.keys()],
+                    localReadWindow,
+                  );
+                  eventReadDiagnostics = eventRead.diagnostics;
+                  localEvents.push(...eventRead.events);
+                }
                 return {
-                  localEvents: eventRead.events,
+                  localEvents,
                   existingMappings: await getEventMappingsForDestination(
                     lockedDatabase,
                     destination.calendarId,
@@ -390,12 +615,14 @@ const syncDestinationsForUser = async (
         },
       );
       const reconciliationWideEventFields = createDestinationReconciliationWideEventFields({
+        authoritativeWindow,
         eventReadDiagnostics,
         localReadDurationMs,
-        reconciliationWindow,
+        requestedWindow,
         remoteReadDurationMs,
         sourceCalendarIdsAtLocalRead,
         sourceCalendarIdsBeforeRemoteRead: sourceCalendarIds,
+        verifiedSourceCalendarCount: authoritativeSourceWindows.size,
       });
       const result = await syncCalendar({
         userId: destination.userId,
@@ -403,6 +630,9 @@ const syncDestinationsForUser = async (
         provider: providerRef,
         readState: () => Promise.resolve(reconciliationState),
         isCurrent: () => {
+          if (sourceCalendarsChangedDuringRemoteRead) {
+            return Promise.resolve(false);
+          }
           if (config.abortSignal?.aborted) {
             return Promise.resolve(false);
           }
@@ -429,43 +659,34 @@ const syncDestinationsForUser = async (
             callbacks.onSyncEvent(enrichedEvent);
           }
         },
-        timeBoundary: {
-          syncWindowStart: reconciliationWindow.timeMin,
-          syncWindowEnd: reconciliationWindow.timeMax,
-          cleanupWindowStart: requestedWindow.timeMin,
-          cleanupWindowEnd: requestedWindow.timeMax,
+        reconciliationScope: {
+          authoritativeWindow,
+          authoritativeSourceWindows,
+          configuredSourceCalendarIds: new Set(sourceCalendarIdsAtLocalRead),
+          requestedWindow,
         },
       });
 
-      if (callbacks?.onCalendarComplete) {
-        callbacks.onCalendarComplete({
-          provider: destination.provider,
-          accountId: destination.accountId,
-          calendarId: destination.calendarId,
-          userId: destination.userId,
-          added: result.added,
-          addFailed: result.addFailed,
-          removed: result.removed,
-          removeFailed: result.removeFailed,
-          conflictsResolved: result.conflictsResolved,
-          errors: result.errors,
-          durationMs: extractNumericField(calendarAttempt.syncEvent, "duration_ms"),
-          ...(calendarAttempt.syncEvent && { syncEvent: calendarAttempt.syncEvent }),
-        });
-      }
+      callbacks?.onCalendarComplete?.({
+        provider: destination.provider,
+        accountId: destination.accountId,
+        calendarId: destination.calendarId,
+        userId: destination.userId,
+        added: result.added,
+        addFailed: result.addFailed,
+        removed: result.removed,
+        removeFailed: result.removeFailed,
+        conflictsResolved: result.conflictsResolved,
+        errors: result.errors,
+        durationMs: extractNumericField(calendarAttempt.syncEvent, "duration_ms"),
+        ...(calendarAttempt.syncEvent && { syncEvent: calendarAttempt.syncEvent }),
+      });
 
-      if (!(await handle.isCurrent())) {
+      if (!(await isCompletedAttemptCurrent(handle, redis, destination.calendarId))) {
         continue;
       }
 
-      const invalidated = await isCalendarInvalidated(redis, destination.calendarId);
-      if (invalidated) {
-        continue;
-      }
-
-      if (destination.failureCount > 0) {
-        await resetDestinationBackoff(database, destination.calendarId);
-      }
+      await resetDestinationBackoffIfNeeded(database, destination);
 
       added += result.added;
       addFailed += result.addFailed;
@@ -473,7 +694,8 @@ const syncDestinationsForUser = async (
       removeFailed += result.removeFailed;
       errors.push(...result.errors);
     } catch (error) {
-      if (!isBackoffEligibleError(error)) {
+      const destination = attemptedDestination;
+      if (!destination || !isBackoffEligibleError(error)) {
         throw error;
       }
 
@@ -499,6 +721,7 @@ const syncDestinationsForUser = async (
 export {
   createDestinationReconciliationWideEventFields,
   readDestinationReconciliationState,
+  resolveStoredSourceCoverage,
   syncDestinationsForUser,
 };
 export type { CalendarSyncCompletion, CalendarSyncFailure, SyncConfig, SyncDestinationsResult };

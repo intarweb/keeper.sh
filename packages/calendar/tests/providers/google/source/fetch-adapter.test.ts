@@ -5,9 +5,11 @@ import {
   resolveSyncTokenForWindow,
 } from "../../../../src/core/oauth/sync-token";
 import { createGoogleSourceFetcher } from "../../../../src/providers/google/source/fetch-adapter";
+import { createSourceIngestionPlan } from "../../../../src/core/sync/sync-range";
 
 const CALENDAR_ID = "calendar-id";
 const SYNC_TOKEN_VERSION = getOAuthSyncTokenVersion(0, new Date(), CALENDAR_ID);
+const TEST_PLAN = createSourceIngestionPlan("1_week", "2_years");
 
 const originalFetch = globalThis.fetch;
 
@@ -42,6 +44,7 @@ describe("createGoogleSourceFetcher", () => {
     const fetcher = createGoogleSourceFetcher({
       accessToken: "test-token",
       calendarId: CALENDAR_ID,
+      plan: TEST_PLAN,
       externalCalendarId: "primary",
       syncToken: null,
     });
@@ -60,6 +63,7 @@ describe("createGoogleSourceFetcher", () => {
     const fetcher = createGoogleSourceFetcher({
       accessToken: "test-token",
       calendarId: CALENDAR_ID,
+      plan: TEST_PLAN,
       externalCalendarId: "primary",
       syncToken: null,
     });
@@ -81,6 +85,7 @@ describe("createGoogleSourceFetcher", () => {
     const fetcher = createGoogleSourceFetcher({
       accessToken: "test-token",
       calendarId: CALENDAR_ID,
+      plan: TEST_PLAN,
       externalCalendarId: "primary",
       syncToken: encodeStoredSyncToken("current-google-token", SYNC_TOKEN_VERSION),
     });
@@ -97,10 +102,15 @@ describe("createGoogleSourceFetcher", () => {
     const result = await createGoogleSourceFetcher({
       accessToken: "test-token",
       calendarId: CALENDAR_ID,
+      plan: TEST_PLAN,
       externalCalendarId: "primary",
       syncToken: encodeStoredSyncToken("current-google-token", SYNC_TOKEN_VERSION),
     }).fetchEvents();
 
-    expect(result).toEqual({ events: [], fullSyncRequired: true });
+    expect(result).toEqual({
+      events: [],
+      fullSyncRequired: true,
+      syncWindow: TEST_PLAN.window,
+    });
   });
 });

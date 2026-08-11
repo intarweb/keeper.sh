@@ -1,29 +1,59 @@
-import type { SyncRange } from "@keeper.sh/data-schemas";
+import {
+  DEFAULT_FUTURE_SYNC_RANGE,
+  DEFAULT_HISTORIC_SYNC_RANGE,
+  SYNC_RANGE_DEFINITIONS,
+  type Plan,
+  type SyncRange,
+} from "@keeper.sh/data-schemas";
 
-const DEFAULT_HISTORIC_SYNC_RANGE: SyncRange = "1_week";
-const DEFAULT_FUTURE_SYNC_RANGE: SyncRange = "2_years";
+const SYNC_RANGE_ORDER = new Map<SyncRange, number>(
+  SYNC_RANGE_DEFINITIONS.map(({ value }, index) => [value, index]),
+);
 
-const SYNC_RANGE_ORDER: Record<SyncRange, number> = {
-  "1_week": 0,
-  "1_month": 1,
-  "3_months": 2,
-  "6_months": 3,
-  "12_months": 4,
-  "2_years": 5,
-};
-
-const SYNC_RANGE_MONTHS: Partial<Record<SyncRange, number>> = {
-  "1_month": 1,
-  "3_months": 3,
-  "6_months": 6,
-  "12_months": 12,
-  "2_years": 24,
-};
-
-interface ConfigurableSyncWindow {
+interface SyncWindow {
   timeMin: Date;
   timeMax: Date;
 }
+
+interface SourceIngestionPlan {
+  futureRange: SyncRange;
+  historicRange: SyncRange;
+  window: SyncWindow;
+}
+
+interface EffectiveSyncRanges {
+  futureRange: SyncRange;
+  historicRange: SyncRange;
+}
+
+const createSyncWindow = (timeMin: Date, timeMax: Date): SyncWindow => {
+  if (!Number.isFinite(timeMin.getTime()) || !Number.isFinite(timeMax.getTime())) {
+    throw new RangeError("Sync window boundaries must be valid dates");
+  }
+  if (timeMin >= timeMax) {
+    throw new RangeError("Sync window start must be before its end");
+  }
+  return { timeMax, timeMin };
+};
+
+const intersectSyncWindows = (
+  first: SyncWindow,
+  second: SyncWindow,
+): SyncWindow | null => {
+  const { timeMax: firstTimeMax, timeMin: firstTimeMin } = first;
+  let { timeMin } = second;
+  if (firstTimeMin > second.timeMin) {
+    timeMin = firstTimeMin;
+  }
+  let { timeMax } = second;
+  if (firstTimeMax < second.timeMax) {
+    timeMax = firstTimeMax;
+  }
+  if (timeMin >= timeMax) {
+    return null;
+  }
+  return { timeMax, timeMin };
+};
 
 const getStartOfToday = (now: Date = new Date()): Date => {
   const today = new Date(now);
@@ -46,47 +76,82 @@ const shiftDateByMonths = (date: Date, months: number): Date => {
 };
 
 const shiftDateByRange = (date: Date, range: SyncRange, direction: -1 | 1): Date => {
-  if (range === "1_week") {
-    const shifted = new Date(date);
-    shifted.setDate(shifted.getDate() + direction * 7);
-    return shifted;
-  }
-
-  const months = SYNC_RANGE_MONTHS[range];
-  if (typeof months !== "number") {
+  const definition = SYNC_RANGE_DEFINITIONS.find(({ value }) => value === range);
+  if (!definition) {
     throw new RangeError(`Unsupported sync range: ${range}`);
   }
-  return shiftDateByMonths(date, direction * months);
+  if (definition.shift.unit === "days") {
+    const shifted = new Date(date);
+    shifted.setDate(shifted.getDate() + direction * definition.shift.amount);
+    return shifted;
+  }
+  return shiftDateByMonths(date, direction * definition.shift.amount);
 };
 
 const getConfigurableSyncWindow = (
   historicRange: SyncRange,
   futureRange: SyncRange,
   now: Date = new Date(),
-): ConfigurableSyncWindow => {
+): SyncWindow => {
   const anchor = getStartOfToday(now);
-  return {
-    timeMin: shiftDateByRange(anchor, historicRange, -1),
-    timeMax: shiftDateByRange(anchor, futureRange, 1),
-  };
+  return createSyncWindow(
+    shiftDateByRange(anchor, historicRange, -1),
+    shiftDateByRange(anchor, futureRange, 1),
+  );
+};
+
+const createSourceIngestionPlan = (
+  historicRange: SyncRange,
+  futureRange: SyncRange,
+  now: Date = new Date(),
+): SourceIngestionPlan => ({
+  futureRange,
+  historicRange,
+  window: getConfigurableSyncWindow(historicRange, futureRange, now),
+});
+
+const getSyncRangeOrder = (range: SyncRange): number => {
+  const order = SYNC_RANGE_ORDER.get(range);
+  if (typeof order !== "number") {
+    throw new RangeError(`Unsupported sync range: ${range}`);
+  }
+  return order;
 };
 
 const getWiderSyncRange = (first: SyncRange, second: SyncRange): SyncRange => {
-  if (SYNC_RANGE_ORDER[first] >= SYNC_RANGE_ORDER[second]) {
+  if (getSyncRangeOrder(first) >= getSyncRangeOrder(second)) {
     return first;
   }
   return second;
 };
 
+const getEffectiveSyncRanges = (
+  plan: Plan,
+  historicRange: SyncRange,
+  futureRange: SyncRange,
+): EffectiveSyncRanges => {
+  if (plan === "free") {
+    return {
+      futureRange: DEFAULT_FUTURE_SYNC_RANGE,
+      historicRange: DEFAULT_HISTORIC_SYNC_RANGE,
+    };
+  }
+  return { futureRange, historicRange };
+};
+
 const isSyncRangeWider = (candidate: SyncRange, current: SyncRange): boolean =>
-  SYNC_RANGE_ORDER[candidate] > SYNC_RANGE_ORDER[current];
+  getSyncRangeOrder(candidate) > getSyncRangeOrder(current);
 
 export {
   DEFAULT_FUTURE_SYNC_RANGE,
   DEFAULT_HISTORIC_SYNC_RANGE,
+  createSyncWindow,
+  createSourceIngestionPlan,
+  getEffectiveSyncRanges,
   getConfigurableSyncWindow,
   getStartOfToday,
   getWiderSyncRange,
+  intersectSyncWindows,
   isSyncRangeWider,
 };
-export type { ConfigurableSyncWindow };
+export type { EffectiveSyncRanges, SourceIngestionPlan, SyncWindow };

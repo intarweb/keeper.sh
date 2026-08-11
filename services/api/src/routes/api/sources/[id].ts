@@ -1,9 +1,5 @@
-import {
-  calendarAccountsTable,
-  calendarsTable,
-  sourceDestinationMappingsTable,
-} from "@keeper.sh/database/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { calendarAccountsTable, calendarsTable } from "@keeper.sh/database/schema";
+import { and, arrayContains, eq } from "drizzle-orm";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { ErrorResponse } from "@/utils/responses";
 import { database, premiumService } from "@/context";
@@ -11,6 +7,9 @@ import { idParamSchema } from "@/utils/request-query";
 import {
   getDestinationsForSource,
   getSourcesForDestination,
+  requestUserSync,
+  scheduleMappingReplacementSync,
+  withMappingMutationLocks,
 } from "@/utils/source-destination-mappings";
 import { withProviderMetadata } from "@/utils/provider-display";
 import { handlePatchSourceRoute } from "./[id]/source-item-routes";
@@ -79,41 +78,58 @@ const PATCH = withWideEvent(
       { body: payload, params, userId },
       {
         canUseEventFilters: (candidateUserId) => premiumService.canUseEventFilters(candidateUserId),
-        updateSource: (userIdToUpdate, sourceCalendarId, updates) =>
-          database.transaction(async (transaction) => {
-            const [updated] = await transaction
-              .update(calendarsTable)
-              .set(updates)
-              .where(
-                and(
-                  eq(calendarsTable.id, sourceCalendarId),
-                  eq(calendarsTable.userId, userIdToUpdate),
-                ),
-              )
-              .returning();
-
-            if (
-              updated
-              && ("syncHistoricRange" in updates || "syncFutureRange" in updates)
-            ) {
-              const mappedSources = await transaction
-                .select({ id: sourceDestinationMappingsTable.sourceCalendarId })
-                .from(sourceDestinationMappingsTable)
-                .where(eq(
-                  sourceDestinationMappingsTable.destinationCalendarId,
-                  sourceCalendarId,
-                ));
-              const mappedSourceIds = mappedSources.map(({ id }) => id);
-              if (mappedSourceIds.length > 0) {
-                await transaction
+        updateSource: async (userIdToUpdate, sourceCalendarId, updates) => {
+          const updatesSyncWindow = "syncHistoricRange" in updates
+            || "syncFutureRange" in updates;
+          if (updatesSyncWindow) {
+            const mutation = await withMappingMutationLocks(
+              userIdToUpdate,
+              async () => {
+                const pushCalendars = await database
+                  .select({ id: calendarsTable.id })
+                  .from(calendarsTable)
+                  .where(and(
+                    eq(calendarsTable.id, sourceCalendarId),
+                    eq(calendarsTable.userId, userIdToUpdate),
+                    arrayContains(calendarsTable.capabilities, ["push"]),
+                  ));
+                return pushCalendars.map(({ id: calendarId }) => calendarId);
+              },
+              () => database.transaction(async (transaction) => {
+                const [updated] = await transaction
                   .update(calendarsTable)
-                  .set({ syncToken: null })
-                  .where(inArray(calendarsTable.id, mappedSourceIds));
-              }
+                  .set(updates)
+                  .where(
+                    and(
+                      eq(calendarsTable.id, sourceCalendarId),
+                      eq(calendarsTable.userId, userIdToUpdate),
+                    ),
+                  )
+                  .returning();
+                if (updated?.capabilities.includes("push")) {
+                  await requestUserSync(transaction, userIdToUpdate);
+                }
+                return updated ?? null;
+              }),
+            );
+            if (mutation.destinationCalendarIds.length > 0 && mutation.result) {
+              scheduleMappingReplacementSync(userIdToUpdate);
             }
+            return mutation.result;
+          }
 
-            return updated ?? null;
-          }),
+          const [updated] = await database
+            .update(calendarsTable)
+            .set(updates)
+            .where(
+              and(
+                eq(calendarsTable.id, sourceCalendarId),
+                eq(calendarsTable.userId, userIdToUpdate),
+              ),
+            )
+            .returning();
+          return updated ?? null;
+        },
       },
     );
   }),

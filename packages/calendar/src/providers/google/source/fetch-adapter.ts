@@ -1,12 +1,6 @@
 import type { FetchEventsResult } from "../../../core/sync-engine/ingest";
 import type { RedisRateLimiter } from "../../../core/utils/redis-rate-limiter";
-import type { SyncRange } from "@keeper.sh/data-schemas";
-import {
-  DEFAULT_FUTURE_SYNC_RANGE,
-  DEFAULT_HISTORIC_SYNC_RANGE,
-  getConfigurableSyncWindow,
-  type ConfigurableSyncWindow,
-} from "../../../core/sync/sync-range";
+import type { SourceIngestionPlan } from "../../../core/sync/sync-range";
 import { encodeStoredSyncToken, resolveSyncTokenForWindow } from "../../../core/oauth/sync-token";
 import { getOAuthSyncTokenVersion } from "../../../core/oauth/sync-window";
 import { filterSourceEventsToSyncWindow } from "../../../core/source/sync-diagnostics";
@@ -19,9 +13,7 @@ interface GoogleSourceFetcherConfig {
   syncToken: string | null;
   rateLimiter?: RedisRateLimiter;
   signal?: AbortSignal;
-  syncWindow?: ConfigurableSyncWindow;
-  historicRange?: SyncRange;
-  futureRange?: SyncRange;
+  plan: SourceIngestionPlan;
 }
 
 interface GoogleSourceFetcher {
@@ -36,9 +28,7 @@ const createGoogleSourceFetcher = (config: GoogleSourceFetcherConfig): GoogleSou
       rateLimiter: config.rateLimiter,
       signal: config.signal,
     };
-    const historicRange = config.historicRange ?? DEFAULT_HISTORIC_SYNC_RANGE;
-    const futureRange = config.futureRange ?? DEFAULT_FUTURE_SYNC_RANGE;
-    const syncWindow = config.syncWindow ?? getConfigurableSyncWindow(historicRange, futureRange);
+    const { futureRange, historicRange, window: syncWindow } = config.plan;
     const syncTokenVersion = getOAuthSyncTokenVersion(0, new Date(), config.calendarId);
 
     const syncTokenResolution = resolveSyncTokenForWindow(
@@ -56,10 +46,10 @@ const createGoogleSourceFetcher = (config: GoogleSourceFetcherConfig): GoogleSou
     const result = await fetchCalendarEvents(fetchOptions);
 
     if (result.fullSyncRequired) {
-      return { events: [], fullSyncRequired: true };
+      return { events: [], fullSyncRequired: true, syncWindow };
     }
     if (!result.nextSyncToken) {
-      return { events: [], fullSyncRequired: true };
+      return { events: [], fullSyncRequired: true, syncWindow };
     }
 
     const parsedEvents = parseGoogleEvents(result.events);

@@ -8,13 +8,13 @@ import {
   createEditableEventContentHash,
   createSyncEventContentHash,
 } from "../events/content-hash";
-import { getOAuthSyncWindow } from "../oauth/sync-window";
+import type { SyncWindow } from "./sync-range";
 
-interface RemoveOperationTimeBoundary {
-  syncWindowStart: Date;
-  syncWindowEnd?: Date;
-  cleanupWindowStart?: Date;
-  cleanupWindowEnd?: Date;
+interface ReconciliationScope {
+  authoritativeWindow: SyncWindow | null;
+  authoritativeSourceWindows?: ReadonlyMap<string, SyncWindow>;
+  configuredSourceCalendarIds?: ReadonlySet<string>;
+  requestedWindow: SyncWindow;
 }
 
 interface StaleMappingResult {
@@ -26,7 +26,6 @@ interface StaleMappingResult {
 
 interface ComputeSyncOperationsResult {
   mappingUpdates: MappingUpdate[];
-  mappingIdsToPrune: string[];
   operations: SyncOperation[];
   staleReasonCounts: StaleReasonCounts;
   staleMappingIds: string[];
@@ -59,14 +58,6 @@ interface OccurrenceReassignment {
   mapping: EventMapping;
 }
 
-const getDefaultTimeBoundary = (): RemoveOperationTimeBoundary => {
-  const window = getOAuthSyncWindow(2);
-  return {
-    syncWindowStart: window.timeMin,
-    syncWindowEnd: window.timeMax,
-  };
-};
-
 const createStaleReasonCounts = (): StaleReasonCounts => ({
   localHashChanged: 0,
   occurrenceReassigned: 0,
@@ -76,14 +67,42 @@ const createStaleReasonCounts = (): StaleReasonCounts => ({
   remoteTimeChanged: 0,
 });
 
-const getMappingSyncEventId = (mapping: EventMapping): string =>
-  mapping.syncEventId ?? mapping.eventStateId ?? `missing:${mapping.id}`;
+const getMappingSyncEventId = (mapping: EventMapping): string => mapping.syncEventId;
 
 const overlapsWindow = (
   value: Pick<EventMapping, "startTime" | "endTime">,
   start: Date,
   end: Date,
 ): boolean => value.endTime > start && value.startTime < end;
+
+const getSourceAuthoritativeWindow = (
+  scope: ReconciliationScope,
+  sourceCalendarId: string | null,
+): SyncWindow | null => {
+  if (sourceCalendarId === null) {
+    return scope.requestedWindow;
+  }
+  if (!scope.authoritativeSourceWindows || !scope.configuredSourceCalendarIds) {
+    return scope.authoritativeWindow;
+  }
+  if (!scope.configuredSourceCalendarIds.has(sourceCalendarId)) {
+    return scope.requestedWindow;
+  }
+  return scope.authoritativeSourceWindows.get(sourceCalendarId) ?? null;
+};
+
+const isInsideSourceAuthoritativeWindow = (
+  value: Pick<EventMapping, "startTime" | "endTime">,
+  sourceCalendarId: string | null,
+  scope: ReconciliationScope,
+): boolean => {
+  const sourceWindow = getSourceAuthoritativeWindow(scope, sourceCalendarId);
+  return sourceWindow !== null && overlapsWindow(
+    value,
+    sourceWindow.timeMin,
+    sourceWindow.timeMax,
+  );
+};
 
 const compareMappingSlots = (first: EventMapping, second: EventMapping): number =>
   first.startTime.getTime() - second.startTime.getTime()
@@ -410,25 +429,20 @@ const buildRemoveOperations = (
   remoteEvents: RemoteEvent[],
   localEventIds: Set<string>,
   mappedRemoteIdentities: Set<string>,
-  timeBoundary: RemoveOperationTimeBoundary = getDefaultTimeBoundary(),
+  scope: ReconciliationScope,
 ): SyncOperation[] => {
   const operations: SyncOperation[] = [];
-  const syncWindowEnd = timeBoundary.syncWindowEnd ?? new Date(8_640_000_000_000_000);
-  const cleanupWindowStart = timeBoundary.cleanupWindowStart
-    ?? new Date(-8_640_000_000_000_000);
-  const cleanupWindowEnd = timeBoundary.cleanupWindowEnd
-    ?? new Date(8_640_000_000_000_000);
 
   for (const mapping of existingMappings) {
     const outsideCleanupWindow = !overlapsWindow(
       mapping,
-      cleanupWindowStart,
-      cleanupWindowEnd,
+      scope.requestedWindow.timeMin,
+      scope.requestedWindow.timeMax,
     );
-    const insideAuthoritativeWindow = overlapsWindow(
+    const insideAuthoritativeWindow = isInsideSourceAuthoritativeWindow(
       mapping,
-      timeBoundary.syncWindowStart,
-      syncWindowEnd,
+      mapping.sourceCalendarId,
+      scope,
     );
     if (
       outsideCleanupWindow
@@ -452,10 +466,10 @@ const buildRemoveOperations = (
       continue;
     }
 
-    if (!overlapsWindow(
+    if (!scope.authoritativeWindow || !overlapsWindow(
       remoteEvent,
-      timeBoundary.syncWindowStart,
-      syncWindowEnd,
+      scope.authoritativeWindow.timeMin,
+      scope.authoritativeWindow.timeMax,
     )) {
       continue;
     }
@@ -475,29 +489,19 @@ const computeSyncOperations = (
   localEvents: MaterializedSyncableEvent[],
   existingMappings: EventMapping[],
   remoteEvents: RemoteEvent[],
-  timeBoundary: RemoveOperationTimeBoundary = getDefaultTimeBoundary(),
+  scope: ReconciliationScope,
 ): ComputeSyncOperationsResult => {
-  const localEventIds = new Set(localEvents.map((event) => event.id));
-  const localEventsById = new Map(localEvents.map((event) => [event.id, event]));
+  const authoritativeLocalEvents: MaterializedSyncableEvent[] = [];
+  const activeMappings: EventMapping[] = [];
+  authoritativeLocalEvents.push(...localEvents.filter((event) =>
+    isInsideSourceAuthoritativeWindow(event, event.calendarId, scope)));
+  activeMappings.push(...existingMappings.filter((mapping) =>
+    isInsideSourceAuthoritativeWindow(mapping, mapping.sourceCalendarId, scope)));
+  const localEventIds = new Set(authoritativeLocalEvents.map((event) => event.id));
+  const localEventsById = new Map(authoritativeLocalEvents.map((event) => [event.id, event]));
   const remoteEventsByMappingId = matchRemoteEventsToMappings(existingMappings, remoteEvents);
-  const mappingIdsToPrune: string[] = [];
-  const syncWindowEnd = timeBoundary.syncWindowEnd
-    ?? new Date(8_640_000_000_000_000);
-  const hasExplicitCleanupWindow = Boolean(
-    timeBoundary.cleanupWindowStart || timeBoundary.cleanupWindowEnd,
-  );
-  const activeMappings = existingMappings.filter((mapping) => {
-    if (!hasExplicitCleanupWindow) {
-      return true;
-    }
-    return overlapsWindow(
-      mapping,
-      timeBoundary.syncWindowStart,
-      syncWindowEnd,
-    );
-  });
   const occurrenceReassignments = pairReidentifiedMaterializedOccurrences(
-    localEvents,
+    authoritativeLocalEvents,
     activeMappings,
   );
   const databaseOnlyReassignments: OccurrenceReassignment[] = [];
@@ -577,7 +581,11 @@ const computeSyncOperations = (
   const replacedEventIds = new Set(
     staleRemoteMappings.map((mapping) => getMappingSyncEventId(mapping)),
   );
-  const addOperations = buildAddOperations(localEvents, activeMappings, staleMappedEventIds)
+  const addOperations = buildAddOperations(
+    authoritativeLocalEvents,
+    activeMappings,
+    staleMappedEventIds,
+  )
     .filter((operation) => operation.type !== "add"
       || !replacedEventIds.has(operation.event.id)
         && !reassignedEventIds.has(operation.event.id));
@@ -598,12 +606,11 @@ const computeSyncOperations = (
     remoteEvents,
     localEventIds,
     mappedRemoteIdentities,
-    timeBoundary,
+    scope,
   );
 
   return {
     mappingUpdates: [...mappingUpdatesById.values()],
-    mappingIdsToPrune,
     operations: sortOperationsByTime([
       ...addOperations,
       ...removeOperations,
@@ -635,7 +642,7 @@ export type {
   ComputeSyncOperationsResult,
   MappingUpdate,
   OccurrenceReassignment,
-  RemoveOperationTimeBoundary,
+  ReconciliationScope,
   StaleMappingResult,
   StaleReasonCounts,
 };

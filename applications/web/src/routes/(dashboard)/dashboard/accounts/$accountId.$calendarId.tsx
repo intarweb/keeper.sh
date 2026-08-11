@@ -180,6 +180,7 @@ type SyncRangeField = "syncHistoricRange" | "syncFutureRange";
 function SyncWindowSection({ calendarId }: { calendarId: string }) {
   const { data: entitlements } = useEntitlements();
   const locked = Boolean(entitlements && !entitlements.canUseEventFilters);
+  const disabled = !entitlements || locked;
 
   return (
     <>
@@ -193,13 +194,13 @@ function SyncWindowSection({ calendarId }: { calendarId: string }) {
             calendarId={calendarId}
             field="syncHistoricRange"
             label="Sync Historic Events"
-            locked={locked}
+            locked={disabled}
           />
           <SyncRangeItem
             calendarId={calendarId}
             field="syncFutureRange"
             label="Sync Future Events"
-            locked={locked}
+            locked={disabled}
           />
         </NavigationMenu>
       </PremiumFeatureGate>
@@ -220,11 +221,18 @@ function SyncRangeItem({
 }) {
   const store = useStore();
   const calendar = useAtomValue(calendarDetailAtom);
-  const fallbackRange: SyncRange = field === "syncHistoricRange" ? "1_week" : "2_years";
-  const selectedRange = calendar?.[field] ?? fallbackRange;
+  const loadedCalendarId = useAtomValue(calendarDetailLoadedAtom);
+
+  if (!calendar || loadedCalendarId !== calendarId) {
+    return null;
+  }
+
+  const selectedRange = calendar[field];
 
   const selectRange = (range: SyncRange) => {
-    if (locked || range === selectedRange) return;
+    if (locked || range === selectedRange) {
+      return;
+    }
 
     track(ANALYTICS_EVENTS.calendar_setting_toggled, { field, value: range });
     store.set(calendarDetailAtom, (previous) => (

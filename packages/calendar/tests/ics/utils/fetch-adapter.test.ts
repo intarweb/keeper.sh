@@ -35,9 +35,13 @@ const buildConfig = () => ({
   calendarId: "calendar-1",
   url: "https://example.com/calendar.ics",
   database: {} as never,
-  syncWindow: {
-    timeMin: new Date("2026-01-01T00:00:00.000Z"),
-    timeMax: new Date("2027-01-01T00:00:00.000Z"),
+  plan: {
+    futureRange: "2_years" as const,
+    historicRange: "1_week" as const,
+    window: {
+      timeMin: new Date("2026-01-01T00:00:00.000Z"),
+      timeMax: new Date("2027-01-01T00:00:00.000Z"),
+    },
   },
 });
 

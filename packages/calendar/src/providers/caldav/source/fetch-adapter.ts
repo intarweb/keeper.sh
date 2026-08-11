@@ -1,14 +1,8 @@
 import type { SourceEvent } from "../../../core/types";
-import type { SyncRange } from "@keeper.sh/data-schemas";
-import type { ConfigurableSyncWindow } from "../../../core/sync/sync-range";
+import type { SourceIngestionPlan } from "../../../core/sync/sync-range";
 import type { FetchEventsResult } from "../../../core/sync-engine/ingest";
 import type { SafeFetchOptions } from "../../../utils/safe-fetch";
 import { isKeeperEvent } from "../../../core/events/identity";
-import {
-  DEFAULT_FUTURE_SYNC_RANGE,
-  DEFAULT_HISTORIC_SYNC_RANGE,
-  getConfigurableSyncWindow,
-} from "../../../core/sync/sync-range";
 import { CalDAVClient } from "../shared/client";
 import { parseICalCalendarsToRemoteEvents } from "../shared/ics";
 
@@ -19,9 +13,7 @@ interface CalDAVSourceFetcherConfig {
   username: string;
   password: string;
   safeFetchOptions?: SafeFetchOptions;
-  syncWindow?: ConfigurableSyncWindow;
-  historicRange?: SyncRange;
-  futureRange?: SyncRange;
+  plan: SourceIngestionPlan;
 }
 
 interface CalDAVSourceFetcher {
@@ -36,12 +28,7 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
   }, config.safeFetchOptions);
 
   const fetchEvents = async (): Promise<FetchEventsResult> => {
-    const historicRange = config.historicRange ?? DEFAULT_HISTORIC_SYNC_RANGE;
-    const futureRange = config.futureRange ?? DEFAULT_FUTURE_SYNC_RANGE;
-    const syncWindow = config.syncWindow ?? getConfigurableSyncWindow(
-      historicRange,
-      futureRange,
-    );
+    const { futureRange, historicRange, window: syncWindow } = config.plan;
     const calendarUrl = await client.resolveCalendarUrl(config.calendarUrl);
 
     const objects = await client.fetchCalendarObjects({

@@ -14,6 +14,17 @@ import {
 } from "../../../src/core/events/content-hash";
 import { RecurrenceMaterializationLimitError } from "../../../src/core/events/recurrence-materializer";
 
+const TEST_RECONCILIATION_SCOPE = {
+  authoritativeWindow: {
+    timeMax: new Date("2100-01-01T00:00:00.000Z"),
+    timeMin: new Date("2000-01-01T00:00:00.000Z"),
+  },
+  requestedWindow: {
+    timeMax: new Date("2100-01-01T00:00:00.000Z"),
+    timeMin: new Date("2000-01-01T00:00:00.000Z"),
+  },
+};
+
 const makeEvent = (
   id: string,
   startTime: Date,
@@ -483,6 +494,7 @@ describe("syncCalendar", () => {
     await expect(syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.reject(materializationError),
       isCurrent: () => Promise.resolve(true),
@@ -513,6 +525,7 @@ describe("syncCalendar", () => {
     await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({
         localEvents: [movedEvent],
@@ -547,6 +560,7 @@ describe("syncCalendar", () => {
     const result = await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({ localEvents: [localEvent], existingMappings: [], remoteEvents: [] }),
       isCurrent: () => Promise.resolve(true),
@@ -571,6 +585,7 @@ describe("syncCalendar", () => {
     const result = await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({ localEvents: [localEvent], existingMappings: [], remoteEvents: [] }),
       isCurrent: () => { checkCount += 1; return Promise.resolve(checkCount <= 1); },
@@ -603,6 +618,7 @@ describe("syncCalendar", () => {
     await expect(syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({ localEvents, existingMappings: [], remoteEvents: [] }),
       isCurrent: () => Promise.resolve(true),
@@ -624,6 +640,7 @@ describe("syncCalendar", () => {
     const result = await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({ localEvents: [], existingMappings: [], remoteEvents: [] }),
       isCurrent: () => Promise.resolve(true),
@@ -633,6 +650,43 @@ describe("syncCalendar", () => {
     expect(result.added).toBe(0);
     expect(result.removed).toBe(0);
     expect(flushCalled).toBe(false);
+  });
+
+  it("does not mutate the provider when reconciliation is superseded before comparison", async () => {
+    const { syncCalendar } = await import("../../../src/core/sync-engine/index");
+    const emittedEvents: Record<string, unknown>[] = [];
+    let pushCalled = false;
+    const provider = makeProvider({
+      pushEvents: () => {
+        pushCalled = true;
+        return Promise.resolve([{ remoteId: "remote-1", success: true }]);
+      },
+    });
+
+    const result = await syncCalendar({
+      userId: "user-1",
+      calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
+      provider,
+      readState: () => Promise.resolve({
+        existingMappings: [],
+        localEvents: [makeEvent(
+          "ev-1",
+          new Date("2026-03-15T09:00:00Z"),
+          new Date("2026-03-15T10:00:00Z"),
+        )],
+        remoteEvents: [],
+      }),
+      isCurrent: () => Promise.resolve(false),
+      flush: () => Promise.reject(new Error("superseded reconciliation must not flush")),
+      onSyncEvent: (event) => {
+        emittedEvents.push(event);
+      },
+    });
+
+    expect(result).toMatchObject({ added: 0, removed: 0 });
+    expect(pushCalled).toBe(false);
+    expect(emittedEvents[0]?.["outcome"]).toBe("superseded");
   });
 
   it("flushes a recurring mapping identity migration without remote writes", async () => {
@@ -667,6 +721,7 @@ describe("syncCalendar", () => {
     const result = await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({
         localEvents: [occurrence],
@@ -713,6 +768,7 @@ describe("syncCalendar", () => {
     await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({ localEvents: [localEvent], existingMappings: [], remoteEvents: [] }),
       isCurrent: () => Promise.resolve(true),
@@ -758,6 +814,7 @@ describe("syncCalendar", () => {
     await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({
         localEvents: [localEvent],
@@ -803,6 +860,7 @@ describe("syncCalendar", () => {
     await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({ localEvents: [localEvent], existingMappings: [], remoteEvents: [] }),
       isCurrent: () => { checkCount += 1; return Promise.resolve(checkCount <= 1); },
@@ -824,6 +882,7 @@ describe("syncCalendar", () => {
     await syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.resolve({ localEvents: [], existingMappings: [], remoteEvents: [] }),
       isCurrent: () => Promise.resolve(true),
@@ -846,6 +905,7 @@ describe("syncCalendar", () => {
       await syncCalendar({
         userId: "user-1",
         calendarId: "dest-cal-1",
+        reconciliationScope: TEST_RECONCILIATION_SCOPE,
         provider,
         readState: () => Promise.reject(new Error("db connection failed")),
         isCurrent: () => Promise.resolve(true),
@@ -876,6 +936,7 @@ describe("syncCalendar", () => {
     await expect(syncCalendar({
       userId: "user-1",
       calendarId: "dest-cal-1",
+      reconciliationScope: TEST_RECONCILIATION_SCOPE,
       provider,
       readState: () => Promise.reject(error),
       isCurrent: () => Promise.resolve(true),
