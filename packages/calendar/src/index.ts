@@ -125,7 +125,6 @@ export {
   DEFAULT_HISTORIC_SYNC_RANGE,
   createSyncWindow,
   createSourceIngestionPlan,
-  getEffectiveSyncRanges,
   getConfigurableSyncWindow,
   getWiderSyncRange,
   intersectSyncWindows,

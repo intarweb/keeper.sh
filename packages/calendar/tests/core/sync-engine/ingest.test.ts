@@ -907,7 +907,7 @@ describe("ingestSource", () => {
       uid: "healthy-event",
     };
     const emittedEvents: Record<string, unknown>[] = [];
-    let flushedChanges: IngestionChanges | null = null;
+    const flushes: IngestionChanges[] = [];
 
     const result = await ingestSource({
       calendarId: "cal-1",
@@ -920,14 +920,14 @@ describe("ingestSource", () => {
         },
       }),
       flush: (changes) => {
-        flushedChanges = changes;
+        flushes.push(changes);
         return Promise.resolve();
       },
       onIngestEvent: (event) => emittedEvents.push(event),
       readExistingEvents: () => Promise.resolve([]),
     });
 
-    expect(flushedChanges?.inserts.map(({ uid }) => uid)).toEqual(["healthy-event"]);
+    expect(flushes[0]?.inserts.map(({ uid }) => uid)).toEqual(["healthy-event"]);
     expect(result.eventsAdded).toBe(1);
     expect(emittedEvents[0]?.["recurrence.over_budget_count"]).toBe(1);
     expect(emittedEvents[0]?.["recurrence.over_budget_uids"]).toBe("pathological-series");
@@ -943,7 +943,7 @@ describe("ingestSource", () => {
       startTime: new Date("2040-01-01T00:00:00.000Z"),
       uid: "pathological-series",
     };
-    let flushedChanges: IngestionChanges | null = null;
+    const flushes: IngestionChanges[] = [];
 
     await ingestSource({
       calendarId: "cal-1",
@@ -955,7 +955,7 @@ describe("ingestSource", () => {
         },
       }),
       flush: (changes) => {
-        flushedChanges = changes;
+        flushes.push(changes);
         return Promise.resolve();
       },
       readExistingEvents: () => Promise.resolve([
@@ -963,7 +963,7 @@ describe("ingestSource", () => {
       ]),
     });
 
-    expect(flushedChanges?.deletes ?? []).not.toContain("stored-pathological-state");
+    expect(flushes[0]?.deletes ?? []).not.toContain("stored-pathological-state");
   });
 
   it("emits wide event with flushed: false in error path", async () => {

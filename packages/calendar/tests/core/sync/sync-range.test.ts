@@ -5,7 +5,6 @@ import {
   DEFAULT_HISTORIC_SYNC_RANGE,
   createSyncWindow,
   getStartOfToday,
-  getEffectiveSyncRanges,
   getConfigurableSyncWindow,
   getWiderSyncRange,
   intersectSyncWindows,
@@ -43,17 +42,6 @@ describe("configurable sync ranges", () => {
     expect(getWiderSyncRange("3_months", "12_months")).toBe("12_months");
     expect(isSyncRangeWider("2_years", "12_months")).toBe(true);
     expect(isSyncRangeWider("1_week", "1_month")).toBe(false);
-  });
-
-  it("falls back to the standard window after a Pro downgrade", () => {
-    expect(getEffectiveSyncRanges("free", "12_months", "1_month")).toEqual({
-      futureRange: "2_years",
-      historicRange: "1_week",
-    });
-    expect(getEffectiveSyncRanges("pro", "12_months", "1_month")).toEqual({
-      futureRange: "1_month",
-      historicRange: "12_months",
-    });
   });
 
   it("reproduces the pre-configurable window for a migrated calendar", () => {

@@ -2,7 +2,6 @@ import {
   DEFAULT_FUTURE_SYNC_RANGE,
   DEFAULT_HISTORIC_SYNC_RANGE,
   SYNC_RANGE_DEFINITIONS,
-  type Plan,
   type SyncRange,
 } from "@keeper.sh/data-schemas";
 
@@ -19,11 +18,6 @@ interface SourceIngestionPlan {
   futureRange: SyncRange;
   historicRange: SyncRange;
   window: SyncWindow;
-}
-
-interface EffectiveSyncRanges {
-  futureRange: SyncRange;
-  historicRange: SyncRange;
 }
 
 const createSyncWindow = (timeMin: Date, timeMax: Date): SyncWindow => {
@@ -125,20 +119,6 @@ const getWiderSyncRange = (first: SyncRange, second: SyncRange): SyncRange => {
   return second;
 };
 
-const getEffectiveSyncRanges = (
-  plan: Plan,
-  historicRange: SyncRange,
-  futureRange: SyncRange,
-): EffectiveSyncRanges => {
-  if (plan === "free") {
-    return {
-      futureRange: DEFAULT_FUTURE_SYNC_RANGE,
-      historicRange: DEFAULT_HISTORIC_SYNC_RANGE,
-    };
-  }
-  return { futureRange, historicRange };
-};
-
 const isSyncRangeWider = (candidate: SyncRange, current: SyncRange): boolean =>
   getSyncRangeOrder(candidate) > getSyncRangeOrder(current);
 
@@ -147,11 +127,10 @@ export {
   DEFAULT_HISTORIC_SYNC_RANGE,
   createSyncWindow,
   createSourceIngestionPlan,
-  getEffectiveSyncRanges,
   getConfigurableSyncWindow,
   getStartOfToday,
   getWiderSyncRange,
   intersectSyncWindows,
   isSyncRangeWider,
 };
-export type { EffectiveSyncRanges, SourceIngestionPlan, SyncWindow };
+export type { SourceIngestionPlan, SyncWindow };

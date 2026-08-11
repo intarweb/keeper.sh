@@ -10,7 +10,6 @@ import {
   getMappedSourceCalendarIds,
   withSourceIngestLocks,
   getConfigurableSyncWindow,
-  getEffectiveSyncRanges,
   intersectSyncWindows,
 } from "@keeper.sh/calendar";
 import { syncRangeSchema } from "@keeper.sh/data-schemas";
@@ -502,14 +501,15 @@ const syncDestinationsForUser = async (
         database,
         destination.calendarId,
       );
-      const effectiveRanges = getEffectiveSyncRanges(
-        config.plan,
+      /*
+       * The stored ranges are the window, with no plan clamp applied here. Only a Pro
+       * account can store a non-default range, so clamping at sync time adds no
+       * enforcement — it only retroactively shrinks an already-synced window, and a
+       * transient non-active subscription status would delete that history remotely.
+       */
+      const requestedWindow = getConfigurableSyncWindow(
         syncRangeSchema.assert(destination.syncHistoricRange),
         syncRangeSchema.assert(destination.syncFutureRange),
-      );
-      const requestedWindow = getConfigurableSyncWindow(
-        effectiveRanges.historicRange,
-        effectiveRanges.futureRange,
       );
       const initialSourceAuthority = await resolveSourceAuthority(
         database,
