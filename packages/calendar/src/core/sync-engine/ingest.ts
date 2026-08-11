@@ -213,9 +213,14 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
           existingEvents,
           fetchResult.syncWindow,
         ),
+        /*
+         * Removal is computed against the unfiltered fetch. An over-budget series is
+         * only withheld from ingestion; treating it as absent here would delete the
+         * states it already has, turning a stalled series into deleted user events.
+         */
         ...buildSourceEventStateIdsToRemove(
           existingEvents,
-          sourceEvents,
+          fetchResult.events,
           {
             changedEventIds: fetchResult.changedEventIds,
             cancelledEventIds: fetchResult.cancelledEventIds,

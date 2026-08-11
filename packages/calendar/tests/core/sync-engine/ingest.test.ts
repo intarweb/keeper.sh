@@ -907,7 +907,7 @@ describe("ingestSource", () => {
       uid: "healthy-event",
     };
     const emittedEvents: Record<string, unknown>[] = [];
-    let flushedChanges: { inserts: SourceEvent[] } | undefined;
+    let flushedChanges: IngestionChanges | null = null;
 
     const result = await ingestSource({
       calendarId: "cal-1",
@@ -932,6 +932,38 @@ describe("ingestSource", () => {
     expect(emittedEvents[0]?.["recurrence.over_budget_count"]).toBe(1);
     expect(emittedEvents[0]?.["recurrence.over_budget_uids"]).toBe("pathological-series");
     expect(emittedEvents[0]?.["outcome"]).not.toBe("error");
+  });
+
+  it("keeps the stored events of an over-budget series instead of deleting them", async () => {
+    const { ingestSource } = await import("../../../src/core/sync-engine/ingest");
+    const pathological: SourceEvent = {
+      endTime: new Date("2040-01-01T00:00:01.000Z"),
+      recurrenceRule: { frequency: "SECONDLY" },
+      sourceEventId: "pathological-provider-id",
+      startTime: new Date("2040-01-01T00:00:00.000Z"),
+      uid: "pathological-series",
+    };
+    let flushedChanges: IngestionChanges | null = null;
+
+    await ingestSource({
+      calendarId: "cal-1",
+      fetchEvents: () => Promise.resolve({
+        events: [pathological],
+        syncWindow: {
+          timeMax: new Date("2040-01-02T00:00:00.000Z"),
+          timeMin: new Date("2040-01-01T00:00:00.000Z"),
+        },
+      }),
+      flush: (changes) => {
+        flushedChanges = changes;
+        return Promise.resolve();
+      },
+      readExistingEvents: () => Promise.resolve([
+        toExistingEvent("stored-pathological-state", pathological),
+      ]),
+    });
+
+    expect(flushedChanges?.deletes ?? []).not.toContain("stored-pathological-state");
   });
 
   it("emits wide event with flushed: false in error path", async () => {
