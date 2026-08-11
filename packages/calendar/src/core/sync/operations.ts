@@ -581,9 +581,15 @@ const computeSyncOperations = (
   const replacedEventIds = new Set(
     staleRemoteMappings.map((mapping) => getMappingSyncEventId(mapping)),
   );
+  /*
+   * Matched against every existing mapping, not just authoritative ones: a mapping
+   * between recorded coverage and the requested edge would otherwise look unmapped
+   * and be re-added, while its insert is dropped by the mapping uniqueness index
+   * and the orphaned remote event is deleted on the next run, forever.
+   */
   const addOperations = buildAddOperations(
     authoritativeLocalEvents,
-    activeMappings,
+    existingMappings,
     staleMappedEventIds,
   )
     .filter((operation) => operation.type !== "add"

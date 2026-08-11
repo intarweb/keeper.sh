@@ -889,6 +889,38 @@ describe("computeSyncOperations", () => {
     }]);
   });
 
+  it("does not re-add an event whose mapping sits between recorded coverage and the requested edge", () => {
+    const coverageEdge = new Date("2028-08-05T00:00:00.000Z");
+    const requestedWindow = {
+      timeMax: new Date("2028-08-11T00:00:00.000Z"),
+      timeMin: new Date("2026-08-04T00:00:00.000Z"),
+    };
+    const authoritativeWindow = {
+      timeMax: coverageEdge,
+      timeMin: requestedWindow.timeMin,
+    };
+    const event = createLocalEvent({
+      endTime: new Date("2026-09-01T15:00:00.000Z"),
+      id: "banded-event",
+      startTime: new Date("2026-09-01T14:00:00.000Z"),
+    });
+    const bandedMapping = createEventMapping({
+      endTime: new Date("2028-08-08T15:00:00.000Z"),
+      id: "banded-mapping",
+      startTime: new Date("2028-08-08T14:00:00.000Z"),
+      syncEventId: "banded-event",
+    });
+
+    const result = computeSyncOperationsStrict([event], [bandedMapping], [], {
+      authoritativeSourceWindows: new Map([["source-calendar-id", authoritativeWindow]]),
+      authoritativeWindow,
+      configuredSourceCalendarIds: new Set(["source-calendar-id"]),
+      requestedWindow,
+    });
+
+    expect(result.operations).toEqual([]);
+  });
+
   it("uses a retained mapping tombstone to remove an untagged event from a deleted source", () => {
     const deletedSourceMapping = createEventMapping({
       id: "deleted-source-mapping",
