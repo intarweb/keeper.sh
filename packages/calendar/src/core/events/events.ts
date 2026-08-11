@@ -25,6 +25,7 @@ interface DestinationEventReadDiagnostics {
   materializedEventCount: number;
   missingSourceEventUidCount: number;
   outsideReconciliationWindowCount: number;
+  overBudgetSourceEventUids: string[];
   syncableEventCount: number;
 }
 
@@ -39,6 +40,7 @@ const EMPTY_DESTINATION_EVENT_READ_DIAGNOSTICS: DestinationEventReadDiagnostics 
   materializedEventCount: 0,
   missingSourceEventUidCount: 0,
   outsideReconciliationWindowCount: 0,
+  overBudgetSourceEventUids: [],
   syncableEventCount: 0,
 };
 
@@ -267,9 +269,17 @@ const getEventsForCalendarsWithDiagnostics = async (
     });
   }
 
+  /*
+   * A series can exceed the occurrence budget for a window the user just widened.
+   * Skipping it keeps the destination syncing; failing here would back off the whole
+   * calendar over one series, and ingestion already withholds these from new writes.
+   */
+  const overBudgetSourceEventUids: string[] = [];
   const events = materializeRecurrenceEvents(syncableEvents, {
     end: syncWindow.timeMax,
     start: syncWindow.timeMin,
+  }, {
+    onSeriesOverBudget: (error) => overBudgetSourceEventUids.push(error.sourceEventUid),
   });
 
   return {
@@ -279,6 +289,7 @@ const getEventsForCalendarsWithDiagnostics = async (
       materializedEventCount: events.length,
       missingSourceEventUidCount,
       outsideReconciliationWindowCount,
+      overBudgetSourceEventUids,
       syncableEventCount: syncableEvents.length,
     },
     events,

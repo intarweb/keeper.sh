@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   runEnqueueDestinationSyncsForUsers,
   type DestinationSyncQueue,
-} from "../../src/utils/enqueue-destination-syncs";
+} from "../../src/utils/enqueue-destination-syncs-core";
 
 describe("runEnqueueDestinationSyncsForUsers", () => {
   it("enqueues affected Pro users immediately and leaves free users on their cadence", async () => {

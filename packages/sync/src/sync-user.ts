@@ -523,6 +523,7 @@ const syncDestinationsForUser = async (
         excludedBySyncPolicyCount: 0,
         materializedEventCount: 0,
         missingSourceEventUidCount: 0,
+        overBudgetSourceEventUids: [],
         outsideReconciliationWindowCount: 0,
         syncableEventCount: 0,
       };

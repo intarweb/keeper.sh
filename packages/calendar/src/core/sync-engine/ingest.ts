@@ -205,7 +205,7 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
       });
       const invalidStoredEventIdsToRemove = buildInvalidStoredEventIdsToRemove(
         parseResult.failures,
-        sourceEvents,
+        fetchResult.events,
       );
       const eventStateIdsToRemove = [...new Set([
         ...invalidStoredEventIdsToRemove,

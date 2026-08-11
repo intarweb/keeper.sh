@@ -19,6 +19,7 @@ interface RecurrenceMaterializationWindow {
 }
 
 interface RecurrenceMaterializationOptions {
+  onSeriesOverBudget?: (error: RecurrenceMaterializationLimitError) => void;
   retainOneOffEventsAfterWindowEnd?: boolean;
 }
 
@@ -439,11 +440,25 @@ const materializeRecurrenceEvents = (
 
   for (const event of events) {
     if (event.recurrenceRule && !event.recurrenceId) {
-      materializedEvents.push(...materializeMaster(
-        event,
-        overriddenSlotsByMaster.get(event) ?? new Set<number>(),
-        window,
-      ));
+      /*
+       * Callers that supply onSeriesOverBudget choose isolation: a series exceeding the
+       * budget for a freshly widened window is skipped so it cannot put a whole
+       * destination into backoff. Without the handler the limit still throws, so read
+       * paths surface it rather than silently returning a partial range.
+       */
+      const { onSeriesOverBudget } = options;
+      try {
+        materializedEvents.push(...materializeMaster(
+          event,
+          overriddenSlotsByMaster.get(event) ?? new Set<number>(),
+          window,
+        ));
+      } catch (error) {
+        if (!onSeriesOverBudget || !(error instanceof RecurrenceMaterializationLimitError)) {
+          throw error;
+        }
+        onSeriesOverBudget(error);
+      }
       continue;
     }
 
@@ -468,7 +483,6 @@ const findSourceEventsExceedingRecurrenceBudget = (
   window: RecurrenceMaterializationWindow,
 ): SourceEvent[] => {
   assertValidWindow(window);
-  const windowDuration = window.end.getTime() - window.start.getTime();
   const exceeded: SourceEvent[] = [];
 
   for (const event of events) {
@@ -476,11 +490,19 @@ const findSourceEventsExceedingRecurrenceBudget = (
       continue;
     }
 
+    /*
+     * Validate over the window the series is actually materialized against. Extending
+     * the end by a full window duration past `window.end` over-counts a series that
+     * starts inside the window, which now silently withholds it instead of throwing.
+     */
     let validationStart = window.start;
     if (event.startTime > window.start) {
       validationStart = event.startTime;
     }
-    const validationEnd = new Date(validationStart.getTime() + windowDuration);
+    if (validationStart >= window.end) {
+      continue;
+    }
+    const validationEnd = window.end;
     const master: SyncableEvent = {
       calendarId,
       calendarName: null,
