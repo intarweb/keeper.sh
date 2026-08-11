@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertSourceRecurrenceMaterializationWithinBudget,
+  findSourceEventsExceedingRecurrenceBudget,
   materializeRecurrenceEvents,
   RecurrenceMaterializationLimitError,
 } from "../../../src/core/events/recurrence-materializer";
@@ -487,7 +487,7 @@ describe("materializeRecurrenceEvents", () => {
     });
   });
 
-  it("rejects a future source master before it can be persisted", () => {
+  it("reports a future source master as over budget before it can be persisted", () => {
     const sourceMaster: SourceEvent = {
       endTime: new Date("2040-01-01T00:00:01.000Z"),
       recurrenceRule: { frequency: "SECONDLY" },
@@ -496,14 +496,58 @@ describe("materializeRecurrenceEvents", () => {
       uid: "future-pathological-series",
     };
 
-    expect(() => assertSourceRecurrenceMaterializationWithinBudget(
+    expect(findSourceEventsExceedingRecurrenceBudget(
       "source-calendar-id",
       [sourceMaster],
       {
-      end: new Date("2026-01-02T00:00:00.000Z"),
-      start: new Date("2026-01-01T00:00:00.000Z"),
+        end: new Date("2026-01-02T00:00:00.000Z"),
+        start: new Date("2026-01-01T00:00:00.000Z"),
       },
-    )).toThrow(RecurrenceMaterializationLimitError);
+    )).toEqual([sourceMaster]);
+  });
+
+  it("isolates an over-budget series without condemning its healthy siblings", () => {
+    const pathological: SourceEvent = {
+      endTime: new Date("2026-01-01T00:00:01.000Z"),
+      recurrenceRule: { frequency: "SECONDLY" },
+      sourceEventId: "pathological-id",
+      startTime: new Date("2026-01-01T00:00:00.000Z"),
+      uid: "pathological-series",
+    };
+    const healthy: SourceEvent = {
+      endTime: new Date("2026-01-01T10:00:00.000Z"),
+      recurrenceRule: { frequency: "WEEKLY" },
+      sourceEventId: "healthy-id",
+      startTime: new Date("2026-01-01T09:00:00.000Z"),
+      uid: "healthy-series",
+    };
+
+    expect(findSourceEventsExceedingRecurrenceBudget(
+      "source-calendar-id",
+      [pathological, healthy],
+      {
+        end: new Date("2028-01-01T00:00:00.000Z"),
+        start: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    )).toEqual([pathological]);
+  });
+
+  it("brings a series over budget only once the window is widened", () => {
+    const hourlyWorkday: SourceEvent = {
+      endTime: new Date("2026-01-01T00:30:00.000Z"),
+      recurrenceRule: { frequency: "HOURLY" },
+      sourceEventId: "hourly-id",
+      startTime: new Date("2026-01-01T00:00:00.000Z"),
+      uid: "hourly-series",
+    };
+    const findOverBudget = (end: Date): SourceEvent[] =>
+      findSourceEventsExceedingRecurrenceBudget("source-calendar-id", [hourlyWorkday], {
+        end,
+        start: new Date("2026-01-01T00:00:00.000Z"),
+      });
+
+    expect(findOverBudget(new Date("2026-06-01T00:00:00.000Z"))).toEqual([]);
+    expect(findOverBudget(new Date("2030-01-01T00:00:00.000Z"))).toEqual([hourlyWorkday]);
   });
 
   it("rejects a pathological high-frequency series before scanning years of history", () => {

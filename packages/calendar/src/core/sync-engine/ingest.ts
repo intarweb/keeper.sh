@@ -2,7 +2,7 @@ import type { SourceEvent } from "../types";
 import type { SyncRange } from "@keeper.sh/data-schemas";
 import type { SyncWindow } from "../sync/sync-range";
 import {
-  assertSourceRecurrenceMaterializationWithinBudget,
+  findSourceEventsExceedingRecurrenceBudget,
   RecurrenceMaterializationLimitError,
 } from "../events/recurrence-materializer";
 import {
@@ -130,18 +130,30 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
     const withPersistenceTransaction = resolvePersistenceTransaction(options);
     const fetchResult = await fetchEvents();
     wideEvent["source_events.count"] = fetchResult.events.length;
-    if (fetchResult.events.some((event) => event.recurrenceRule)) {
+    let sourceEvents = fetchResult.events;
+    if (sourceEvents.some((event) => event.recurrenceRule)) {
       if (!fetchResult.syncWindow) {
         throw new RangeError("Recurring source ingestion requires an explicit sync window");
       }
-      assertSourceRecurrenceMaterializationWithinBudget(
+      const overBudget = findSourceEventsExceedingRecurrenceBudget(
         calendarId,
-        fetchResult.events,
+        sourceEvents,
         {
           end: fetchResult.syncWindow.timeMax,
           start: fetchResult.syncWindow.timeMin,
         },
       );
+      if (overBudget.length > 0) {
+        /*
+         * A widened sync range can pull a pathological series over the occurrence
+         * budget. Drop those series and keep ingesting the rest, so one bad series
+         * cannot push the whole calendar into permanent ingestion backoff.
+         */
+        const overBudgetUids = new Set(overBudget.map(({ uid }) => uid));
+        sourceEvents = sourceEvents.filter(({ uid }) => !overBudgetUids.has(uid));
+        wideEvent["recurrence.over_budget_count"] = overBudget.length;
+        wideEvent["recurrence.over_budget_uids"] = [...overBudgetUids].join(",");
+      }
     }
 
     if (isCurrent && !(await isCurrent())) {
@@ -188,12 +200,12 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
         return EMPTY_RESULT;
       }
 
-      const eventsToAdd = buildSourceEventsToAdd(existingEvents, fetchResult.events, {
+      const eventsToAdd = buildSourceEventsToAdd(existingEvents, sourceEvents, {
         isDeltaSync,
       });
       const invalidStoredEventIdsToRemove = buildInvalidStoredEventIdsToRemove(
         parseResult.failures,
-        fetchResult.events,
+        sourceEvents,
       );
       const eventStateIdsToRemove = [...new Set([
         ...invalidStoredEventIdsToRemove,
@@ -203,7 +215,7 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
         ),
         ...buildSourceEventStateIdsToRemove(
           existingEvents,
-          fetchResult.events,
+          sourceEvents,
           {
             changedEventIds: fetchResult.changedEventIds,
             cancelledEventIds: fetchResult.cancelledEventIds,

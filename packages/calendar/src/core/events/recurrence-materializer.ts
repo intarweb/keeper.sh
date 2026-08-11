@@ -456,13 +456,20 @@ const materializeRecurrenceEvents = (
   return materializedEvents.toSorted(compareEvents);
 };
 
-const assertSourceRecurrenceMaterializationWithinBudget = (
+/*
+ * Returns the recurring masters that cannot be materialized within budget over
+ * this window. The window is user-configurable, so widening a sync range can pull
+ * a pathological series over the limit; callers drop those series rather than
+ * failing the whole calendar's ingestion.
+ */
+const findSourceEventsExceedingRecurrenceBudget = (
   calendarId: string,
   events: SourceEvent[],
   window: RecurrenceMaterializationWindow,
-): void => {
+): SourceEvent[] => {
   assertValidWindow(window);
   const windowDuration = window.end.getTime() - window.start.getTime();
+  const exceeded: SourceEvent[] = [];
 
   for (const event of events) {
     if (!event.recurrenceRule || event.recurrenceId) {
@@ -488,15 +495,24 @@ const assertSourceRecurrenceMaterializationWithinBudget = (
       ...(event.startTimeZone && { startTimeZone: event.startTimeZone }),
     };
 
-    materializeMaster(master, new Set<number>(), {
-      end: validationEnd,
-      start: validationStart,
-    });
+    try {
+      materializeMaster(master, new Set<number>(), {
+        end: validationEnd,
+        start: validationStart,
+      });
+    } catch (error) {
+      if (!(error instanceof RecurrenceMaterializationLimitError)) {
+        throw error;
+      }
+      exceeded.push(event);
+    }
   }
+
+  return exceeded;
 };
 
 export {
-  assertSourceRecurrenceMaterializationWithinBudget,
+  findSourceEventsExceedingRecurrenceBudget,
   materializeRecurrenceEvents,
   RecurrenceMaterializationLimitError,
 };

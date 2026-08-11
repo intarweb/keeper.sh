@@ -72,7 +72,7 @@ export {
   type DestinationEventReadResult,
 } from "./core/events/events";
 export {
-  assertSourceRecurrenceMaterializationWithinBudget,
+  findSourceEventsExceedingRecurrenceBudget,
   materializeRecurrenceEvents,
   RecurrenceMaterializationLimitError,
   type RecurrenceMaterializationOptions,

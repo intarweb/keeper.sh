@@ -891,41 +891,47 @@ describe("ingestSource", () => {
     expect(flushCalled).toBe(false);
   });
 
-  it("rejects an over-budget recurrence before reading or mutating persistence", async () => {
+  it("drops an over-budget recurrence but keeps ingesting the rest of the calendar", async () => {
     const { ingestSource } = await import("../../../src/core/sync-engine/ingest");
-    const sourceMaster: SourceEvent = {
+    const pathological: SourceEvent = {
       endTime: new Date("2040-01-01T00:00:01.000Z"),
       recurrenceRule: { frequency: "SECONDLY" },
       sourceEventId: "provider-master-id",
       startTime: new Date("2040-01-01T00:00:00.000Z"),
       uid: "pathological-series",
     };
-    let persistenceRead = false;
-    let persistenceFlushed = false;
+    const healthy: SourceEvent = {
+      endTime: new Date("2040-01-01T10:00:00.000Z"),
+      sourceEventId: "healthy-id",
+      startTime: new Date("2040-01-01T09:00:00.000Z"),
+      uid: "healthy-event",
+    };
+    const emittedEvents: Record<string, unknown>[] = [];
+    let flushedChanges: { inserts: SourceEvent[] } | undefined;
 
-    await expect(ingestSource({
+    const result = await ingestSource({
       calendarId: "cal-1",
       fetchEvents: () => Promise.resolve({
-        events: [sourceMaster],
-        nextSyncToken: "must-not-be-persisted",
-        snapshot: { contentHash: "must-not-be-persisted", ical: "BEGIN:VCALENDAR" },
+        events: [pathological, healthy],
+        nextSyncToken: "token-1",
         syncWindow: {
           timeMax: new Date("2040-01-02T00:00:00.000Z"),
           timeMin: new Date("2040-01-01T00:00:00.000Z"),
         },
       }),
-      flush: () => {
-        persistenceFlushed = true;
+      flush: (changes) => {
+        flushedChanges = changes;
         return Promise.resolve();
       },
-      readExistingEvents: () => {
-        persistenceRead = true;
-        return Promise.resolve([]);
-      },
-    })).rejects.toThrow("exceeds the 10000 occurrence materialization limit");
+      onIngestEvent: (event) => emittedEvents.push(event),
+      readExistingEvents: () => Promise.resolve([]),
+    });
 
-    expect(persistenceRead).toBe(false);
-    expect(persistenceFlushed).toBe(false);
+    expect(flushedChanges?.inserts.map(({ uid }) => uid)).toEqual(["healthy-event"]);
+    expect(result.eventsAdded).toBe(1);
+    expect(emittedEvents[0]?.["recurrence.over_budget_count"]).toBe(1);
+    expect(emittedEvents[0]?.["recurrence.over_budget_uids"]).toBe("pathological-series");
+    expect(emittedEvents[0]?.["outcome"]).not.toBe("error");
   });
 
   it("emits wide event with flushed: false in error path", async () => {
