@@ -79,7 +79,8 @@ describe("configurable sync ranges", () => {
   });
 
   it("anchors to local midnight in any server timezone", () => {
-    const originalTimeZone = process.env.TZ ?? "UTC";
+    const originalTimeZone = process.env.TZ;
+    const originalOffset = new Date().getTimezoneOffset();
     const observedOffsets = new Set<number>();
     try {
       for (const timeZone of ["UTC", "America/Los_Angeles", "Asia/Kolkata", "Pacific/Kiritimati"]) {
@@ -94,11 +95,15 @@ describe("configurable sync ranges", () => {
         expect(window.timeMin.getTime()).toBeLessThan(window.timeMax.getTime());
       }
     } finally {
-      process.env.TZ = originalTimeZone;
+      if (typeof originalTimeZone === "string") {
+        process.env.TZ = originalTimeZone;
+      } else {
+        delete process.env.TZ;
+      }
     }
 
     expect(observedOffsets.size).toBe(4);
-    expect(new Date().getTimezoneOffset()).toBe(0);
+    expect(new Date().getTimezoneOffset()).toBe(originalOffset);
   });
 
   it("rejects unrecognized ranges instead of ordering them as narrowest", () => {

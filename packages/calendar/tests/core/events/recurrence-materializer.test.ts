@@ -568,6 +568,31 @@ describe("materializeRecurrenceEvents", () => {
     expect(result.every((event) => event.sourceEventUid === "healthy-series")).toBe(true);
   });
 
+  it("drops the detached occurrences of a skipped series rather than stranding them", () => {
+    const reported: RecurrenceMaterializationLimitError[] = [];
+    const movedOccurrence = createEvent({
+      endTime: new Date("2026-01-15T16:00:00.000Z"),
+      id: "moved-occurrence",
+      recurrenceId: new Date("2026-01-12T00:00:00.000Z"),
+      sourceEventUid: "pathological-series",
+      startTime: new Date("2026-01-15T15:00:00.000Z"),
+      summary: "Dragged to a new time",
+    });
+
+    const result = materializeRecurrenceEvents([
+      createEvent({
+        endTime: new Date("2026-01-01T00:00:01.000Z"),
+        recurrenceRule: { frequency: "SECONDLY" },
+        sourceEventUid: "pathological-series",
+        startTime: new Date("2026-01-01T00:00:00.000Z"),
+      }),
+      movedOccurrence,
+    ], WINDOW, { onSeriesOverBudget: (error) => reported.push(error) });
+
+    expect(reported.map((error) => error.sourceEventUid)).toEqual(["pathological-series"]);
+    expect(result).toEqual([]);
+  });
+
   it("accepts sparse hourly rules whose actual output remains within the budget", () => {
     const result = materializeRecurrenceEvents([
       createEvent({

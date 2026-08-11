@@ -437,31 +437,46 @@ const materializeRecurrenceEvents = (
   const uniqueMastersBySeries = getUniqueMastersBySeries(events);
   const overriddenSlotsByMaster = getOverriddenSlotsByMaster(events, uniqueMastersBySeries);
   const materializedEvents: MaterializedSyncableEvent[] = [];
+  const { onSeriesOverBudget } = options;
+  const skippedSeriesUids = new Set<string>();
+
+  for (const event of events) {
+    if (!event.recurrenceRule || event.recurrenceId) {
+      continue;
+    }
+    /*
+     * Callers that supply onSeriesOverBudget choose isolation: a series exceeding the
+     * budget for a freshly widened window is skipped so it cannot put a whole
+     * destination into backoff. Without the handler the limit still throws, so read
+     * paths surface it rather than silently returning a partial range.
+     */
+    try {
+      materializedEvents.push(...materializeMaster(
+        event,
+        overriddenSlotsByMaster.get(event) ?? new Set<number>(),
+        window,
+      ));
+    } catch (error) {
+      if (!onSeriesOverBudget || !(error instanceof RecurrenceMaterializationLimitError)) {
+        throw error;
+      }
+      skippedSeriesUids.add(event.sourceEventUid);
+      onSeriesOverBudget(error);
+    }
+  }
 
   for (const event of events) {
     if (event.recurrenceRule && !event.recurrenceId) {
-      /*
-       * Callers that supply onSeriesOverBudget choose isolation: a series exceeding the
-       * budget for a freshly widened window is skipped so it cannot put a whole
-       * destination into backoff. Without the handler the limit still throws, so read
-       * paths surface it rather than silently returning a partial range.
-       */
-      const { onSeriesOverBudget } = options;
-      try {
-        materializedEvents.push(...materializeMaster(
-          event,
-          overriddenSlotsByMaster.get(event) ?? new Set<number>(),
-          window,
-        ));
-      } catch (error) {
-        if (!onSeriesOverBudget || !(error instanceof RecurrenceMaterializationLimitError)) {
-          throw error;
-        }
-        onSeriesOverBudget(error);
-      }
       continue;
     }
-
+    /*
+     * Overrides of a skipped series are dropped with it. Emitting them alone would
+     * surface a few detached occurrences with none of the series around them, which
+     * reads as a real sparse calendar rather than an omission.
+     */
+    if (event.recurrenceId && skippedSeriesUids.has(event.sourceEventUid)) {
+      continue;
+    }
     const oneOffEvent = asOneOffEvent(event);
     if (overlapsOneOffDomain(oneOffEvent, window, options)) {
       materializedEvents.push(oneOffEvent);

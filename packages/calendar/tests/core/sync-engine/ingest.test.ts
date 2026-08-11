@@ -966,6 +966,40 @@ describe("ingestSource", () => {
     expect(flushes[0]?.deletes ?? []).not.toContain("stored-pathological-state");
   });
 
+  it("keeps an unparseable stored row belonging to a withheld over-budget series", async () => {
+    const { ingestSource } = await import("../../../src/core/sync-engine/ingest");
+    const pathological: SourceEvent = {
+      endTime: new Date("2040-01-01T00:00:01.000Z"),
+      recurrenceRule: { frequency: "SECONDLY" },
+      sourceEventId: "pathological-provider-id",
+      startTime: new Date("2040-01-01T00:00:00.000Z"),
+      uid: "pathological-series",
+    };
+    const corruptStoredRow = {
+      ...toExistingEvent("corrupt-pathological-state", pathological),
+      recurrenceRule: "{not-valid-json",
+    };
+    const flushes: IngestionChanges[] = [];
+
+    await ingestSource({
+      calendarId: "cal-1",
+      fetchEvents: () => Promise.resolve({
+        events: [pathological],
+        syncWindow: {
+          timeMax: new Date("2040-01-02T00:00:00.000Z"),
+          timeMin: new Date("2040-01-01T00:00:00.000Z"),
+        },
+      }),
+      flush: (changes) => {
+        flushes.push(changes);
+        return Promise.resolve();
+      },
+      readExistingEvents: () => Promise.resolve([corruptStoredRow]),
+    });
+
+    expect(flushes[0]?.deletes ?? []).not.toContain("corrupt-pathological-state");
+  });
+
   it("emits wide event with flushed: false in error path", async () => {
     const { ingestSource } = await import("../../../src/core/sync-engine/ingest");
 
