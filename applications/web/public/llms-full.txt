@@ -25,7 +25,7 @@ Core sync operations:
 
 Events created by Keeper are tagged with a `@keeper.sh` suffix on their remote UID. For Outlook (which doesn't support custom UIDs), a `"keeper.sh"` category is used instead.
 
-Overlapping syncs are guarded with Redis-backed generation counters. If a second sync starts on the same calendar while one is already running, the older run notices it has been superseded and stops instead of writing.
+Race conditions are prevented using Redis-backed generation counters. If two syncs target the same calendar simultaneously, the later one backs off.
 
 For Google and Outlook, Keeper uses incremental sync tokens — only fetching what changed since the last sync, making cycles fast even for calendars with thousands of events.
 
@@ -119,7 +119,8 @@ MCP is fully optional — all related environment variables are optional across 
 ## Technical Architecture
 
 - **CalDAV as universal protocol**: RFC 4791 as the common layer for FastMail, iCloud, and standards-compliant servers
-- **Content hashing for iCal/ICS sources**: The latest fetch of each feed is stored and hashed, and processing is skipped when the content has not changed since the last run
+- **Encrypted credentials at rest**: CalDAV passwords and OAuth tokens encrypted with configurable key
+- **Content hashing for iCal feeds**: Skips processing if feed content unchanged, keeps snapshots for 6 hours
 - **Real-time sync status**: WebSocket endpoint broadcasts sync progress to dashboard
 - **MCP via OAuth 2.1**: Separate MCP server with JWT-based session resolution, proxied through the web service at `/mcp`
 

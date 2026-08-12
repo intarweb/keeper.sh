@@ -87,8 +87,9 @@ function PrivacyPage() {
 
         <Section title="Data Storage and Security">
           <Text size="sm">
-            Traffic to and from Keeper.sh is encrypted in transit. We implement access controls and
-            monitoring across our infrastructure.
+            Your data is stored on secure servers with encryption at rest and in transit. We implement
+            industry-standard security measures including access controls, monitoring, and regular
+            security assessments.
           </Text>
           <Text size="sm">
             Calendar data is stored to enable synchronization and is refreshed from your source
