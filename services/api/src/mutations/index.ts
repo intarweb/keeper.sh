@@ -10,7 +10,11 @@ import type {
   ProviderCredentials,
   RsvpStatus,
 } from "@/types";
-import { createCoordinatedRefresher } from "@keeper.sh/calendar";
+import {
+  createCoordinatedRefresher,
+  readCredentialTokensOrFlag,
+} from "@keeper.sh/calendar";
+import type { StoredToken } from "@keeper.sh/database";
 import type { RefreshLockStore } from "@keeper.sh/calendar";
 import { resolveCredentialsByCalendarId, resolveCredentialsByEventId } from "./resolve-credentials";
 import { getEvent } from "@/queries/get-event";
@@ -45,7 +49,7 @@ interface MutationDependencies {
   database: KeeperDatabase;
   oauthTokenRefresher?: OAuthTokenRefresher;
   refreshLockStore?: RefreshLockStore | null;
-  encryptionKey?: string;
+  encryptionKey: string;
 }
 
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
@@ -54,32 +58,45 @@ const CALDAV_PROVIDERS = new Set(["caldav", "fastmail", "icloud"]);
 
 const ensureValidAccessToken = async (
   provider: string,
-  oauth: { credentialId: string; accessToken: string; refreshToken: string; expiresAt: Date },
+  oauth: {
+    credentialId: string;
+    accessToken: StoredToken;
+    refreshToken: StoredToken;
+    expiresAt: Date;
+  },
   accountId: string,
   deps: MutationDependencies,
 ): Promise<string> => {
+  const tokens = await readCredentialTokensOrFlag(
+    deps.database,
+    accountId,
+    oauth,
+    deps.encryptionKey,
+  );
+
   if (oauth.expiresAt.getTime() > Date.now() + TOKEN_REFRESH_BUFFER_MS) {
-    return oauth.accessToken;
+    return tokens.accessToken;
   }
 
   if (!deps.oauthTokenRefresher) {
-    return oauth.accessToken;
+    return tokens.accessToken;
   }
 
   const oauthProvider = deps.oauthTokenRefresher.getProvider(provider);
   if (!oauthProvider) {
-    return oauth.accessToken;
+    return tokens.accessToken;
   }
 
   const refresher = createCoordinatedRefresher({
     database: deps.database,
     oauthCredentialId: oauth.credentialId,
     calendarAccountId: accountId,
+    encryptionKey: deps.encryptionKey,
     refreshLockStore: deps.refreshLockStore ?? null,
     rawRefresh: (refreshToken) => oauthProvider.refreshAccessToken(refreshToken),
   });
 
-  const result = await refresher(oauth.refreshToken);
+  const result = await refresher(tokens.refreshToken);
   return result.access_token;
 };
 
