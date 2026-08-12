@@ -49,21 +49,57 @@ const createReader = (events: StoredFeedEvent[]) =>
 const feedFor = (events: StoredFeedEvent[]): Promise<string | null> =>
   generateCalendarFeed("feed-token", {
     now: NOW,
-    readFeedCalendarIds: () => Promise.resolve(["calendar-1"]),
+    readFeedCalendars: () => Promise.resolve([{
+      id: "calendar-1",
+      syncFutureRange: "2_years",
+      syncHistoricRange: "1_month",
+    }]),
     readFeedEvents: createReader(events),
     readFeedSettings: () => Promise.resolve(null),
     resolveUserIdentifier: () => Promise.resolve("user-1"),
   });
 
 describe("createIcalFeedQuery", () => {
-  it("bounds the feed to a horizon that outreaches the widest sync range", () => {
-    const query = createIcalFeedQuery(NOW);
+  it("falls back to the default horizon when no calendar configures a wider one", () => {
+    const query = createIcalFeedQuery([{
+      id: "calendar-1",
+      syncFutureRange: "2_years",
+      syncHistoricRange: "1_month",
+    }], NOW);
 
     expect(query.windowStart.getTime()).toBeLessThan(NOW.getTime());
-    expect(query.windowEnd.getTime()).toBeGreaterThan(NOW.getTime());
-    expect(query.windowStart.getTime()).toBeGreaterThan(shiftDays(-400).getTime());
     expect(query.windowEnd.getTime()).toBeGreaterThan(shiftDays(700).getTime());
     expect(query.limit).toBe(ICAL_FEED_EVENT_LIMIT);
+  });
+
+  /*
+   * A hardcoded horizon cut history the user deliberately kept: stored events
+   * reach as far back as the widest range configured on any feed calendar.
+   */
+  it("reaches back as far as the widest historic range across the feed", () => {
+    const narrow = createIcalFeedQuery([{
+      id: "calendar-1",
+      syncFutureRange: "2_years",
+      syncHistoricRange: "1_month",
+    }], NOW);
+    const widest = createIcalFeedQuery([
+      { id: "calendar-1", syncFutureRange: "2_years", syncHistoricRange: "1_month" },
+      { id: "calendar-2", syncFutureRange: "2_years", syncHistoricRange: "2_years" },
+    ], NOW);
+
+    expect(widest.windowStart.getTime()).toBeLessThan(narrow.windowStart.getTime());
+    expect(widest.windowStart.getTime()).toBeLessThan(shiftDays(-700).getTime());
+  });
+
+  it("ignores an unrecognised stored range instead of widening on it", () => {
+    const query = createIcalFeedQuery([{
+      id: "calendar-1",
+      syncFutureRange: "forever",
+      syncHistoricRange: "9_years",
+    }], NOW);
+
+    expect(query.windowStart.getTime()).toBeGreaterThan(shiftDays(-400).getTime());
+    expect(query.windowEnd.getTime()).toBeGreaterThan(shiftDays(700).getTime());
   });
 });
 
@@ -71,7 +107,7 @@ describe("generateCalendarFeed", () => {
   it("returns null for an unknown identifier", async () => {
     const feed = await generateCalendarFeed("feed-token", {
       now: NOW,
-      readFeedCalendarIds: () => Promise.reject(new Error("must not be called")),
+      readFeedCalendars: () => Promise.reject(new Error("must not be called")),
       readFeedEvents: () => Promise.reject(new Error("must not be called")),
       readFeedSettings: () => Promise.reject(new Error("must not be called")),
       resolveUserIdentifier: () => Promise.resolve(null),
@@ -124,7 +160,7 @@ describe("generateCalendarFeed", () => {
   it("renders an empty calendar when no calendars opt into the feed", async () => {
     const feed = await generateCalendarFeed("feed-token", {
       now: NOW,
-      readFeedCalendarIds: () => Promise.resolve([]),
+      readFeedCalendars: () => Promise.resolve([]),
       readFeedEvents: () => Promise.reject(new Error("must not be called")),
       readFeedSettings: () => Promise.resolve(null),
       resolveUserIdentifier: () => Promise.resolve("user-1"),

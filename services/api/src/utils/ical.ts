@@ -18,9 +18,13 @@ const readFeedSettings = async (userId: string): Promise<FeedSettings | null> =>
   return settings ?? null;
 };
 
-const readFeedCalendarIds = async (userId: string): Promise<string[]> => {
+const readFeedCalendars = async (userId: string) => {
   const calendars = await database
-    .select({ id: calendarsTable.id })
+    .select({
+      id: calendarsTable.id,
+      syncFutureRange: calendarsTable.syncFutureRange,
+      syncHistoricRange: calendarsTable.syncHistoricRange,
+    })
     .from(calendarsTable)
     .where(
       and(
@@ -29,7 +33,7 @@ const readFeedCalendarIds = async (userId: string): Promise<string[]> => {
       ),
     );
 
-  return calendars.map(({ id }) => id);
+  return calendars;
 };
 
 const readFeedEvents = (
@@ -78,7 +82,7 @@ const readFeedEvents = (
 
 const generateUserCalendar = (identifier: string): Promise<string | null> =>
   generateCalendarFeed(identifier, {
-    readFeedCalendarIds,
+    readFeedCalendars,
     readFeedEvents,
     readFeedSettings,
     resolveUserIdentifier,
