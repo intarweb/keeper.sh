@@ -130,7 +130,7 @@ export function softwareApplicationSchema() {
           billingDuration: "P1M",
         },
         description:
-          "For power users who want minutely syncs and unlimited calendars.",
+          "For power users who want minutely syncs and unlimited linked accounts.",
       },
     ],
     provider: { "@id": `${SITE_URL}/#organization` },

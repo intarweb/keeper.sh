@@ -15,7 +15,7 @@ export const Route = createFileRoute("/(marketing)/blog/")({
     links: [{ rel: "canonical", href: canonicalUrl("/blog") }],
     meta: seoMeta({
       title: "Blog",
-      description: "Product updates, engineering deep-dives, and calendar syncing tips from the Keeper.sh team.",
+      description: "Product updates, engineering deep-dives, and calendar syncing tips from Keeper.sh.",
       path: "/blog",
     }),
     scripts: [
@@ -34,7 +34,7 @@ function BlogDirectoryPage() {
       <header className="flex flex-col gap-1.5">
         <Heading1>Blog</Heading1>
         <Text size="base" tone="muted" className="leading-6">
-          Product updates, engineering deep-dives, and calendar syncing tips from the Keeper.sh team.
+          Product updates, engineering deep-dives, and calendar syncing tips from Keeper.sh.
         </Text>
       </header>
 

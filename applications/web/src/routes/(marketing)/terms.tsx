@@ -45,7 +45,8 @@ function TermsPage() {
         <Section title="Description of Service">
           <Text size="sm">
             Keeper.sh provides calendar aggregation and synchronization services that allow you to
-            combine events from multiple calendar sources into a unified, anonymized feed. The service
+            combine events from multiple calendar sources into a single feed, with per-calendar control
+            over which event details it carries. The service
             includes generating iCal feeds and pushing events to external calendar providers.
           </Text>
           <Text size="sm">

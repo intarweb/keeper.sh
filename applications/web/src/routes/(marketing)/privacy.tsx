@@ -12,7 +12,7 @@ export const Route = createFileRoute("/(marketing)/privacy")({
     meta: seoMeta({
       title: "Privacy Policy",
       description:
-        "How Keeper.sh collects, uses, and protects your calendar data. Privacy-first design with event anonymization and minimal data retention.",
+        "How Keeper.sh collects, uses, and protects your calendar data. Per-calendar controls over what event details are shared, and minimal data retention.",
       path: "/privacy",
     }),
     scripts: [
@@ -67,7 +67,7 @@ function PrivacyPage() {
           <Text size="sm">We use the information we collect to:</Text>
           <ul className="list-disc list-inside flex flex-col gap-1 ml-2 text-sm tracking-tight text-foreground-muted">
             <li>Provide, maintain, and improve our calendar syncing service</li>
-            <li>Aggregate and anonymize calendar events for shared feeds, showing only busy/free status</li>
+            <li>Aggregate calendar events for shared feeds, hiding event names, descriptions, and locations by default</li>
             <li>Push synchronized events to your designated destination calendars</li>
             <li>Send service-related communications and respond to inquiries</li>
             <li>Monitor and analyze usage patterns to improve user experience</li>
@@ -75,25 +75,26 @@ function PrivacyPage() {
           </ul>
         </Section>
 
-        <Section title="Data Anonymization">
+        <Section title="Controlling What Is Shared">
           <Text size="sm">
-            A core feature of Keeper.sh is event anonymization. When you generate a shared iCal feed or
-            push to external calendars, event details (titles, descriptions, attendees, locations) are
-            stripped. Only busy/free time blocks are shared, protecting the privacy of your schedule
-            details.
+            Your shared iCal feed hides event names, descriptions, and locations by default, showing
+            only time blocks labelled &ldquo;Busy&rdquo;. Events copied to your own destination calendars keep
+            their original name, description, and location unless you turn those off, which you can do
+            for each source calendar. Attendee lists are never copied to your destination calendars or
+            your shared feed.
           </Text>
         </Section>
 
         <Section title="Data Storage and Security">
           <Text size="sm">
-            Your data is stored on secure servers with encryption at rest and in transit. We implement
-            industry-standard security measures including access controls, monitoring, and regular
-            security assessments.
+            Traffic to and from Keeper.sh is encrypted in transit, and the passwords you give us for
+            CalDAV accounts are encrypted before they are stored. We implement access controls and
+            monitoring across our infrastructure.
           </Text>
           <Text size="sm">
-            Calendar data is cached temporarily to enable synchronization and is refreshed according
-            to your plan&apos;s sync interval. We do not retain historical calendar data beyond what is
-            necessary for the service to function.
+            Calendar data is stored to enable synchronization and is refreshed from your source
+            calendars every minute, on every plan. We do not retain historical calendar data beyond
+            what is necessary for the service to function.
           </Text>
         </Section>
 
