@@ -1,4 +1,5 @@
 import arkenv from "arkenv";
+import { checkEncryptionKeyConfigured } from "@keeper.sh/database";
 
 const schema = {
   API_PORT: "number",
@@ -26,6 +27,8 @@ const schema = {
   TRUSTED_ORIGINS: "string?",
   WEBSOCKET_URL: "string.url?",
 } as const;
+
+checkEncryptionKeyConfigured(process.env.ENCRYPTION_KEY);
 
 export { schema };
 export default arkenv(schema);

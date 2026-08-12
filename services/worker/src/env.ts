@@ -1,4 +1,5 @@
 import arkenv from "arkenv";
+import { checkEncryptionKeyConfigured } from "@keeper.sh/database";
 
 const schema = {
   DATABASE_URL: "string.url",
@@ -10,6 +11,8 @@ const schema = {
   REDIS_URL: "string.url",
   WORKER_CONCURRENCY: "string?",
 } as const;
+
+checkEncryptionKeyConfigured(process.env.ENCRYPTION_KEY);
 
 export { schema };
 export default arkenv(schema);
