@@ -55,6 +55,31 @@ tofu apply
 Set the R2 account ID in the `endpoints` block in `versions.tf` before the first
 `init`; backend config cannot use variables.
 
+## Adopting the rule that already exists
+
+The cache rule was created by hand in the dashboard before this config existed,
+so the zone already has an `http_request_cache_settings` entry point ruleset.
+Import it before the first apply — applying against empty state will try to
+create a second one.
+
+Find the ruleset ID:
+
+```sh
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/rulesets/phases/http_request_cache_settings/entrypoint" \
+  --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r .result.id
+```
+
+Then import it and confirm the plan is empty, which is what proves this config
+matches what is live:
+
+```sh
+tofu import cloudflare_ruleset.cache "$ZONE_ID/$RULESET_ID"
+tofu plan
+```
+
+A non-empty plan means the two have drifted. Read the diff before applying —
+the dashboard rule is the one currently serving traffic.
+
 ## State
 
 State lives in an R2 bucket, not in the repo. `.gitignore` covers `*.tfstate*`

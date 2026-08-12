@@ -1,5 +1,5 @@
 variable "cloudflare_api_token" {
-  description = "Cloudflare API token scoped to Zone:Zone:Read and Zone:Cache Rules:Edit on the keeper.sh zone."
+  description = "Cloudflare API token with Zone > Cache Rules > Edit, Account Rulesets > Edit, and Account Filter Lists > Edit."
   type        = string
   sensitive   = true
 }
