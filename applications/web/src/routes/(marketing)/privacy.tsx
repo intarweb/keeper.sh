@@ -87,8 +87,7 @@ function PrivacyPage() {
 
         <Section title="Data Storage and Security">
           <Text size="sm">
-            Traffic to and from Keeper.sh is encrypted in transit, and the passwords you give us for
-            CalDAV accounts are encrypted before they are stored. We implement access controls and
+            Traffic to and from Keeper.sh is encrypted in transit. We implement access controls and
             monitoring across our infrastructure.
           </Text>
           <Text size="sm">
