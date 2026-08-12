@@ -1,103 +1,87 @@
 import { calendarsTable, eventStatesTable, icalFeedSettingsTable } from "@keeper.sh/database/schema";
-import {
-  parseStoredIcsExceptionDates,
-  parseStoredIcsRecurrence,
-} from "@keeper.sh/calendar";
-import { and, asc, eq, inArray, ne, or, isNull } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte, ne, or, isNull } from "drizzle-orm";
 import { resolveUserIdentifier } from "./user";
 import { database } from "@/context";
-import { formatEventsAsIcal } from "./ical-format";
-import type { CalendarEvent, FeedSettings } from "./ical-format";
+import { generateCalendarFeed } from "./ical-feed";
+import type { IcalFeedQuery, StoredFeedEvent } from "./ical-feed";
+import type { FeedSettings } from "./ical-format";
 
-const DEFAULT_FEED_SETTINGS: FeedSettings = {
-  includeEventName: false,
-  includeEventDescription: false,
-  includeEventLocation: false,
-  excludeAllDayEvents: false,
-  customEventName: "Busy",
-};
+const FIRST_RESULT_LIMIT = 1;
 
-const getFeedSettings = async (userId: string): Promise<FeedSettings> => {
+const readFeedSettings = async (userId: string): Promise<FeedSettings | null> => {
   const [settings] = await database
     .select()
     .from(icalFeedSettingsTable)
     .where(eq(icalFeedSettingsTable.userId, userId))
-    .limit(1);
+    .limit(FIRST_RESULT_LIMIT);
 
-  return settings ?? DEFAULT_FEED_SETTINGS;
+  return settings ?? null;
 };
 
-const generateUserCalendar = async (identifier: string): Promise<string | null> => {
-  const userId = await resolveUserIdentifier(identifier);
-
-  if (!userId) {
-    return null;
-  }
-
-  const [settings, sources] = await Promise.all([
-    getFeedSettings(userId),
-    database
-      .select({ id: calendarsTable.id })
-      .from(calendarsTable)
-      .where(
-        and(
-          eq(calendarsTable.userId, userId),
-          eq(calendarsTable.includeInIcalFeed, true),
-        ),
-      ),
-  ]);
-
-  if (sources.length === 0) {
-    return formatEventsAsIcal([], settings);
-  }
-
-  const calendarIds = sources.map(({ id }) => id);
-  const rows = await database
-    .select({
-      calendarId: eventStatesTable.calendarId,
-      id: eventStatesTable.id,
-      title: eventStatesTable.title,
-      description: eventStatesTable.description,
-      location: eventStatesTable.location,
-      startTime: eventStatesTable.startTime,
-      endTime: eventStatesTable.endTime,
-      availability: eventStatesTable.availability,
-      startTimeZone: eventStatesTable.startTimeZone,
-      isAllDay: eventStatesTable.isAllDay,
-      recurrenceRule: eventStatesTable.recurrenceRule,
-      exceptionDates: eventStatesTable.exceptionDates,
-      recurrenceId: eventStatesTable.recurrenceId,
-      sourceEventUid: eventStatesTable.sourceEventUid,
-      calendarName: calendarsTable.name,
-    })
-    .from(eventStatesTable)
-    .innerJoin(calendarsTable, eq(eventStatesTable.calendarId, calendarsTable.id))
+const readFeedCalendarIds = async (userId: string): Promise<string[]> => {
+  const calendars = await database
+    .select({ id: calendarsTable.id })
+    .from(calendarsTable)
     .where(
       and(
-        inArray(eventStatesTable.calendarId, calendarIds),
-        or(
-          isNull(eventStatesTable.sourceEventType),
-          ne(eventStatesTable.sourceEventType, "workingLocation"),
-        ),
-        or(
-          isNull(eventStatesTable.availability),
-          ne(eventStatesTable.availability, "workingElsewhere"),
-        ),
+        eq(calendarsTable.userId, userId),
+        eq(calendarsTable.includeInIcalFeed, true),
       ),
-    )
-    .orderBy(asc(eventStatesTable.startTime));
+    );
 
-  const events: CalendarEvent[] = rows.map((row) => {
-    const recurrence = parseStoredIcsRecurrence(row.recurrenceRule, row.id);
-    return {
-      ...row,
-      recurrenceDuration: recurrence?.recurrenceDuration ?? null,
-      recurrenceRule: recurrence?.recurrenceRule ?? null,
-      exceptionDates: parseStoredIcsExceptionDates(row.exceptionDates, row.id),
-    };
-  });
-
-  return formatEventsAsIcal(events, settings);
+  return calendars.map(({ id }) => id);
 };
+
+const readFeedEvents = (
+  calendarIds: string[],
+  query: IcalFeedQuery,
+): Promise<StoredFeedEvent[]> => database
+  .select({
+    calendarId: eventStatesTable.calendarId,
+    id: eventStatesTable.id,
+    title: eventStatesTable.title,
+    description: eventStatesTable.description,
+    location: eventStatesTable.location,
+    startTime: eventStatesTable.startTime,
+    endTime: eventStatesTable.endTime,
+    availability: eventStatesTable.availability,
+    startTimeZone: eventStatesTable.startTimeZone,
+    isAllDay: eventStatesTable.isAllDay,
+    recurrenceRule: eventStatesTable.recurrenceRule,
+    exceptionDates: eventStatesTable.exceptionDates,
+    recurrenceId: eventStatesTable.recurrenceId,
+    sourceEventUid: eventStatesTable.sourceEventUid,
+    calendarName: calendarsTable.name,
+  })
+  .from(eventStatesTable)
+  .innerJoin(calendarsTable, eq(eventStatesTable.calendarId, calendarsTable.id))
+  .where(
+    and(
+      inArray(eventStatesTable.calendarId, calendarIds),
+      or(
+        isNull(eventStatesTable.sourceEventType),
+        ne(eventStatesTable.sourceEventType, "workingLocation"),
+      ),
+      or(
+        isNull(eventStatesTable.availability),
+        ne(eventStatesTable.availability, "workingElsewhere"),
+      ),
+      lte(eventStatesTable.startTime, query.windowEnd),
+      or(
+        gte(eventStatesTable.endTime, query.windowStart),
+        isNotNull(eventStatesTable.recurrenceRule),
+      ),
+    ),
+  )
+  .orderBy(asc(eventStatesTable.startTime))
+  .limit(query.limit);
+
+const generateUserCalendar = (identifier: string): Promise<string | null> =>
+  generateCalendarFeed(identifier, {
+    readFeedCalendarIds,
+    readFeedEvents,
+    readFeedSettings,
+    resolveUserIdentifier,
+  });
 
 export { generateUserCalendar };
