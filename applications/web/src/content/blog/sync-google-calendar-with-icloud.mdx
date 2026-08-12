@@ -1,6 +1,6 @@
 ---
 title: "How to Sync Google Calendar with iCloud"
-description: "Get your Google Calendar meetings onto your iPhone, Apple Watch and Mac by syncing them into iCloud with Keeper.sh. Covers the Apple app-specific password, the exact setup screens, and what to check when sync stops."
+description: "Get your Google Calendar meetings onto your iPhone, Apple Watch and Mac by syncing them into iCloud with Keeper.sh. Real meeting titles, the exact setup screens, and what your colleagues see."
 blurb: "You live in Apple's calendar app but work runs on Google. Here is how to get work meetings onto your iPhone and Watch without putting a work account on your personal phone."
 createdAt: "2026-08-11"
 slug: "sync-google-calendar-with-icloud"
@@ -13,51 +13,52 @@ tags:
   - "guides"
 ---
 
-You check your day on your iPhone, and your Apple Watch taps you before meetings. But work runs on Google Calendar, and none of it shows up there.
+Your Watch stays silent for the standup you are already late for, because the meeting lives in Google and your phone runs on iCloud.
 
-The obvious fix is adding your work Google account to your iPhone. Plenty of people cannot, because IT locks those accounts down or the account drags in mail and device management too.
+The obvious fix is adding your work Google account to your iPhone. Plenty of people cannot: IT locks those accounts down, or the account drags mail and device management onto a personal phone with it.
 
-This guide copies your Google meetings into an iCloud calendar instead, so every Apple device you own picks them up.
+Keeper.sh copies your Google meetings into an iCloud calendar instead. Every Apple device you own picks them up, and your employer never touches your phone.
 
-## What this actually does
+## What lands on your iPhone
 
-Keeper.sh copies events in one direction at a time. Here, Google is where events come from and iCloud is where they land.
+Your 3pm in Google turns up in the Calendar app on your iPhone, your Watch and your Mac. It arrives in an iCloud calendar of your choosing, one you can hide on Saturday.
 
-Your work calendar is untouched, and colleagues see no difference. If you later want personal appointments blocking time at work, that is a second connection pointing the other way.
+Each connection runs one direction, and this one is Google into iCloud. Keeper.sh never writes into your Google calendar here, so your colleagues see nothing change.
+
+Want it both ways? Add the reverse connection and personal appointments start blocking time at work.
 
 ## Make a home for the meetings first
 
 In the Calendar app on your iPhone or Mac, create a new iCloud calendar and call it something like "Work".
 
-It gets its own colour, you can hide it at the weekend, and deleting it later removes every copied meeting at once.
+It gets its own color, you can hide it on weekends, and deleting it later removes every copied meeting at once.
 
 ## Generate an Apple app-specific password
 
-Apple will not let an outside app sign in with your normal Apple Account password. That password also opens your photos, your purchase history and Find My.
+Apple will not let an outside app write into your iCloud calendar with your normal Apple Account password. You issue a second password that reaches your calendar and nothing else, and cancel it whenever you like without changing the real one.
 
-Instead you generate a separate password that reaches your calendar and nothing else. You can cancel it whenever you like, without changing your real password.
-
-Keeper.sh shows you these same steps on the connect screen, and [Apple documents them too](https://support.apple.com/en-us/102654):
+Keeper.sh shows you these steps on the connect screen, and [Apple documents them too](https://support.apple.com/en-us/102654):
 
 1. Navigate to [appleid.apple.com](https://appleid.apple.com)
 2. Sign in with your Apple ID
 3. Select "App-Specific Passwords"
 4. Click the "+" next to "Passwords"
-5. Label and generate the password, then copy it
-6. Paste the app-specific password below
+5. Label it, generate it, and copy the password — you will paste it into Keeper.sh in the next step
 
-You need two-factor authentication turned on, or the App-Specific Passwords option never appears. Apple shows the password exactly once, so copy it before closing the box.
+Two-factor authentication has to be on, or the App-Specific Passwords option never appears at all. Apple shows the generated password once, so copy it before you close the box.
 
 ## Connect iCloud
 
-From your dashboard, open **Import Calendars**, then **Connect iCloud**. The screen is headed **Connect Apple Calendar** and asks for two things:
+iCloud goes in first, because it is where the meetings will land. [Create a free account](https://www.keeper.sh/register) — two accounts and three connections, no charge — then open **Import Calendars** and choose **Connect iCloud**.
+
+The screen headed **Connect Apple Calendar** asks for two things:
 
 - **Apple ID** — the email address you sign in to Apple with
 - **App-Specific Password** — the one you just generated, not your usual password
 
-Press **Connect**. Keeper.sh brings in every calendar on the account, including the "Work" one you just made. Press **Skip** at setup — the connection you want gets built from the Google side.
+Press **Connect**. Keeper.sh brings in every calendar on the account, including the "Work" one you just made. Press **Skip** at setup, because you will build the connection from the Google side in a moment.
 
-If you see **Invalid credentials**, it is the password nearly every time. Either your normal Apple password went in by mistake, or the generated one has since been cancelled.
+**Invalid credentials** almost always means the password field. Either your usual Apple password went in by mistake, or the generated one has since been canceled.
 
 ## Connect Google Calendar
 
@@ -76,72 +77,88 @@ Setup now runs for your Google account.
 
 **Which calendars would you like to configure?** Tick your main work calendar. Google's primary calendar arrives named after your email address.
 
-**Rename Your Calendars.** Change it to something you will recognise, like "Work". This only affects what you see inside Keeper.sh.
+**Rename Your Calendars.** Change it to something you will recognize, like "Work". Google keeps its own name for it, and by default this one becomes the title on the copies in iCloud.
 
 **Where should 'Work' send events?** Tick the iCloud calendar you created earlier. That is the connection made.
 
-**Where should 'Work' pull events from?** Leave this one empty. Ticking it would start copying events back into your work calendar.
+The next question is the mirror image, asking which calendars should feed events *into* 'Work'. Leave it empty. Ticking anything there would start copying events back into your work calendar.
 
-Press **Next** to finish. The first copy runs immediately, so open Calendar on your iPhone and your meetings should be there.
+Press **Next** to finish. Keeper.sh reads your Google calendar within the minute.
 
-## Decide how much detail crosses over
+On Pro the copy usually reaches iCloud about a minute after the change, two minutes at the outside. On free it is usually about fifteen minutes, thirty-one at the outside.
 
-By default the copies can be deliberately vague, carrying just the time. Here you want the opposite. A meeting on your Watch is no use if it does not say what it is.
+## Three connections, and this uses one
 
-Open the calendar from your dashboard and find **Sync Settings**. Turn on **Sync Event Name** and the real meeting titles come through instead of a placeholder.
+Keeper.sh's free plan covers two connected accounts and three connections, and this whole setup fits inside it. Google is one account and iCloud is the other. Work into iCloud spends one connection, leaving two spare.
 
-**Sync Event Description** and **Sync Event Location** work the same way. Location is worth having if you travel to meetings, since it puts the address on your phone.
+Connecting an account is what counts, not how many calendars sit inside it. A Google account with five work calendars in it is still one of your two. Each direction you actually sync spends one of the three connections.
 
-What these start out set to depends on how the calendar was added, and we are [fixing that inconsistency](https://github.com/ridafkih/keeper.sh/issues/501). Check them rather than assuming.
+## Let the real titles through
 
-On the hosted service these controls are part of Pro. On free, the copy stays titled after the calendar with the details left behind. Self-hosted installs include them for everyone.
+Every Google calendar you connect starts private. What lands in iCloud is a start time, an end time, and a title borrowed from the calendar it came from — no description, no location. That default is right when events are heading somewhere other people can see.
 
-## Google's own event types
+On your own phone you want the opposite. A meeting on your Watch is no use if it only says "Work".
+
+Three Pro switches under **Sync Settings** decide this. **Sync Event Name** brings the real meeting titles across, and **Sync Event Location** puts the address in the notification. **Sync Event Description** carries the agenda and the dial-in notes.
+
+Turn them on and your Watch tells you it is the 3pm with Legal, at the address, before you have looked at your phone. Free accounts run on the private default and cannot change it.
+
+Nine calendars is $25 per user a month at <a href="https://www.onecal.io/pricing" rel="nofollow">OneCal</a>, billed annually (August 2026), and it meters you per calendar. Pro is $5 a month whether you connect three or thirty.
+
+[Get real meeting titles with Pro](https://www.keeper.sh/register).
+
+## Keep focus time and out-of-office off your Watch
 
 Google has a few event kinds that are not really meetings, and they clutter a phone if you let them through.
 
-The **Exclusions** section gives you **Exclude Focus Time Events** and **Exclude Out of Office Events**. Turn them on if you block focus time regularly, or every protected work block reappears on your personal devices. There is also **Exclude All Day Events** for company holidays.
+**Exclude Focus Time Events** and **Exclude Out of Office Events** live under **Exclusions**, one section below **Sync Settings**. Turn them on if you block focus time regularly, or every protected work block reappears on your personal devices. **Exclude All Day Events** handles company holidays the same way.
 
-Working Location entries are always left out and have no switch.
+All three are Pro switches, so one visit to your settings keeps the whole category off your Watch. Working Location entries never cross over on any plan, because Google emits them constantly and nobody wants "Home" on their Watch.
 
-## What does not cross over
+## Your colleagues see nothing change
 
-Guests are not copied, so nobody gets invited a second time or emailed by accident. Video call links and reminders do not travel either, so you cannot join a meeting from the copy on your iPhone.
+Keeper.sh leaves the guest list behind, so nobody on the Google invite gets a second notification from a calendar they have never heard of. Video call links stay in Google as well, so you join the call from your work calendar.
 
-What lands in iCloud is a record of where your time goes, not a replacement for your work calendar.
+Edit the copy in iCloud and Keeper.sh puts it back to match Google on the next pass. What your Watch shows is always what your colleagues actually booked.
 
-## How quickly changes show up, and how far ahead
+## How fast it moves, and how far ahead
 
-Keeper.sh reads your calendars once a minute, on every plan, paid or not. Writing the change into iCloud is the part that differs.
+Reads run every minute on every plan. The wait is on the write into iCloud: every minute on Pro, every thirty on free.
 
-Free writes every thirty minutes, so a meeting someone books now reaches your phone within the half hour. Pro writes every minute. If colleagues move meetings at short notice, that gap is the reason to pay.
+End to end that is usually about a minute on Pro against about fifteen on free, two and thirty-one minutes at the outside. That is the difference between your Watch buzzing before your afternoon gets rearranged and after.
 
-Keeper.sh works with a window running from a week ago to two years out. A one-off booking further ahead than that will not copy yet, and starts once it comes within range.
+[Get the one-minute version](https://www.keeper.sh/register).
 
-## What the free plan covers
+The copy window runs from a month back to two years ahead, so next quarter's offsite is already on your phone and last spring's is not. Pro sets that window per calendar. Bring two years of history across when you are reconstructing where the year went, or set a tighter window, which clears the copies that fall outside it.
 
-Two connected accounts and three connections. Google is one account and iCloud the other, so this pairing uses both.
+## When your Watch goes quiet
 
-The number of calendars inside each account does not matter — a Google account with five calendars still counts as one.
+**Meetings stopped appearing and nothing looks broken.** Changing your Apple Account password cancels every app-specific password you have ever created, including this one, without telling you. Generate a fresh password and reconnect iCloud.
 
-Work into iCloud uses one connection, leaving two spare. Tick past that and Keeper.sh stops you and offers the upgrade rather than failing quietly.
-
-## When it stops working
-
-**Meetings quietly stopped appearing and nothing looks broken.** Changing your Apple Account password silently cancels every app-specific password you have ever created, including this one. If your phone looks suspiciously empty, start here: generate a fresh password and reconnect iCloud.
-
-**The iCloud calendar will not accept events.** Calendars shared with you by someone else, and ones you subscribed to from a link, usually arrive read-only. Make sure you picked a calendar you created yourself.
+**The iCloud calendar will not accept events.** A calendar shared with you by someone else, or one you subscribed to from a link, usually arrives read-only. Keeper.sh can copy events out of it but not into it, so pick a calendar you created yourself.
 
 **Your employer disconnects the Google account.** Losing access stops the copying, and existing events stay behind in iCloud. Deleting that one iCloud calendar clears them.
 
-**A calendar goes quiet for a while, then recovers.** When Google or Apple rejects or times out a request, Keeper.sh waits longer before trying again. Left alone, it comes back.
+**A calendar pauses, then catches up.** Google rate-limits hard, so Keeper.sh stays inside its 500-requests-a-minute ceiling rather than sending until Google refuses. When a request is rejected or times out anyway, that calendar waits longer before the next attempt.
 
-## Running it yourself instead
+The wait is recorded per calendar in the database rather than in memory, so a restart on our side does not reset it. Left alone, the calendar comes back.
 
-Keeper.sh is open source, and self-hosting is a real alternative rather than a lesser one. Every paid feature is included free, and your calendar data stays on hardware you control.
+## Tested against ten real calendar feeds
 
-The `keeper-standalone` Docker image bundles the database, the background workers and everything else into a single container.
+Keeper.sh ships with 1,086 tests, including regression runs against ten real calendar feeds captured from Google, GOV.UK, Meetup and an Exchange server. Testing against what those calendars actually emit is the version of "it syncs reliably" you can check.
 
-Be honest about the effort. iCloud connects immediately, but Google means creating your own project in Google Cloud and supplying its sign-in credentials. You also become the person who notices when it breaks.
+The code that reads Google and writes to iCloud is [public](https://github.com/ridafkih/keeper.sh) under AGPL-3.0. The privacy behavior above is something you can verify rather than something you have to take on trust.
 
-The [README](https://github.com/ridafkih/keeper.sh) covers the setup. If you would rather not think about it, the hosted version is the same software with the upkeep handled.
+## Would you rather run it yourself?
+
+Keeper.sh is open source, and the `keeper-standalone` image brings up the database, the workers and the web app in one container. Every Pro feature is included when you run it, the one-minute writes and the real meeting titles among them.
+
+You then buy the server and the domain, apply the updates, keep the backups and get paged when it stops. Google sign-in also needs your own Google app registered before it will work at all.
+
+[The hosted version](https://www.keeper.sh/register) is the same code with all of that handled for you.
+
+## Get work meetings buzzing on your Watch tonight
+
+Connect Google and iCloud, tick one calendar, and you are done. The meetings come across on their own from there.
+
+[Get work meetings on your Watch — free](https://www.keeper.sh/register)

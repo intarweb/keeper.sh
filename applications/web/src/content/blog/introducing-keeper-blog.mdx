@@ -1,10 +1,10 @@
 ---
-title: "Why I Built an Open-Source Calendar Syncing Tool"
-description: "Why I built an open-source calendar syncing tool to sync availability across Google Calendar, Outlook, FastMail, iCloud, Apple Calendar, and CalDAV."
-blurb: "I had four calendars across Google, FastMail, and iCloud, and built an open-source calendar syncing tool to keep time slots aligned without duplicates or heavy setup."
+title: "Stop Getting Double-Booked Across Google, Outlook and iCloud"
+description: "$5/month flat, however many calendars you have. Keeper.sh blocks the same time on Google, Outlook, iCloud, Fastmail and CalDAV — details stripped by default."
+blurb: "Four calendars across Google, Fastmail, and iCloud meant constant double-bookings. Keeper.sh blocks the same time everywhere, strips the details by default, and costs $5 a month no matter how many calendars you have."
 createdAt: "2025-12-28"
 slug: "why-i-built-an-open-source-calendar-syncing-tool"
-updatedAt: "2026-03-09"
+updatedAt: "2026-08-12"
 tags:
   - "calendar"
   - "product"
@@ -12,145 +12,164 @@ tags:
   - "self-hosting"
 ---
 
-I have four calendars spread across providers:
+I have four calendars, spread across Google, Fastmail and iCloud:
 
 - A work calendar on Google Calendar
 - A business calendar on Google Calendar
-- A business-personal calendar on FastMail
+- A business-personal calendar on Fastmail
 - A personal calendar on iCloud
 
-That setup gave different people in my life different and incomplete windows into my availability, whether they were my co-founder, investors, coworkers, or friends. The result was constant overlap and way too much scheduling back-and-forth, even though the problem I was trying to solve was simple: block off the same time slots everywhere.
+My co-founder, my investors and my friends each saw a different, incomplete version of my week. Meetings landed on top of each other. Every scheduling thread turned into another round of "can you check again?"
+
+What I wanted was small. Block the same time everywhere, and don't tell anyone why it's blocked.
 
 ## Why Keeper.sh exists
 
-I tried a few options and kept running into the same issues:
+The tools I tried charged me for the exact thing I had too much of. As listed in August 2026, <a href="https://www.onecal.io/" rel="nofollow">OneCal</a> starts at $5 per user per month billed annually for two calendars, and runs to $25 for fifty. <a href="https://www.calendarbridge.com/" rel="nofollow">CalendarBridge</a> is $40 a month for eight.
 
-- Too much manual setup
-- Finicky sync behavior and duplicate events
-- Pricing that felt heavy without a self-hosted path
+My four calendars weren't an edge case. They were the whole problem. On both of those price lists, having more of the problem costs more.
 
-Some tools only worked between two providers. Others required complex Zapier-style automations that broke silently. And none of them gave me the privacy controls I wanted — I didn't need my dentist appointment title showing up on my work calendar. I just needed the time blocked.
+Neither [OneCal](https://www.onecal.io/) nor [CalendarBridge](https://www.calendarbridge.com/) works with Fastmail, so one of my calendars was ruled out before price mattered. The generic automation workarounds I tried broke silently, which is worse than not working.
 
-After repeating that cycle enough times, I built Keeper.sh to do exactly what I wanted in the first place: reliable slot syncing without a bunch of ongoing babysitting.
+Both of them also wanted the event contents. My work calendar has interviews on it, a term-sheet call, and a standing appointment I would rather my friends could not read.
 
-## How the sync engine works
+Keeper.sh reads the whole event too — that is how it works out when you are busy — and on the hosted service what it reads sits in our database. With a tool whose code you cannot read, what happens to it next is a policy page you have to take on faith.
 
-Keeper.sh uses a pull-compare-push architecture. On each sync cycle, it pulls events from your configured source calendars, compares them against what it already knows, and pushes changes to your destination calendars.
+Here it is source code, AGPL-3.0 and readable line by line. One container puts that database on your own hardware if you would rather it lived there. Either way, what lands on your other calendars is a busy block, not a copy of your day.
 
-The core logic is straightforward:
+So I built Keeper.sh to do one job properly. Keep every calendar's availability correct, tell the other calendars nothing, and stop needing my attention.
 
-- **Add:** If a source event has no corresponding mapping on the destination, it gets created
-- **Delete:** If a mapping exists but the source event no longer does, the destination event gets removed
-- **Cleanup:** Any Keeper.sh-created events with no mapping are cleaned up for consistency
+## Privacy is the default, not a setting
 
-Events created by Keeper.sh are tagged with a `@keeper.sh` suffix on their remote UID so they can be identified later. For platforms like Outlook that don't support custom UIDs, we use a `"keeper.sh"` category instead.
+Connect a calendar and Keeper.sh strips the event name, description and location before anything leaves. A meeting on your work calendar shows up on your personal one as a block of busy time, labeled with the calendar it came from. Detail is something Pro lets you turn on, not something you remember to turn off.
 
-To prevent race conditions, each sync operation acquires a Redis-backed generation counter. If two syncs try to run on the same calendar at the same time, the later one backs off. This keeps things consistent without requiring heavy locking.
+Those defaults apply to everyone, on every plan, so the privacy is not the upsell. Pro is the control, and free stays on the private defaults.
 
-For Google and Outlook, Keeper.sh uses incremental sync tokens. Instead of re-fetching every event on each cycle, it asks the provider for only what changed since the last sync. This makes regular sync cycles fast and lightweight, even for calendars with thousands of events.
+Title the copies however you like, with the `{{calendar_name}}` and `{{event_name}}` tokens. Drop all-day events, so holidays don't blank out your week. Drop Google's Focus Time and Out of Office blocks, so they don't turn up as meetings.
 
-## What Keeper.sh supports
+What lands on the other calendar is deliberately a shadow, not a copy. Attendees, reminders, organizers, meeting links, colors and attachments do not transfer.
 
-Keeper.sh works with six calendar providers across two authentication mechanisms:
+Nobody gets re-invited to a meeting because you mirrored it. No alarm fires twice on two devices. Your client's video link is not sitting in a calendar your family can read.
 
-**OAuth providers:**
-- **Google Calendar** — full read/write with support for filtering Focus Time, Working Location, and Out of Office events
-- **Microsoft Outlook** — full read/write via the Microsoft Graph API
+[Start syncing free.](https://www.keeper.sh/register)
 
-**CalDAV-based providers:**
-- **FastMail** — pre-configured CalDAV with FastMail's server URL
-- **iCloud** — pre-configured CalDAV with app-specific password support
-- **Generic CalDAV** — any CalDAV-compatible server with username/password auth
-- **iCal/ICS feeds** — read-only public URL-based calendars
+## What Keeper.sh connects to
 
-Each calendar in Keeper.sh has a capability flag: "pull" means it can be used as a source (read events from), and "push" means it can be used as a destination (write events to). iCal feeds, for example, are pull-only since they're read-only by nature. OAuth and CalDAV calendars support both.
+Six kinds of calendar, three ways in.
 
-## Privacy controls
+**Sign in with your account:**
 
-By default, Keeper.sh shares only busy/free time blocks. Event titles, descriptions, locations, and attendee lists are stripped before syncing. This is the behavior most people actually want — block the time, don't leak the details.
+- **Google Calendar** — read and write, with Focus Time, Working Location and Out of Office recognized as their own kinds of event
+- **Microsoft Outlook** — read and write
 
-But if you need more flexibility, each source calendar has granular settings:
+**Sign in with a username and password:**
 
-- **Include or exclude event titles** — show the actual event name or replace it with "Busy"
-- **Include or exclude descriptions and locations** — control what metadata gets synced
-- **Custom event name templates** — use `{{event_name}}` or `{{calendar_name}}` placeholders to build your own format
-- **Skip all-day events** — useful if you don't want holidays or reminders blocking time
-- **Skip Google-specific event types** — filter out Focus Time, Working Location, or Out of Office blocks
+- **iCloud** — with an app-specific password, so Keeper.sh never holds your Apple ID password
+- **Fastmail** — already pointed at the right server for you
+- **Any other calendar that uses the CalDAV standard** — Keeper.sh works out which sign-in style the server wants, which matters for older and self-hosted ones
 
-These same controls apply to the iCal feed. When you generate your aggregated feed URL, you choose exactly what level of detail goes into it.
+**Paste a calendar link:**
 
-## The iCal feed
+- **iCal or ICS links** — read-only, so you see those events, but nothing you do can change them. University timetables, conference schedules, holiday feeds.
 
-One of the features I use most is the aggregated iCal feed. Keeper.sh generates a unique, token-authenticated URL that combines events from all your selected source calendars into a single feed. You can subscribe to it from any calendar app that supports iCal — Apple Calendar, Thunderbird, or any CalDAV client.
+Everything except a pasted link can be both read from and written to.
 
-The feed respects all your privacy settings. If you've chosen to exclude event titles, the feed shows "Busy" blocks. If you've included titles and locations, those show up too. It's the same event data, just served as a subscribable feed instead of pushed to a specific calendar.
+## Two-way sync, and how to set it up
 
-This is especially useful for sharing availability externally. Instead of giving someone access to your actual calendar, you hand them a feed URL that shows exactly what you want them to see.
+Two-way works, and it is two connections. Point calendar A at calendar B, then point B at A. A two-way pair therefore uses two of the three connections the free plan gives you.
 
-## Source and destination mappings
+The same design is why one calendar can feed several others, and why one calendar can take events from several.
 
-The mapping model is what makes Keeper.sh flexible. You connect calendar accounts, then configure which calendars are sources and which are destinations. A single source can push to multiple destinations, and a single destination can receive from multiple sources.
+Setting it up is four steps:
 
-The setup flow walks you through it:
+1. Connect an account
+2. Pick which calendars to use
+3. Rename them if the provided labels are unhelpful
+4. Choose which calendar copies to which, in each direction you want
 
-1. Connect an account (OAuth, CalDAV, or iCal URL)
-2. Select which calendars to use
-3. Rename them if you want clearer labels
-4. Map sources to destinations (and optionally the reverse)
+After that it runs on its own. The dashboard shows each check as it happens, so you are not left guessing whether it ran.
 
-Once configured, syncing is automatic. Free tier users sync every 30 minutes, Pro users sync every minute, and self-hosted instances sync every minute regardless of plan.
+### How far back and forward it looks
 
-## Free vs. Pro
+Each calendar copies one month of history and two years ahead. A holiday feed doesn't need two years of backfill; a project calendar might. On Pro you set each direction yourself, anywhere from one week to two years.
 
-Keeper.sh uses a low-cost freemium model:
+## $5 a month, however many calendars you have
 
-- **Free:** 2 source calendars, 1 destination, 30-minute sync intervals, aggregated iCal feed
-- **Pro ($5/month):** Unlimited sources, unlimited destinations, 1-minute sync intervals, priority support
+- **Free** — 2 linked accounts, 3 connections, the combined calendar link, and 25 API calls a day
+- **Pro, $5/month or $42/year** — unlimited accounts and connections, updates every minute, event filters, adjustable time windows, a customizable calendar link, and no API cap
 
-If you self-host, all users on your instance get Pro-tier features by default. The commercial tier exists to sustain the hosted version, not to gate core functionality behind a paywall.
+Keeper.sh reads your calendars every minute on both plans. What differs is how fast the copy goes back out.
 
-## Self-hosting
+On free, a change you make lands about fifteen minutes later, thirty-one at the outside. That is fine for a holiday feed.
 
-I open-sourced Keeper.sh because I've gotten really into self-hosting and home servers, and I wanted this to be usable on your own infrastructure. The entire stack runs on:
+On Pro it is about a minute, two at the outside. That is what you want if people book against your calendar during the day.
 
-- **PostgreSQL** for event state, account data, and sync mappings
-- **Redis** for sync coordination and session storage
-- **Bun** for the API server and cron workers
-- **Vite + React** for the web interface
+That $5 is flat. Thirty calendars cost the same as three.
 
-There are three deployment models depending on how much control you want:
+Eight calendars on CalendarBridge is $40 a month. Fifty on OneCal is $25 per user, billed annually. The person with the most calendars needs this the most, and on both of those plans pays the most for it.
 
-**Standalone (easiest):** A single `compose.yaml` that bundles everything — Caddy reverse proxy, PostgreSQL, Redis, API, web, and cron. One command to start, auto-configured.
+[Start syncing free.](https://www.keeper.sh/register)
 
-**Services-only:** Just the application containers (web, API, cron). You bring your own PostgreSQL and Redis. Good if you already have a database server running.
+## How it stays right
 
-**Individual containers:** Separate `keeper-web`, `keeper-api`, and `keeper-cron` images. The most flexible setup for production deployments.
+Every minute, Keeper.sh looks at the calendars you told it to watch and works out what changed. Then it makes the same change on the calendars you are copying to.
 
-If you want Google or Outlook connected as sources or destinations, you'll still need:
+Google and Outlook will tell it only what changed since last time, so a calendar with thousands of events stays cheap to watch. Apple's iCloud, Fastmail and other CalDAV calendars offer no such shortcut, so Keeper.sh re-reads the window each minute and compares.
 
-- A Google OAuth client (Google Cloud)
-- A Microsoft OAuth app (Azure)
+Three things can happen. A new event gets a copy. A cancelled event loses its copy, and a copy whose original is gone gets cleared out.
 
-CalDAV-based providers (FastMail, iCloud, generic CalDAV) and iCal feeds work without any OAuth setup.
+That third one fixed my actual complaint about the tools I had used: stale events that would not go away.
 
-The [`compose.yaml` setup in the README](https://github.com/ridafkih/keeper.sh/blob/main/README.md) is the fastest way to get up and running.
+Deletes are the hard half. The moment you delete the record, you also delete the evidence of what to clean up. So Keeper.sh keeps the note of what to remove after the event itself is gone, and tears that note up only once the removal has actually worked.
 
-## Technical choices
+Keeper.sh only ever clears out copies it made itself. It recognizes its own work by a marker it writes onto every copy, and it skips those markers whenever it reads a calendar. That is what stops two calendars pointed at each other from reflecting events into infinity.
 
-A few decisions that shaped the architecture:
+Two checks on the same calendar can overlap. When they do, only one of them is allowed to write. That is why you never end up with the same meeting twice.
 
-**CalDAV as the universal protocol.** Rather than building custom integrations for every provider, Keeper.sh treats CalDAV (RFC 4791) as the common layer for FastMail, iCloud, and any standards-compliant server. This means adding a new CalDAV provider is mostly a configuration change, not new code.
+## The unglamorous parts that decide whether it works
 
-**Encrypted credentials at rest.** CalDAV passwords and OAuth tokens are encrypted before storage using a configurable encryption key. OAuth tokens include refresh token rotation, so sessions stay valid without storing long-lived credentials.
+Repeating events are expanded into individual occurrences before anything is copied. The dates you removed and the one-off changes you made survive that. One runaway series is held back with diagnostics rather than taking your whole calendar down.
 
-**Content hashing for iCal feeds.** When pulling from iCal/ICS URLs, Keeper.sh hashes the response content and skips processing if nothing changed. This avoids redundant work when feeds haven't been updated and keeps snapshots for 6 hours in case something goes wrong.
+Exchange writes timezones in a format Google rejects outright. Keeper.sh translates about 140 of them, and works out which hour you meant on the nights the clocks change.
 
-**Real-time sync status.** The API server runs a WebSocket endpoint that broadcasts sync progress to the dashboard. You can watch events get pulled, compared, and pushed in real time rather than wondering if a sync cycle actually ran.
+Real calendar feeds in the wild break the standard constantly, so a repair layer sits in front of the strict reader. It fixes what it safely can and refuses what it cannot. A date like 30 February is thrown out rather than quietly rolled forward, which would put a phantom event on the wrong day.
 
-## Built with user feedback
+None of this is theory. There are 1,086 test cases across 138 test files, including ten captured real-world feeds — Google holidays, GOV.UK, Hebcal, Meetup and an Exchange feed with Windows timezones. Every change has to pass types, lint, tests and dead-code checks.
 
-Thanks to user feedback, Keeper.sh has grown way beyond the original basic slot-syncing setup. Community input helped shape features like syncing event titles, descriptions, and locations when needed, along with controls to exclude specific event types from syncing.
+[The long version of all of this](/blog/how-calendar-sync-actually-works) is written up separately.
 
-Those improvements made Keeper.sh much more flexible for different workflows and privacy preferences, and there's still more coming as people keep sharing real-world use cases.
+## One calendar link with everything on it
 
-If you want to try Keeper.sh, you can [sign up for the hosted version](https://www.keeper.sh/register) or [grab the source on GitHub](https://github.com/ridafkih/keeper.sh).
+Keeper.sh gives you a single link that merges every calendar you opt into it. Subscribe to it from Apple Calendar, Thunderbird, or anything else that takes a calendar link. Repeating events, their exceptions and their timezones all survive the trip, so subscribers see a real calendar rather than a flattened list.
+
+The link carries its own key, so it opens only for the people you send it to. This is the polite way to share your availability. Instead of handing someone access to your actual calendar, you hand them a link that shows exactly what you decided it should show.
+
+## For developers: the API and the MCP server
+
+Keeper.sh is not only a mirror. There is a REST API at `/api/v1` that lists your calendars and accounts. It also creates, reads, updates, deletes and RSVPs to events on any calendar you have connected — one interface instead of Google's, Microsoft's and CalDAV's three.
+
+The same capability is exposed as a remote MCP server with eleven tools, authenticated with OAuth 2.1 so the agent never holds a calendar password. Point Claude at it and it can find your open slot, book it on the right calendar, and answer the invitation you have been ignoring. Pending invites and RSVP are in the toolset, so an agent can reply to an invitation rather than only read it.
+
+## Running it yourself
+
+Keeper.sh is AGPL-3.0 and runs from a single container. `keeper-standalone` bundles the whole thing, database included, behind one port, and applies its own upgrades at startup. If you already run your own datastores, `keeper-services` takes just the four application services.
+
+Nothing phones home. No telemetry collector is hardcoded anywhere, and analytics render only when you configure a token. An instance you run yourself is not gated.
+
+Connecting Google or Outlook to your own instance means registering your own apps with Google and Microsoft. iCloud, Fastmail, other CalDAV calendars and pasted links need none of that. The [README](https://github.com/ridafkih/keeper.sh/blob/main/README.md) has the compose file.
+
+Be honest with yourself about the cost first. Running it yourself is a server, a domain, updates, backups, and being the person who gets paged when it stops.
+
+Self-hosting stays first-class, because code you can read and run is the only version of a privacy claim that can be verified. Almost nobody needs to exercise it. [Start on the hosted version](https://www.keeper.sh/register), where the servers, the upgrades and the sign-in apps are already handled.
+
+## Get your calendars agreeing
+
+One more thing worth knowing about a tool you are going to depend on: it can't be taken away. The license is AGPL-3.0 and the repository is public. If I get bored, get acquired, or get hit by a bus, the thing you set up keeps running and anyone can keep building it.
+
+OneCal, CalendarBridge and SyncThemCalendars are single-vendor products with private code. Reclaim is inside Dropbox now, and its roadmap serves someone else's strategy.
+
+Two accounts and three connections are free, with no card. As listed in August 2026, <a href="https://www.onecal.io/" rel="nofollow">OneCal</a> runs a 14-day trial with no free tier, and <a href="https://www.calendarbridge.com/" rel="nofollow">CalendarBridge</a> and <a href="https://syncthemcalendars.com/" rel="nofollow">SyncThemCalendars</a> have no free plan at all.
+
+When Keeper.sh earns it, Pro is $5 a month, however many calendars you end up connecting.
+
+[Start syncing free.](https://www.keeper.sh/register) Every claim above is checkable, because the [code is public](https://github.com/ridafkih/keeper.sh) under AGPL-3.0.

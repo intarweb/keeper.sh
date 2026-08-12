@@ -2,7 +2,9 @@
 
 # About
 
-Keeper.sh is a simple & open-source calendar syncing tool. It allows you to pull events from your Google Calendar, Outlook, iCloud, Fastmail, CalDAV server, or a remotely hosted iCal or ICS links, and push them to one or many calendars so the time slots can align across them all. Google, Outlook, iCloud, Fastmail, and CalDAV are first-class integrations that can each be used as a source or as a destination, while iCal and ICS links are pull-only. It also serves as a global MCP server and API for you or your agents to manage all your calendars from one convenient interface. You can use the hosted version for convenience and zero-setup, or self-host to get Pro features free. 
+Keeper.sh is a simple & open-source calendar syncing tool. It allows you to pull events from your Google Calendar, Outlook, iCloud, Fastmail, CalDAV server, or remotely hosted iCal and ICS links, and push them to one or many calendars so the time slots can align across them all. Google, Outlook, iCloud, Fastmail, and CalDAV are first-class integrations that can each be used as a source or as a destination, while iCal and ICS links are pull-only. It also serves as a global MCP server and API for you or your agents to manage all your calendars from one convenient interface.
+
+The recommended way to run it is the hosted version at [keeper.sh](https://keeper.sh/register): the same code, minus the server, the domain, the upgrades, the backups and the Google and Microsoft sign-in apps you would otherwise register yourself. Self-hosting is a first-class path and every Pro feature is included when you self-host — that is not a trial, and it is not going away. It costs you the upkeep instead of the $5.
 
 # Features
 
@@ -99,21 +101,23 @@ Meetings have landed on top of one-another a frustratingly high number of times.
 
 ## Why not use _this other service_?
 
-I've probably tried it. It was probably too finicky, ended up making me waste hours of my time having to delete stale events it didn't seem to want to track anymore, or just didn't sync reliably.
+Use one if it already works for you. This one exists because of the two things I kept hitting: events deleted at the source that stayed on the destination forever, and no way to read the code that was handling my calendar.
+
+Both are addressed by design here. A deletion is tracked by a mapping row that outlives the event it pointed at, so the remote copy still gets removed on a later pass, and the cleanup sweep only ever touches events Keeper.sh created — it will not delete an event you made yourself. And the engine is AGPL-3.0, so you can check that claim rather than take it.
 
 ## How does the syncing engine work?
 
 - If we have a local event but no corresponding "source → destination" mapping for an event, we push the event to the destination calendar.
 - If we have a mapping for an event, but the source ID is not present on the source any longer, we delete the event from the destination.
-- Any events with markers of having been created by Keeper, but with no corresponding local tracking, we remove it. This is only done for backwards compatibility.
+- Any events with markers of having been created by Keeper.sh, but with no corresponding local tracking, we remove it. This is only done for backwards compatibility.
 
-Events are flagged as having been created by Keeper either using a `@keeper.sh` suffix on the remote UID, or in the case of a platform like Outlook that doesn't support custom UIDs, we just put it in a `"keeper.sh"` category.
+Events are flagged as having been created by Keeper.sh either using a `@keeper.sh` suffix on the remote UID, or in the case of a platform like Outlook that doesn't support custom UIDs, we just put it in a `"keeper.sh"` category.
 
 ## How is the syncing split up?
 
 There are two halves, and they run on separate schedules.
 
-Ingestion pulls from your sources into Keeper's own database once a minute, regardless of plan. Google and Outlook are fetched incrementally using the provider's own sync token and delta link respectively, so a run only asks for what changed since the last one. CalDAV, iCloud, and Fastmail are refetched and diffed against the event state Keeper already has stored, and iCal/ICS links are refetched and diffed against the last stored snapshot.
+Ingestion pulls from your sources into Keeper.sh's own database once a minute, regardless of plan. Google and Outlook are fetched incrementally using the provider's own sync token and delta link respectively, so a run only asks for what changed since the last one. CalDAV, iCloud, and Fastmail are refetched and diffed against the event state Keeper.sh already has stored, and iCal/ICS links are refetched and diffed against the last stored snapshot.
 
 Pushing to destinations is what the refresh interval in the pricing table refers to. The cron service enqueues a job per destination onto a Redis-backed queue every minute for Pro and every thirty minutes for free, and the worker service reconciles the destination calendar. This is polling on our side rather than provider push notifications, so nothing needs to reach your instance from the outside.
 
@@ -121,9 +125,9 @@ Neither half is schedule-only. `POST /api/v1/sync`, or `trigger_sync` over MCP, 
 
 # Cloud Hosted
 
-I've made Keeper easy to self-host, but whether you simply want to support the project or don't want to deal with the hassle or overhead of configuring and running your own infrastructure cloud hosting is always an option.
+This is the version I would point most people at, including people perfectly capable of running it themselves. It is the same engine on hardware I keep running, so the hours go into your calendar instead of your infrastructure — and paying for it is what funds the work on both versions.
 
-Head to [keeper.sh](https://keeper.sh) to get started with the cloud-hosted version. Use code `README` for 25% off.
+Head to [keeper.sh](https://keeper.sh/register) to get started with the cloud-hosted version.
 
 |                             | Free       | Pro (Cloud-Hosted) | Pro (Self-Hosted) |
 | --------------------------- | ---------- | ------------------ | ----------------- |
@@ -136,13 +140,13 @@ Head to [keeper.sh](https://keeper.sh) to get started with the cloud-hosted vers
 | **iCal Feed Customization** | No         | Yes                | Yes               |
 | **API Requests**            | 25 per day | ∞                  | ∞                 |
 
-The two limits that bite first are counted separately. A linked account is one connected Google, Outlook, iCloud, Fastmail, or CalDAV account, or one iCal/ICS subscription, and free is capped at two of them however many calendars each exposes. A sync mapping is one source calendar wired to one destination calendar, and free is capped at three, so a single source fanning out to three destinations uses the whole allowance. The refresh interval is how often Keeper pushes to your destinations; ingestion from your sources runs every minute on every plan.
+The two limits that bite first are counted separately. A linked account is one connected Google, Outlook, iCloud, Fastmail, or CalDAV account, or one iCal/ICS subscription, and free is capped at two of them however many calendars each exposes. A sync mapping is one source calendar wired to one destination calendar, and free is capped at three, so a single source fanning out to three destinations uses the whole allowance. The refresh interval is how often Keeper.sh pushes to your destinations; ingestion from your sources runs every minute on every plan.
 
 # Self Hosted
 
-By hosting Keeper.sh yourself, you get all premium features for free, can guarantee data governance and autonomy, and it's fun. If you'll be self-hosting, please consider supporting me and development of the project by sponsoring me on GitHub.
+By hosting Keeper.sh yourself, you get all premium features for free, can guarantee data governance and autonomy, and it's fun. What it costs instead is a server, a domain, upgrades, backups, your own Google and Microsoft OAuth apps, and being the person paged when it stops. If you'll be self-hosting, please consider supporting me and development of the project by sponsoring me on GitHub.
 
-There are seven images currently available, two of them are designed for convenience, while the five are designed to serve the granular underlying services.
+There are seven images currently available: two designed for convenience, and five that serve the granular underlying services. If you have no reason to prefer otherwise, start with `keeper-standalone` behind a reverse proxy — it is the path with the fewest moving parts to get wrong.
 
 > [!NOTE]
 >
@@ -184,7 +188,7 @@ There are seven images currently available, two of them are designed for conveni
 | MCP_PUBLIC_URL                 | `api`, `mcp`  | Optional on `api`, required by `mcp`. Public URL of the MCP resource. Enables OAuth on the API and identifies the MCP server to clients. In `keeper-standalone` it defaults to `BETTER_AUTH_URL` with `/mcp` appended.<br><br>e.g. `https://keeper.example.com/mcp` |
 | VITE_MCP_URL                   | `web`         | Optional. Internal URL the web server uses to proxy `/mcp` requests to the MCP service.<br><br>e.g. `http://mcp:3002`                                              |
 | MCP_PORT                       | `mcp`         | Required by `mcp`. Port the MCP server listens on. Pre-set to `3002` in the `keeper-standalone` image.<br><br>e.g. `3002`                                          |
-| MCP_API_URL                    | `api`, `mcp`  | Optional. Internal URL used to reach the Keeper API when serving MCP — for tool calls, and for fetching the signing keys that validate MCP tokens. Defaults to `BETTER_AUTH_URL`, which requires both services to be able to reach your instance's public URL. Pre-set to the bundled API in the `keeper-standalone` image.<br><br>e.g. `http://api:3001` |
+| MCP_API_URL                    | `api`, `mcp`  | Optional. Internal URL used to reach the Keeper.sh API when serving MCP — for tool calls, and for fetching the signing keys that validate MCP tokens. Defaults to `BETTER_AUTH_URL`, which requires both services to be able to reach your instance's public URL. Pre-set to the bundled API in the `keeper-standalone` image.<br><br>e.g. `http://api:3001` |
 | OTEL_EXPORTER_OTLP_ENDPOINT    | `api`, `cron`, `worker`, `mcp`, `web` | Optional. When set, enables forwarding structured logs to an OpenTelemetry collector. Each service pipes its stdout through the `keeper-otelemetry` binary from [`@keeper.sh/otelemetry`](./packages/otelemetry), which runs as a separate process and does not affect application performance.<br><br>e.g. `https://otel-collector.example.com:4318` |
 | OTEL_EXPORTER_OTLP_PROTOCOL    | `api`, `cron`, `worker`, `mcp`, `web` | Optional. Protocol used by the OTLP exporter. Defaults to `http/protobuf` per the OpenTelemetry spec.<br><br>e.g. `http/protobuf`, `grpc`, `http/json` |
 | OTEL_EXPORTER_OTLP_HEADERS     | `api`, `cron`, `worker`, `mcp`, `web` | Optional. Headers sent with every OTLP export request. Use this for authentication (e.g. Basic auth or API keys).<br><br>e.g. `Authorization=Basic dXNlcjpwYXNz` |
@@ -210,7 +214,7 @@ The following environment variables are read by the `web` server at **runtime** 
 
 | Tag                        | Description                                                                                                                                              | Included Services                                                                        |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `keeper-standalone:2`    | The "standalone" image is everything you need to get up and running with Keeper with as little configuration as possible.                                | `keeper-web`, `keeper-api`, `keeper-cron`, `keeper-worker`, `keeper-mcp`, `redis`, `postgresql`, `caddy` |
+| `keeper-standalone:2`    | The "standalone" image is everything you need to get up and running with Keeper.sh with as little configuration as possible.                                | `keeper-web`, `keeper-api`, `keeper-cron`, `keeper-worker`, `keeper-mcp`, `redis`, `postgresql`, `caddy` |
 | `keeper-services:2`      | If you'd like for the Redis & Database to exist outside of the container, you can use the "services" image to launch without them included in the image. | `keeper-web`, `keeper-api`, `keeper-cron`, `keeper-worker`                                 |
 | `keeper-web:2`           | An image containing the Vite SSR web interface.                                                                                                          | `keeper-web`                                                                              |
 | `keeper-api:2`           | An image containing the Bun API service.                                                                                                                 | `keeper-api`                                                                              |
@@ -244,11 +248,11 @@ Once this is configured, set the client ID and client secret as the `GOOGLE_CLIE
 >
 > Once again, this is optional. If you do not configure this, you will not be able to configure Microsoft Outlook as a destination.
 
-Microsoft does not appear to do documentation well, the best I could find for non-legacy instructions on configuring OAuth is this [community thread.](https://learn.microsoft.com/en-us/answers/questions/4705805/how-to-set-up-oauth-2-0-for-outlook). The required scopes are `Calendars.ReadWrite`, `User.Read`, and `offline_access`. The client ID and secret for Microsoft go into the `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` environment variables respectively.
+The clearest non-legacy walkthrough for configuring OAuth is this [community thread.](https://learn.microsoft.com/en-us/answers/questions/4705805/how-to-set-up-oauth-2-0-for-outlook). The required scopes are `Calendars.ReadWrite`, `User.Read`, and `offline_access`. The client ID and secret for Microsoft go into the `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` environment variables respectively.
 
 ## Standalone Container
 
-While you'd typically want to run containers granularly, if you just want to get up and running, a convenience image `keeper-standalone:2` has been provided. This container contains the `cron`, `worker`, `web`, `api` services as well as a configured `redis`, `database`, and `caddy` instance that puts everything behind the same port. While this is the easiest way to spin up Keeper, it is not recognized as best-practice.
+`keeper-standalone:2` is the recommended starting point for a single-instance deployment. This container contains the `cron`, `worker`, `web`, `api` services as well as a configured `redis`, `database`, and `caddy` instance that puts everything behind the same port. Split the services out later if you need to scale them independently, run your own Postgres and Redis, or place them on separate hosts.
 
 ### Generate `keeper-standalone` Environment Variables
 
@@ -256,12 +260,12 @@ The following will generate a `.env` file that contains the key used to generate
 
 > [!IMPORTANT]
 >
-> If you plan on accessing Keeper from a URL _other than_ http://localhost,
+> If you plan on accessing Keeper.sh from a URL _other than_ http://localhost,
 > you will need to set the `TRUSTED_ORIGINS` environment variable. This should
 > be a comma-delimited list of protocol-hostname inclusive origins you will be using.
 >
-> Here is an example where we would be accessing Keeper from the LAN IP and where we
-> are routing Keeper through a reverse proxy that hosts it at https://keeper.example.com/
+> Here is an example where we would be accessing Keeper.sh from the LAN IP and where we
+> are routing Keeper.sh through a reverse proxy that hosts it at https://keeper.example.com/
 >
 > ```bash
 > TRUSTED_ORIGINS=http://10.0.0.2,https://keeper.example.com
@@ -321,13 +325,13 @@ volumes:
   keeper-data:
 ```
 
-Once that's configured, you can launch Keeper using the following command.
+Once that's configured, you can launch Keeper.sh using the following command.
 
 ```bash
 docker compose up -d
 ```
 
-With all said and done, you can access Keeper at http://localhost/. You can use a reverse-proxy like Nginx or Caddy to put Keeper behind a domain on your network.
+With all said and done, you can access Keeper.sh at http://localhost/. You can use a reverse-proxy like Nginx or Caddy to put Keeper.sh behind a domain on your network.
 
 ## Collective Services Image
 
@@ -406,7 +410,7 @@ volumes:
   redis-data:
 ```
 
-Once that's configured, you can launch Keeper using the following command.
+Once that's configured, you can launch Keeper.sh using the following command.
 
 ```bash
 docker compose up -d
@@ -414,7 +418,7 @@ docker compose up -d
 
 ## Individual Service Images
 
-While running services individually is considered best-practice, it is verbose and more complicated to configure. Each service is hosted in its own image.
+Running each service in its own image gives you the most control over scaling and placement, at the cost of a much longer configuration. Reach for this when `keeper-standalone` or `keeper-services` no longer fits, not before.
 
 ### Generate Individual Service Environment Variables
 
@@ -532,7 +536,7 @@ volumes:
   redis-data:
 ```
 
-Once that's configured, you can launch Keeper using the following command.
+Once that's configured, you can launch Keeper.sh using the following command.
 
 ```bash
 docker compose up -d
@@ -540,7 +544,7 @@ docker compose up -d
 
 # REST API
 
-Keeper exposes a REST API under `/api/v1`. It is the same interface the dashboard and the MCP server use, so anything an agent can do through MCP you can do with `curl`.
+Keeper.sh exposes a REST API under `/api/v1`. It is the same interface the dashboard and the MCP server use, so anything an agent can do through MCP you can do with `curl`.
 
 ## Authentication
 
@@ -582,7 +586,7 @@ Range parameters `from` and `to` are ISO 8601 datetimes. If omitted, `from` defa
 
 # MCP (Model Context Protocol)
 
-Keeper includes an optional MCP server that lets AI agents (such as Claude) access your calendar data through a standardized protocol. The MCP server authenticates via OAuth 2.1 with a consent flow hosted by the web application.
+Keeper.sh includes an optional MCP server that lets AI agents (such as Claude) access your calendar data through a standardized protocol. The MCP server authenticates via OAuth 2.1 with a consent flow hosted by the web application.
 
 ## Available Tools
 
@@ -624,7 +628,7 @@ Example Claude Code MCP configuration:
 
 > [!NOTE]
 >
-> MCP is fully optional. All MCP-related environment variables are optional across every service and image. If they are not set, Keeper starts normally without MCP functionality. Existing self-hosted deployments are unaffected.
+> MCP is fully optional. All MCP-related environment variables are optional across every service and image. If they are not set, Keeper.sh starts normally without MCP functionality. Existing self-hosted deployments are unaffected.
 
 The MCP server is proxied through the web service at `/mcp`, the same way the API is proxied at `/api`.
 
@@ -641,9 +645,6 @@ MCP is **not** bundled in `keeper-services` or the individual service images. To
 ## Applications
 
 1. [@keeper.sh/web](./applications/web)
-2. @keeper.sh/cli _(Coming Soon)_
-3. @keeper.sh/mobile _(Coming Soon)_
-4. @keeper.sh/ssh _(Coming Soon)_
 
 ## Services
 

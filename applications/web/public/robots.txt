@@ -18,6 +18,21 @@ Allow: /
 Disallow: /dashboard
 Disallow: /auth
 
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /dashboard
+Disallow: /auth
+
+User-agent: Claude-User
+Allow: /
+Disallow: /dashboard
+Disallow: /auth
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /dashboard
+Disallow: /auth
+
 User-agent: PerplexityBot
 Allow: /
 Disallow: /dashboard

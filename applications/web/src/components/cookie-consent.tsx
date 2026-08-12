@@ -85,7 +85,7 @@ function CookieConsent() {
                   <ConsentBannerCard>
                     <ConsentBannerContent>
                       <Text as="span" size="sm">
-                        Can Keeper{" "}
+                        Can Keeper.sh{" "}
                         <TextLink to="/privacy" size="sm">
                           use cookies for analytics?
                         </TextLink>

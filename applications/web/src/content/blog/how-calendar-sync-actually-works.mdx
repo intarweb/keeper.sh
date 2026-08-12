@@ -1,7 +1,7 @@
 ---
-title: "How Calendar Sync Actually Works (Technical Blog Post)"
+title: "How Calendar Sync Actually Works: Sync Tokens, Recurrence, and Deletions"
 description: "What a calendar sync engine has to do: incremental syncs, 410 GONE resyncs, deduplication, loop prevention, recurrence exceptions, timezones, deletions."
-blurb: "Everything I learned building a two-way calendar sync engine — sync tokens, 410 GONE, RRULE expansion across DST, loop prevention between mirrored calendars, and why deletions are the hard part."
+blurb: "Everything I learned building a calendar sync engine — sync tokens, 410 GONE, RRULE expansion across DST, loop prevention between mirrored calendars, and why deletions are the hard part."
 createdAt: "2026-08-11"
 slug: "how-calendar-sync-actually-works"
 updatedAt: "2026-08-12"
@@ -36,11 +36,9 @@ For **Microsoft Graph**, the equivalent is a delta query. We call `calendarView/
 
 Then the failure everybody hits. Tokens expire, and both providers answer with **HTTP 410 Gone**: your token is too old, the change history you'd need is gone, start over. It isn't an error condition. It's a normal state transition that happens to every long-lived integration, and the only response is to discard the token, do a full bounded fetch, and rebuild.
 
-Ours handles 410 at the page level: any page that returns it aborts the whole pull and reports that a full sync is required. The layer above clears the stored token and immediately re-runs the fetch without one. Waiting for the next cron tick would leave the calendar stale for a whole interval, and at 30 minutes the user notices.
+Ours handles 410 at the page level: any page that returns it aborts the whole pull and reports that a full sync is required. The layer above clears the stored token and immediately re-runs the fetch without one. Waiting for the next cron tick would leave the calendar stale for a whole cycle, and that wait stacks on top of the write half — half an hour of it on the free plan.
 
 We also expire tokens ourselves. A stored token carries a version encoding the sync-window shape in force when it was issued, plus a time bucket rolling over about every seven days; either one moving on drops the token and forces a full fetch. The window part is defensive: widen the window in a release and every existing token was minted against a narrower one, so the newly-covered range would silently never backfill. The seven-day part hedges against drift, since a single mishandled tombstone persists until something forces a full read. The bucket is offset by a hash of the calendar ID, so calendars don't all resync on the same day and stampede the API.
-
-One thing we don't do: subscribe to push notifications. Google supports [push channels](https://developers.google.com/workspace/calendar/api/guides/push) and Graph supports change notifications, and both would cut latency substantially. We poll. That's a real limitation, not a design principle.
 
 ## Why our CalDAV source has no sync token
 
@@ -90,7 +88,7 @@ Everywhere UIDs are writable, we mint one deterministically: SHA-256 over the lo
 
 Every source ingest drops events whose UID ends in that suffix: Google's by `iCalUID`, CalDAV's the same, and because we store each pushed event at `<uid>.ics`, the destination listing can filter by filename before parsing a byte of iCalendar. On Google the write goes through `events.import` rather than `events.insert`, because import accepts a caller-supplied `iCalUID` and upserts on it, so re-pushing an event updates it instead of returning a conflict.
 
-**Outlook doesn't let you do any of this.** Graph assigns `iCalUId` itself on create, with no way to supply one. So the marker moves to a category: every event we create carries a `keeper.sh` category, the Outlook source skips anything carrying it, and the destination listing uses it to decide which events are ours to manage. That category is visible in the Outlook UI and a user can remove it. If they do, the next reconciliation sees an unmarked event it doesn't own, stops managing it, and creates a fresh copy — and if that calendar is also a source, the now-unmarked event ingests as a real event and starts propagating. It's the weakest link in the design, and it exists because the platform gave us no stronger one.
+**Outlook doesn't let you do any of this.** Graph assigns `iCalUId` itself on create, with no way to supply one. So the marker moves to a category: every event we create carries a `keeper.sh` category, the Outlook source skips anything carrying it, and the destination listing uses it to decide which events are ours to manage. That category is visible in the Outlook UI and a user can remove it. Graph offers nothing sturdier, so the Outlook path is built around losing it: an unmarked event is treated as the user's own and never deleted. The next reconciliation stops managing it and creates a fresh copy alongside it, and if that calendar is also a source, the unmarked event ingests as a real one and starts copying onwards. A duplicate the user can delete, rather than a deletion they cannot undo.
 
 ## Recurrence: masters, overrides, and DST
 
@@ -108,7 +106,7 @@ Expanded occurrences need stable IDs. Ours are synthetic: a hash of the calendar
 
 So there's a re-pairing step. New occurrence IDs with no mapping, and mappings whose occurrence IDs no longer exist, are grouped by the event they descend from and matched: first by identical start/end slot, then by order for the remainder. If the paired remote event is still verifiably correct — same times, matching editable hash, matching availability — we rewrite the mapping row and touch nothing remotely. Otherwise we replace it. Most master edits that don't move the occurrences cost zero remote writes.
 
-There's a guardrail. An `RRULE` with `SECONDLY` frequency and no `BY*` selectors generates tens of millions of occurrences in a two-year window and takes the process with it. Series are capped at 10,000 occurrences, and unfiltered high-frequency rules are checked arithmetically — computing how many occurrences the interval implies — before expansion starts, so a hostile rule is rejected without ever being enumerated. The check runs at ingest, before anything is persisted. A series that blows the budget aborts the whole ingest for that calendar and logs the offending UID: nothing is stored and nothing is corrupted, but one bad series stops the rest of the calendar updating, which is coarser than it should be.
+There's a guardrail. An `RRULE` with `SECONDLY` frequency and no `BY*` selectors generates tens of millions of occurrences in a two-year window and takes the process with it. Series are capped at 10,000 occurrences, and unfiltered high-frequency rules are checked arithmetically — computing how many occurrences the interval implies — before expansion starts, so a hostile rule is rejected without ever being enumerated. The check runs at ingest, before anything is persisted. A series that blows the budget is withheld with its UID logged, so the blast radius is one series rather than one calendar: nothing pathological is stored and nothing already synced is corrupted.
 
 Finally: **we never write recurrence rules to destinations.** Every occurrence is pushed as an individual, standalone event. That costs writes, a lot of them on a busy calendar. What it buys is never reasoning about what "edit this occurrence" means on four providers with four interpretations. The exception is the aggregated iCal feed, which emits real masters with `RRULE`, `EXDATE`, and `RECURRENCE-ID` overrides — it's consumed by clients that expect proper iCalendar, and there's no write path to go wrong.
 
@@ -141,5 +139,7 @@ Mappings are flushed after each chunk rather than at the end, so an interruption
 The gap is still real: between a successful remote create and the flush that records it, a hard crash leaves an orphan. The next run deletes it and creates a replacement, and the user sees an event blink. The alternative is an accumulating pile of undeletable duplicates.
 
 Deletes are treated as idempotent throughout. Both 404 and 410 on a delete count as success, because both mean the event isn't there, which is the state we were trying to reach.
+
+If you came here because you have two calendars rather than because you are building this, none of the above is yours to solve. [Keeper.sh runs it hosted](https://www.keeper.sh/register): two calendar accounts and three connections between them at no charge, and $5 a month for unlimited connections. An edit on one calendar reaches the other in about a minute on Pro, two at the outside; on the free plan, usually about fifteen minutes, thirty-one at the very worst.
 
 The whole engine is [open source](https://github.com/ridafkih/keeper.sh), so if any of this sounded like it must be more complicated than I've made it out to be — it is, and you can go read it.
