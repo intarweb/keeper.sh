@@ -80,7 +80,7 @@ const MARKETING_FEATURES: MarketingFeature[] = [
     id: 1,
     title: 'Privacy-First & Open Source',
     description:
-      'Open-source, released under an AGPL-3.0 license. Anyone can read the code and check what it does with your calendars. Here are some of the latest contributors.',
+      'Open-source, released under an AGPL-3.0 license. Community driven, and anyone can read the code to check what it does with your calendars. Here are some of the latest contributors.',
     gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-1',
     illustration: <MarketingIllustrationContributors />,
   },
