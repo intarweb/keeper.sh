@@ -57,8 +57,8 @@ Three of the nine publish an MCP server, the connector that lets an assistant li
 
 | Tool | MCP server | Tools |
 |---|---|---|
-| **Keeper.sh** | Yes, OAuth 2.1 with a consent screen | 11 — list calendars, read events, create, update, delete, RSVP, pending invites, combined link |
-| **SyncDate** | [Yes](https://syncdate.app/mcp) | 12, including triggering and pausing a sync |
+| **Keeper.sh** | Yes, OAuth 2.1 with a consent screen | 14 — list calendars, read events, create, update, delete, RSVP, pending invites, find free time, trigger a sync, pause a calendar, combined link |
+| **SyncDate** | [Yes](https://syncdate.app/mcp) | 12 |
 | **OneCal** | [Yes](https://www.onecal.io/integrations/calendar-mcp-server) | 8 |
 
 Keeper.sh's is free at 25 calls a day and uncapped on Pro, and the REST API behind it does the same things from a script. Checked 11 August 2026.
@@ -92,7 +92,7 @@ Cancel a meeting and the copy goes with it. Keeper.sh keeps a record of every co
 
 It works with Google, Outlook, iCloud, Fastmail, and any other calendar that uses the CalDAV standard. Read-only calendar links work too, so the conference feed and the university timetable block time against work like everything else.
 
-Keeper.sh also ships an MCP server with 11 tools, so an assistant like Claude can list your calendars, read events, and create, move, cancel or RSVP to them. The same actions are in the REST API. Both are free at 25 calls a day and uncapped on Pro.
+Keeper.sh also ships an MCP server with 14 tools, so an assistant like Claude can list your calendars, read events, and create, move, cancel or RSVP to them. The same actions are in the REST API. Both are free at 25 calls a day and uncapped on Pro.
 
 The code is [AGPL-3.0 on GitHub](https://github.com/ridafkih/keeper.sh), with seven published Docker images, including a standalone container that brings up the whole stack. The version you can run yourself is the version that runs the hosted service. [Start on the hosted version](https://www.keeper.sh/register) — same engine, none of the upkeep.
 
