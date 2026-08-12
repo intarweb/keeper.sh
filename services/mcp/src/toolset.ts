@@ -246,7 +246,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   list_calendars: {
     title: "List calendars",
     description:
-      "List all calendars the user has connected to Keeper, including provider name and account.",
+      "List all calendars the user has connected to Keeper.sh, including provider name and account.",
     execute: (context) => apiFetch(context, "/api/v1/calendars", z.array(keeperCalendarSchema)),
   },
   get_event_count: {
@@ -470,7 +470,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   trigger_sync: {
     title: "Trigger sync",
     description:
-      "Force Keeper to sync now: clears the ingest backoff on every active source so they are polled on the next pass, and immediately enqueues a push to every destination calendar. Throttled to one request per minute per user.",
+      "Force Keeper.sh to sync now: clears the ingest backoff on every active source so they are polled on the next pass, and immediately enqueues a push to every destination calendar. Throttled to one request per minute per user.",
     execute: (context) =>
       apiFetch(context, "/api/v1/sync", keeperSyncTriggerSchema, { method: "POST" }),
   },
