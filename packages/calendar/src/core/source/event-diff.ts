@@ -1,21 +1,13 @@
 import type { SourceEvent } from "../types";
-
-interface ExistingSourceEventState {
-  availability?: string | null;
-  description?: string | null;
-  id: string;
-  isAllDay?: boolean | null;
-  location?: string | null;
-  sourceEventType?: string | null;
-  sourceEventUid: string | null;
-  startTime: Date;
-  endTime: Date;
-  title?: string | null;
-}
+import type { IcsDuration, IcsExceptionDates, IcsRecurrenceRule } from "ts-ics";
+import stringify from "fast-json-stable-stringify";
+import { buildSourceEventInstanceKey } from "./event-instance";
+import type { ExistingSourceEventState } from "./stored-event-state";
 
 interface SourceEventDiffOptions {
+  changedEventIds?: string[];
   isDeltaSync?: boolean;
-  cancelledEventUids?: string[];
+  cancelledEventIds?: string[];
 }
 
 interface SourceEventIdentityOptions {
@@ -36,7 +28,48 @@ const normalizeIdentityIsAllDay = (
 const normalizeIdentityContent = (value: string | null | undefined): string =>
   value?.trim() ?? "";
 
+const canonicalizeStructuredIdentityValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => canonicalizeStructuredIdentityValue(entry))
+      .toSorted((first, second) => stringify(first).localeCompare(stringify(second)));
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        canonicalizeStructuredIdentityValue(entry),
+      ]),
+    );
+  }
+  return value;
+};
+
+const serializeStructuredIdentityValue = (
+  value: IcsDuration | IcsExceptionDates | IcsRecurrenceRule | null | undefined,
+): string => {
+  if (value === null || value === globalThis.undefined) {
+    return "";
+  }
+
+  return stringify(canonicalizeStructuredIdentityValue(value));
+};
+
+const resolveExistingSourceEventInstanceKey = (
+  event: ExistingSourceEventState,
+): string => buildSourceEventInstanceKey({
+  endTime: event.endTime,
+  recurrenceId: event.recurrenceId,
+  startTime: event.startTime,
+  uid: event.sourceEventUid ?? "",
+});
+
 interface SourceEventIdentityInput {
+  sourceEventId?: string | null;
+  sourceEventInstanceKey: string;
   sourceEventUid: string;
   startTime: Date;
   endTime: Date;
@@ -46,14 +79,21 @@ interface SourceEventIdentityInput {
   title?: string | null;
   description?: string | null;
   location?: string | null;
+  exceptionDates?: IcsExceptionDates | null;
+  recurrenceId?: Date | null;
+  recurrenceDuration?: SourceEvent["recurrenceDuration"];
+  recurrenceRule?: IcsRecurrenceRule | null;
+  startTimeZone?: string | null;
 }
 
 const buildSourceEventIdentityKey = (
   input: SourceEventIdentityInput,
   options: SourceEventIdentityOptions = {},
 ): string =>
-  [
+  stringify([
+    input.sourceEventId ?? "",
     input.sourceEventUid,
+    input.sourceEventInstanceKey,
     input.startTime.toISOString(),
     input.endTime.toISOString(),
     normalizeIdentityIsAllDay(input.isAllDay, options),
@@ -62,27 +102,27 @@ const buildSourceEventIdentityKey = (
     normalizeIdentityContent(input.title),
     normalizeIdentityContent(input.description),
     normalizeIdentityContent(input.location),
-  ].join("|");
-
-const buildSourceEventStorageIdentityKey = (
-  sourceEventUid: string,
-  startTime: Date,
-  endTime: Date,
-): string => `${sourceEventUid}|${startTime.toISOString()}|${endTime.toISOString()}`;
+    normalizeIdentityContent(input.startTimeZone),
+    serializeStructuredIdentityValue(input.recurrenceDuration),
+    serializeStructuredIdentityValue(input.recurrenceRule),
+    serializeStructuredIdentityValue(input.exceptionDates),
+    input.recurrenceId?.toISOString() ?? "",
+  ]);
 
 const deduplicateIncomingEvents = (incomingEvents: SourceEvent[]): SourceEvent[] => {
-  const dedupedByStorageIdentity = new Map<string, SourceEvent>();
+  const dedupedEvents = new Map<string, SourceEvent>();
 
   for (const incomingEvent of incomingEvents) {
-    const storageIdentity = buildSourceEventStorageIdentityKey(
-      incomingEvent.uid,
-      incomingEvent.startTime,
-      incomingEvent.endTime,
-    );
-    dedupedByStorageIdentity.set(storageIdentity, incomingEvent);
+    if (incomingEvent.sourceEventId) {
+      dedupedEvents.set(`provider:${incomingEvent.sourceEventId}`, incomingEvent);
+      continue;
+    }
+
+    const storageIdentity = `instance:${buildSourceEventInstanceKey(incomingEvent)}`;
+    dedupedEvents.set(storageIdentity, incomingEvent);
   }
 
-  return [...dedupedByStorageIdentity.values()];
+  return [...dedupedEvents.values()];
 };
 
 const buildExistingEventIdentitySet = (
@@ -102,11 +142,18 @@ const buildExistingEventIdentitySet = (
           availability: existingEvent.availability,
           description: existingEvent.description,
           endTime: existingEvent.endTime,
+          exceptionDates: existingEvent.exceptionDates,
           isAllDay: existingEvent.isAllDay,
           location: existingEvent.location,
+          recurrenceId: existingEvent.recurrenceId,
+          recurrenceDuration: existingEvent.recurrenceDuration,
+          recurrenceRule: existingEvent.recurrenceRule,
+          sourceEventInstanceKey: resolveExistingSourceEventInstanceKey(existingEvent),
           sourceEventType: existingEvent.sourceEventType,
+          sourceEventId: existingEvent.sourceEventId,
           sourceEventUid: existingEvent.sourceEventUid,
           startTime: existingEvent.startTime,
+          startTimeZone: existingEvent.startTimeZone,
           title: existingEvent.title,
         },
         options,
@@ -135,11 +182,18 @@ const buildSourceEventsToAdd = (
             availability: incomingEvent.availability,
             description: incomingEvent.description,
             endTime: incomingEvent.endTime,
+            exceptionDates: incomingEvent.exceptionDates,
             isAllDay: incomingEvent.isAllDay,
             location: incomingEvent.location,
+            recurrenceId: incomingEvent.recurrenceId,
+            recurrenceDuration: incomingEvent.recurrenceDuration,
+            recurrenceRule: incomingEvent.recurrenceRule,
+            sourceEventInstanceKey: buildSourceEventInstanceKey(incomingEvent),
             sourceEventType: incomingEvent.sourceEventType,
+            sourceEventId: incomingEvent.sourceEventId,
             sourceEventUid: incomingEvent.uid,
             startTime: incomingEvent.startTime,
+            startTimeZone: incomingEvent.startTimeZone,
             title: incomingEvent.title,
           },
           { normalizeMissingMetadata: options.isDeltaSync ?? false },
@@ -154,44 +208,82 @@ const buildSourceEventStateIdsToRemove = (
   options: SourceEventDiffOptions = {},
 ): string[] => {
   const normalizedIncomingEvents = deduplicateIncomingEvents(incomingEvents);
-  const { isDeltaSync = false, cancelledEventUids } = options;
+  const { changedEventIds, isDeltaSync = false, cancelledEventIds } = options;
+  const incomingProviderIdSet = new Set(
+    normalizedIncomingEvents.flatMap((incomingEvent) => {
+      if (!incomingEvent.sourceEventId) {
+        return [];
+      }
+      return [incomingEvent.sourceEventId];
+    }),
+  );
+  const providerBackedStorageIdentitySet = new Set(
+    normalizedIncomingEvents.flatMap((incomingEvent) => {
+      if (!incomingEvent.sourceEventId) {
+        return [];
+      }
+
+      return [buildSourceEventInstanceKey(incomingEvent)];
+    }),
+  );
 
   if (isDeltaSync) {
-    if (!cancelledEventUids || cancelledEventUids.length === 0) {
-      return [];
-    }
-
-    const cancelledUidSet = new Set(cancelledEventUids);
+    const changedEventIdSet = new Set(changedEventIds);
+    const cancelledEventIdSet = new Set(cancelledEventIds);
+    const changedEventsById = new Map(
+      normalizedIncomingEvents.flatMap((event) => {
+        if (!event.sourceEventId) {
+          return [];
+        }
+        return [[event.sourceEventId, event] as const];
+      }),
+    );
 
     return existingEvents
-      .filter(
-        (existingEvent) =>
-          existingEvent.sourceEventUid !== null
-          && cancelledUidSet.has(existingEvent.sourceEventUid),
-      )
+      .filter((existingEvent) => {
+        if (!existingEvent.sourceEventId) {
+          if (existingEvent.sourceEventUid === null) {
+            return false;
+          }
+
+          return providerBackedStorageIdentitySet.has(
+            resolveExistingSourceEventInstanceKey(existingEvent),
+          );
+        }
+
+        if (cancelledEventIdSet.has(existingEvent.sourceEventId)) {
+          return true;
+        }
+
+        if (!changedEventIdSet.has(existingEvent.sourceEventId)) {
+          return false;
+        }
+
+        return !changedEventsById.has(existingEvent.sourceEventId);
+      })
       .map((existingEvent) => existingEvent.id);
   }
 
   const incomingStorageIdentitySet = new Set(
     normalizedIncomingEvents.map((incomingEvent) =>
-      buildSourceEventStorageIdentityKey(
-        incomingEvent.uid,
-        incomingEvent.startTime,
-        incomingEvent.endTime,
-      )),
+      buildSourceEventInstanceKey(incomingEvent)),
   );
 
   return existingEvents
     .filter((existingEvent) => {
+      if (existingEvent.sourceEventId) {
+        return !incomingProviderIdSet.has(existingEvent.sourceEventId);
+      }
+
       if (existingEvent.sourceEventUid === null) {
         return false;
       }
 
-      const existingStorageIdentityKey = buildSourceEventStorageIdentityKey(
-        existingEvent.sourceEventUid,
-        existingEvent.startTime,
-        existingEvent.endTime,
-      );
+      const existingStorageIdentityKey = resolveExistingSourceEventInstanceKey(existingEvent);
+
+      if (providerBackedStorageIdentitySet.has(existingStorageIdentityKey)) {
+        return true;
+      }
 
       return !incomingStorageIdentitySet.has(existingStorageIdentityKey);
     })
@@ -203,4 +295,5 @@ export {
   buildSourceEventsToAdd,
   buildSourceEventStateIdsToRemove,
 };
-export type { ExistingSourceEventState, SourceEventDiffOptions };
+export type { SourceEventDiffOptions };
+export type { ExistingSourceEventState } from "./stored-event-state";

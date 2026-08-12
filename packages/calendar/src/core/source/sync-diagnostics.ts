@@ -1,10 +1,7 @@
 import type { SourceEvent } from "../types";
+import type { OAuthSyncWindow } from "../oauth/sync-window";
 import type { ExistingSourceEventState } from "./event-diff";
-
-interface OAuthSyncWindow {
-  timeMin: Date;
-  timeMax: Date;
-}
+import { buildSourceEventInstanceKey } from "./event-instance";
 
 interface SourceEventsInWindowResult {
   events: SourceEvent[];
@@ -35,28 +32,29 @@ const filterSourceEventsToSyncWindow = (
   };
 };
 
-const buildSourceEventStorageIdentityKey = (
-  uid: string,
-  startTime: Date,
-  endTime: Date,
-): string => `${uid}|${startTime.toISOString()}|${endTime.toISOString()}`;
-
-const splitSourceEventsByStorageIdentity = (
+const splitSourceEventsByPersistenceIdentity = (
   existingEvents: ExistingSourceEventState[],
   eventsToAdd: SourceEvent[],
 ): SourceEventStoragePartition => {
-  const existingStorageIdentities = new Set(
+  const existingProviderIds = new Set(
     existingEvents.flatMap((event) => {
-      if (event.sourceEventUid === null) {
+      if (!event.sourceEventId) {
         return [];
       }
-      return [
-        buildSourceEventStorageIdentityKey(
-          event.sourceEventUid,
-          event.startTime,
-          event.endTime,
-        ),
-      ];
+      return [event.sourceEventId];
+    }),
+  );
+  const existingStorageIdentities = new Set(
+    existingEvents.flatMap((event) => {
+      if (event.sourceEventId || event.sourceEventUid === null) {
+        return [];
+      }
+      return [buildSourceEventInstanceKey({
+        endTime: event.endTime,
+        recurrenceId: event.recurrenceId,
+        startTime: event.startTime,
+        uid: event.sourceEventUid,
+      })];
     }),
   );
 
@@ -64,11 +62,16 @@ const splitSourceEventsByStorageIdentity = (
   const eventsToUpdate: SourceEvent[] = [];
 
   for (const event of eventsToAdd) {
-    const storageIdentity = buildSourceEventStorageIdentityKey(
-      event.uid,
-      event.startTime,
-      event.endTime,
-    );
+    if (event.sourceEventId) {
+      if (existingProviderIds.has(event.sourceEventId)) {
+        eventsToUpdate.push(event);
+      } else {
+        eventsToInsert.push(event);
+      }
+      continue;
+    }
+
+    const storageIdentity = buildSourceEventInstanceKey(event);
 
     if (existingStorageIdentities.has(storageIdentity)) {
       eventsToUpdate.push(event);
@@ -99,10 +102,9 @@ const resolveSourceSyncTokenAction = (
 export {
   filterSourceEventsToSyncWindow,
   resolveSourceSyncTokenAction,
-  splitSourceEventsByStorageIdentity,
+  splitSourceEventsByPersistenceIdentity,
 };
 export type {
-  OAuthSyncWindow,
   SourceEventsInWindowResult,
   SourceEventStoragePartition,
   SourceSyncTokenAction,

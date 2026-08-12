@@ -132,10 +132,12 @@ class SyncAggregateTracker {
         syncEventsRemaining: INITIAL_COUNT,
         syncEventsTotal: INITIAL_COUNT,
       };
+      const syncing = this.syncingHeldByUser.has(userId);
 
       return {
         ...fallback,
-        syncing: false,
+        ...(syncing && { progressPercent: INITIAL_COUNT }),
+        syncing,
       };
     }
 
@@ -175,7 +177,7 @@ class SyncAggregateTracker {
       syncEventsProcessed,
       syncEventsRemaining,
       syncEventsTotal,
-      syncing: syncing && syncEventsRemaining > INITIAL_COUNT,
+      syncing,
     };
   }
 
@@ -244,13 +246,17 @@ class SyncAggregateTracker {
 
   trackDestinationSync(
     result: DestinationSyncResult,
-    lastSyncedAt: string,
+    lastSyncedAt?: string,
   ): SyncAggregateMessage | null {
     const progress = this.getUserProgress(result.userId);
     const current = progress.get(result.calendarId);
     progress.set(result.calendarId, SyncAggregateTracker.finalizeEntry(current));
 
-    const payload = this.computeSnapshot(result.userId, { lastSyncedAt });
+    const options: { lastSyncedAt?: string } = {};
+    if (lastSyncedAt) {
+      options.lastSyncedAt = lastSyncedAt;
+    }
+    const payload = this.computeSnapshot(result.userId, options);
     return this.maybeEmit(result.userId, payload);
   }
 

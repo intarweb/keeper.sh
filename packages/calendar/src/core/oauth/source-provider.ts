@@ -9,6 +9,7 @@ import type { OAuthSourceConfig, SourceEvent, SourceSyncResult } from "../types"
 import type { OAuthTokenProvider } from "./token-provider";
 import { isOAuthReauthRequiredError } from "./error-classification";
 import { runWithCredentialRefreshLock } from "./refresh-coordinator";
+import { withSourceIngestLock } from "../source/ingest-lock";
 
 const MS_PER_SECOND = 1000;
 
@@ -17,13 +18,17 @@ interface FetchEventsResult {
   nextSyncToken?: string;
   fullSyncRequired?: boolean;
   isDeltaSync?: boolean;
-  cancelledEventUids?: string[];
+  changedEventIds?: string[];
+  cancelledEventIds?: string[];
+  syncTokenVersion?: number;
 }
 
 interface ProcessEventsOptions {
   nextSyncToken?: string;
   isDeltaSync?: boolean;
-  cancelledEventUids?: string[];
+  changedEventIds?: string[];
+  cancelledEventIds?: string[];
+  syncTokenVersion?: number;
 }
 
 abstract class OAuthSourceProvider<TConfig extends OAuthSourceConfig = OAuthSourceConfig> {
@@ -41,7 +46,25 @@ abstract class OAuthSourceProvider<TConfig extends OAuthSourceConfig = OAuthSour
 
   abstract fetchEvents(syncToken: string | null): Promise<FetchEventsResult>;
 
-  async sync(): Promise<SourceSyncResult> {
+  sync(): Promise<SourceSyncResult> {
+    return withSourceIngestLock(
+      this.config.database,
+      this.config.calendarId,
+      (lockedDatabase) => this.syncWithLockHeld(lockedDatabase),
+    );
+  }
+
+  private async syncWithLockHeld(lockedDatabase: OAuthSourceConfig["database"]): Promise<SourceSyncResult> {
+    const originalDatabase = this.config.database;
+    this.config.database = lockedDatabase;
+    try {
+      return await this.runSyncWithLockHeld();
+    } finally {
+      this.config.database = originalDatabase;
+    }
+  }
+
+  private async runSyncWithLockHeld(): Promise<SourceSyncResult> {
     await this.ensureValidToken();
 
     const result = await this.fetchEvents(this.config.syncToken);
@@ -50,24 +73,30 @@ abstract class OAuthSourceProvider<TConfig extends OAuthSourceConfig = OAuthSour
       await this.clearSyncToken();
       const fullResult = await this.fetchEvents(null);
       return this.processEvents(fullResult.events, {
-        cancelledEventUids: fullResult.cancelledEventUids,
+        changedEventIds: fullResult.changedEventIds,
+        cancelledEventIds: fullResult.cancelledEventIds,
         isDeltaSync: fullResult.isDeltaSync,
         nextSyncToken: fullResult.nextSyncToken,
+        syncTokenVersion: fullResult.syncTokenVersion,
       });
     }
 
     const processResult = await this.processEvents(result.events, {
-      cancelledEventUids: result.cancelledEventUids,
+      changedEventIds: result.changedEventIds,
+      cancelledEventIds: result.cancelledEventIds,
       isDeltaSync: result.isDeltaSync,
       nextSyncToken: result.nextSyncToken,
+      syncTokenVersion: result.syncTokenVersion,
     });
 
     if (processResult.fullSyncRequired) {
       const fullResult = await this.fetchEvents(null);
       return this.processEvents(fullResult.events, {
-        cancelledEventUids: fullResult.cancelledEventUids,
+        changedEventIds: fullResult.changedEventIds,
+        cancelledEventIds: fullResult.cancelledEventIds,
         isDeltaSync: false,
         nextSyncToken: fullResult.nextSyncToken,
+        syncTokenVersion: fullResult.syncTokenVersion,
       });
     }
 

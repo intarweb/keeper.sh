@@ -1,5 +1,5 @@
 {
-  "id": "62ffb91a-9c9e-43b7-9dc0-c33799271c97",
+  "id": "2f41536e-131f-4bdc-b580-c5ed37855b68",
   "prevId": "7627b529-2ea6-4c59-b9b0-49f6f968c5b1",
   "version": "7",
   "dialect": "postgresql",
@@ -534,13 +534,6 @@
           "notNull": true,
           "default": false
         },
-        "markEventsAsPrivate": {
-          "name": "markEventsAsPrivate",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "customEventName": {
           "name": "customEventName",
           "type": "text",
@@ -967,6 +960,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sourceEventId": {
+          "name": "sourceEventId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "sourceEventType": {
           "name": "sourceEventType",
           "type": "text",
@@ -1044,6 +1043,28 @@
           "method": "btree",
           "with": {}
         },
+        "event_states_source_event_idx": {
+          "name": "event_states_source_event_idx",
+          "columns": [
+            {
+              "expression": "calendarId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sourceEventId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"event_states\".\"sourceEventId\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "event_states_identity_idx": {
           "name": "event_states_identity_idx",
           "columns": [
@@ -1073,6 +1094,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"event_states\".\"sourceEventId\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}

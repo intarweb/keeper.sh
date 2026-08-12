@@ -1,14 +1,26 @@
 import { RateLimiter } from "../../../core/utils/rate-limiter";
 import { generateDeterministicEventUid, isKeeperEvent } from "../../../core/events/identity";
+import {
+  createEditableEventContentHash,
+  createSyncEventContentHash,
+} from "../../../core/events/content-hash";
 import { getErrorMessage } from "../../../core/utils/error";
-import type { DeleteResult, PushResult, RemoteEvent, SyncableEvent } from "../../../core/types";
-import { CalDAVClient } from "../shared/client";
-import { eventToICalString, parseICalToRemoteEvents } from "../shared/ics";
-import { getCalDAVSyncWindow } from "../shared/sync-window";
+import type {
+  DeleteResult,
+  ListRemoteEventsOptions,
+  MaterializedSyncableEvent,
+  PushResult,
+  RemoteEvent,
+} from "../../../core/types";
+import { CalDAVClient, CalDAVCreateConflictError, CalDAVHttpError } from "../shared/client";
+import {
+  eventToICalString,
+  parseICalCalendarsToRemoteEvents,
+  parseICalToRemoteEvent,
+} from "../shared/ics";
 import type { SafeFetchOptions } from "../../../utils/safe-fetch";
 
 const CALDAV_RATE_LIMIT_CONCURRENCY = 5;
-const YEARS_UNTIL_FUTURE = 2;
 
 interface CalDAVSyncProviderConfig {
   authMethod?: "basic" | "digest";
@@ -19,6 +31,100 @@ interface CalDAVSyncProviderConfig {
   safeFetchOptions?: SafeFetchOptions;
 }
 
+class CalDAVConflictRecoveryError extends Error {
+  constructor(uid: string, cause: unknown) {
+    super(
+      `CalDAV create conflict recovery failed for event ${uid}: ${getErrorMessage(cause)}`,
+      { cause },
+    );
+    this.name = "CalDAVConflictRecoveryError";
+  }
+}
+
+const findCalDAVHttpError = (value: unknown): CalDAVHttpError | null => {
+  let candidate = value;
+  const visited = new Set<unknown>();
+
+  while (candidate instanceof Error && !visited.has(candidate)) {
+    if (candidate instanceof CalDAVHttpError) {
+      return candidate;
+    }
+    visited.add(candidate);
+    candidate = candidate.cause;
+  }
+  return null;
+};
+
+const createFailureResult = (error: unknown): {
+  error: string;
+  errorType: string;
+  statusCode?: number;
+  success: false;
+} => {
+  const httpError = findCalDAVHttpError(error);
+  let errorType = "UnknownError";
+  if (error instanceof Error) {
+    errorType = error.name;
+  }
+  return {
+    error: getErrorMessage(error),
+    errorType,
+    ...(httpError && { statusCode: httpError.status }),
+    success: false,
+  };
+};
+
+const recoverCreateConflict = async (
+  client: CalDAVClient,
+  calendarUrl: string,
+  uid: string,
+  iCalString: string,
+  event: MaterializedSyncableEvent,
+): Promise<void> => {
+  const existing = await client.fetchCalendarObject({
+    calendarUrl,
+    filename: `${uid}.ics`,
+  });
+
+  if (!existing?.data) {
+    throw new Error(`CalDAV event ${uid} already exists but could not be fetched`);
+  }
+
+  const remoteEvent = parseICalToRemoteEvent(existing.data);
+  let remoteEventHash: string | null = null;
+  if (remoteEvent) {
+    remoteEventHash = createSyncEventContentHash({
+      availability: remoteEvent.availability,
+      description: remoteEvent.description,
+      endTime: remoteEvent.endTime,
+      isAllDay: remoteEvent.isAllDay,
+      location: remoteEvent.location,
+      startTime: remoteEvent.startTime,
+      startTimeZone: remoteEvent.startTimeZone,
+      summary: remoteEvent.title ?? "",
+    });
+  }
+
+  if (remoteEvent?.uid === uid && remoteEventHash === createSyncEventContentHash(event)) {
+    return;
+  }
+
+  if (!existing.etag) {
+    throw new Error(`CalDAV event ${uid} already exists but has no ETag for a safe recreation`);
+  }
+
+  await client.deleteCalendarObject({
+    calendarUrl,
+    filename: `${uid}.ics`,
+    etag: existing.etag,
+  });
+  await client.createCalendarObject({
+    calendarUrl,
+    filename: `${uid}.ics`,
+    iCalString,
+  });
+};
+
 const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
   const client = new CalDAVClient({
     authMethod: config.authMethod,
@@ -28,7 +134,20 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
 
   const rateLimiter = new RateLimiter({ concurrency: CALDAV_RATE_LIMIT_CONCURRENCY });
 
-  const pushEvents = (events: SyncableEvent[]): Promise<PushResult[]> =>
+  const isKeeperCalendarObjectUrl = (objectUrl: string): boolean => {
+    try {
+      const url = new URL(objectUrl, config.calendarUrl);
+      const filename = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+      if (!filename.endsWith(".ics")) {
+        return false;
+      }
+      return isKeeperEvent(filename.slice(0, -4));
+    } catch {
+      return false;
+    }
+  };
+
+  const pushEvents = (events: MaterializedSyncableEvent[]): Promise<PushResult[]> =>
     Promise.all(
       events.map((event) =>
         rateLimiter.execute(async (): Promise<PushResult> => {
@@ -36,17 +155,33 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
             const uid = generateDeterministicEventUid(event.id);
             const iCalString = eventToICalString(event, uid);
 
-            await client.createCalendarObject({
-              calendarUrl: config.calendarUrl,
-              filename: `${uid}.ics`,
-              iCalString,
-            });
+            try {
+              await client.createCalendarObject({
+                calendarUrl: config.calendarUrl,
+                filename: `${uid}.ics`,
+                iCalString,
+              });
+            } catch (error) {
+              if (!(error instanceof CalDAVCreateConflictError)) {
+                throw error;
+              }
 
-            return { remoteId: uid, success: true };
+              try {
+                await recoverCreateConflict(client, config.calendarUrl, uid, iCalString, event);
+              } catch (recoveryError) {
+                throw new CalDAVConflictRecoveryError(uid, recoveryError);
+              }
+              return { conflictResolved: true, deleteId: uid, remoteId: uid, success: true };
+            }
+
+            return { deleteId: uid, remoteId: uid, success: true };
           } catch (error) {
-            return { error: getErrorMessage(error), success: false };
+            if (config.safeFetchOptions?.signal?.aborted) {
+              throw error;
+            }
+            return createFailureResult(error);
           }
-        }),
+        }, config.safeFetchOptions?.signal),
       ),
     );
 
@@ -61,42 +196,58 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
             });
             return { success: true };
           } catch (error) {
-            const notFound = error instanceof Error && error.message.includes("404");
+            if (config.safeFetchOptions?.signal?.aborted) {
+              throw error;
+            }
+            const notFound = error instanceof CalDAVHttpError && error.status === 404;
             if (notFound) {
               return { success: true };
             }
-            return { error: getErrorMessage(error), success: false };
+            return createFailureResult(error);
           }
-        }),
+        }, config.safeFetchOptions?.signal),
       ),
     );
 
-  const listRemoteEvents = async (): Promise<RemoteEvent[]> => {
-    const syncWindow = getCalDAVSyncWindow(YEARS_UNTIL_FUTURE);
+  const listRemoteEvents = async (
+    options: ListRemoteEventsOptions,
+  ): Promise<RemoteEvent[]> => {
     const calendarUrl = await client.resolveCalendarUrl(config.calendarUrl);
 
     const objects = await client.fetchCalendarObjects({
       calendarUrl,
-      timeRange: {
-        end: syncWindow.end.toISOString(),
-        start: syncWindow.start.toISOString(),
-      },
     });
 
     const remoteEvents: RemoteEvent[] = [];
 
-    for (const { data } of objects) {
-      if (!data) {
+    const parsedEvents = parseICalCalendarsToRemoteEvents(
+      objects.flatMap(({ data, url }) => {
+        if (!data || !isKeeperCalendarObjectUrl(url)) {
+          return [];
+        }
+        return [data];
+      }),
+      { rejectUnsupportedRecurrenceDates: false },
+    );
+    for (const parsed of parsedEvents) {
+      if (!isKeeperEvent(parsed.uid) || parsed.endTime < options.timeMin) {
         continue;
       }
 
-      for (const parsed of parseICalToRemoteEvents(data)) {
-        if (!isKeeperEvent(parsed.uid) || parsed.endTime < syncWindow.start) {
-          continue;
-        }
-
-        remoteEvents.push(parsed);
-      }
+      remoteEvents.push({
+        ...parsed,
+        editableAvailability: parsed.availability,
+        editableContentHash: createEditableEventContentHash({
+          availability: parsed.availability,
+          description: parsed.description,
+          endTime: parsed.endTime,
+          isAllDay: parsed.isAllDay,
+          location: parsed.location,
+          startTime: parsed.startTime,
+          summary: parsed.title ?? "",
+        }),
+        supportedAvailabilities: ["busy", "free"],
+      });
     }
 
     return remoteEvents;

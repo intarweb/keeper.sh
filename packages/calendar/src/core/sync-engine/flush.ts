@@ -1,6 +1,6 @@
-import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
+import type { BunSQLClient } from "../database-client";
 import { eventMappingsTable } from "@keeper.sh/database/schema";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { PendingChanges } from "./types";
 
 const FLUSH_BATCH_SIZE = 5000;
@@ -13,9 +13,10 @@ const chunk = <TItem>(items: TItem[], size: number): TItem[][] => {
   return chunks;
 };
 
-const createDatabaseFlush = (database: BunSQLDatabase): (changes: PendingChanges) => Promise<void> =>
+const createDatabaseFlush = (database: BunSQLClient): (changes: PendingChanges) => Promise<void> =>
   async (changes: PendingChanges): Promise<void> => {
-    if (changes.inserts.length === 0 && changes.deletes.length === 0) {
+    const updates = changes.updates ?? [];
+    if (changes.inserts.length === 0 && changes.deletes.length === 0 && updates.length === 0) {
       return;
     }
 
@@ -35,6 +36,7 @@ const createDatabaseFlush = (database: BunSQLDatabase): (changes: PendingChanges
           await transaction.insert(eventMappingsTable).values(
             batch.map((insert) => ({
               eventStateId: insert.eventStateId,
+              syncEventId: insert.syncEventId,
               calendarId: insert.calendarId,
               destinationEventUid: insert.destinationEventUid,
               deleteIdentifier: insert.deleteIdentifier,
@@ -43,6 +45,22 @@ const createDatabaseFlush = (database: BunSQLDatabase): (changes: PendingChanges
               endTime: insert.endTime,
             })),
           ).onConflictDoNothing();
+        }
+      }
+
+      if (updates.length > 0) {
+        const updateBatches = chunk(updates, FLUSH_BATCH_SIZE);
+        for (const batch of updateBatches) {
+          for (const update of batch) {
+            await transaction
+              .update(eventMappingsTable)
+              .set({
+                deleteIdentifier: update.deleteIdentifier,
+                syncEventHash: update.syncEventHash,
+                syncEventId: update.syncEventId,
+              })
+              .where(eq(eventMappingsTable.id, update.id));
+          }
         }
       }
     });

@@ -4,16 +4,48 @@ import {
   sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
 import { and, asc, eq, gte, inArray, isNotNull, or } from "drizzle-orm";
-import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import type { EventAvailability, SourceEventType, SyncableEvent } from "../types";
-import { getOAuthSyncWindowStart } from "../oauth/sync-window";
-import {
-  hasActiveFutureOccurrence,
-  parseExceptionDatesFromJson,
-  parseRecurrenceRuleFromJson,
-} from "./recurrence";
+import type { BunSQLClient } from "../database-client";
+import type {
+  EventAvailability,
+  MaterializedSyncableEvent,
+  SourceEventType,
+  SyncableEvent,
+} from "../types";
+import { getOAuthSyncWindow } from "../oauth/sync-window";
+import type { OAuthSyncWindow } from "../oauth/sync-window";
+import { parseStoredRecurrenceForMaterialization } from "./stored-recurrence";
+import { materializeRecurrenceEvents } from "./recurrence-materializer";
 
 const EMPTY_SOURCES_COUNT = 0;
+const YEARS_UNTIL_FUTURE = 2;
+
+interface DestinationEventReadDiagnostics {
+  candidateEventStateCount: number;
+  excludedBySyncPolicyCount: number;
+  materializedEventCount: number;
+  missingSourceEventUidCount: number;
+  outsideReconciliationWindowCount: number;
+  syncableEventCount: number;
+}
+
+interface DestinationEventReadResult {
+  diagnostics: DestinationEventReadDiagnostics;
+  events: MaterializedSyncableEvent[];
+}
+
+const EMPTY_DESTINATION_EVENT_READ_DIAGNOSTICS: DestinationEventReadDiagnostics = {
+  candidateEventStateCount: 0,
+  excludedBySyncPolicyCount: 0,
+  materializedEventCount: 0,
+  missingSourceEventUidCount: 0,
+  outsideReconciliationWindowCount: 0,
+  syncableEventCount: 0,
+};
+
+const isEventInDestinationReconciliationWindow = (
+  event: Pick<SyncableEvent, "endTime">,
+  timeMin: Date,
+): boolean => event.endTime >= timeMin;
 
 const orAbsent = <TValue>(value: TValue | null): TValue | undefined => {
   if (value === null) {
@@ -116,7 +148,7 @@ const resolveEventNameTemplate = (
 };
 
 const getMappedSourceCalendarIds = async (
-  database: BunSQLDatabase,
+  database: BunSQLClient,
   destinationCalendarId: string,
 ): Promise<string[]> => {
   const mappings = await database
@@ -127,15 +159,17 @@ const getMappedSourceCalendarIds = async (
   return mappings.map((mapping) => mapping.sourceCalendarId);
 };
 
-const fetchEventsForCalendars = async (
-  database: BunSQLDatabase,
+const getEventsForCalendarsWithDiagnostics = async (
+  database: BunSQLClient,
   calendarIds: string[],
-): Promise<SyncableEvent[]> => {
+  syncWindow: OAuthSyncWindow = getOAuthSyncWindow(YEARS_UNTIL_FUTURE),
+): Promise<DestinationEventReadResult> => {
   if (calendarIds.length === EMPTY_SOURCES_COUNT) {
-    return [];
+    return {
+      diagnostics: EMPTY_DESTINATION_EVENT_READ_DIAGNOSTICS,
+      events: [],
+    };
   }
-
-  const syncWindowStart = getOAuthSyncWindowStart();
 
   const results = await database
     .select({
@@ -158,6 +192,7 @@ const fetchEventsForCalendars = async (
       isAllDay: eventStatesTable.isAllDay,
       location: eventStatesTable.location,
       recurrenceRule: eventStatesTable.recurrenceRule,
+      recurrenceId: eventStatesTable.recurrenceId,
       sourceEventType: eventStatesTable.sourceEventType,
       sourceEventUid: eventStatesTable.sourceEventUid,
       startTime: eventStatesTable.startTime,
@@ -170,35 +205,42 @@ const fetchEventsForCalendars = async (
       and(
         inArray(eventStatesTable.calendarId, calendarIds),
         or(
-          gte(eventStatesTable.startTime, syncWindowStart),
+          gte(eventStatesTable.endTime, syncWindow.timeMin),
           isNotNull(eventStatesTable.recurrenceRule),
+          isNotNull(eventStatesTable.recurrenceId),
         ),
       ),
     )
     .orderBy(asc(eventStatesTable.startTime));
 
   const syncableEvents: SyncableEvent[] = [];
+  let excludedBySyncPolicyCount = 0;
+  let missingSourceEventUidCount = 0;
+  let outsideReconciliationWindowCount = 0;
 
   for (const result of results) {
     if (result.sourceEventUid === null) {
+      missingSourceEventUidCount += 1;
       continue;
     }
     if (shouldExcludeSyncEvent(result)) {
+      excludedBySyncPolicyCount += 1;
       continue;
     }
 
-    const parsedRecurrenceRule = parseRecurrenceRuleFromJson(result.recurrenceRule);
-    const parsedExceptionDates = parseExceptionDatesFromJson(result.exceptionDates);
+    const recurrence = parseStoredRecurrenceForMaterialization({
+      eventId: result.id,
+      exceptionDates: result.exceptionDates,
+      recurrenceId: result.recurrenceId,
+      recurrenceRule: result.recurrenceRule,
+    });
 
     if (
-      result.startTime < syncWindowStart
-      && !hasActiveFutureOccurrence(
-        result.startTime,
-        parsedRecurrenceRule,
-        parsedExceptionDates,
-        syncWindowStart,
-      )
+      !isEventInDestinationReconciliationWindow(result, syncWindow.timeMin)
+      && !recurrence.recurrenceId
+      && !recurrence.recurrenceRule
     ) {
+      outsideReconciliationWindowCount += 1;
       continue;
     }
 
@@ -221,12 +263,12 @@ const fetchEventsForCalendars = async (
       availability: parseAvailability(result.availability),
       description: excludeOrAbsent(result.excludeEventDescription, result.description),
       endTime: result.endTime,
+      eventStateId: result.id,
       id: result.id,
       isAllDay: orAbsentBoolean(result.isAllDay),
       isPrivate: trueOrAbsent(result.markEventsAsPrivate),
       location: excludeOrAbsent(result.excludeEventLocation, result.location),
-      exceptionDates: parsedExceptionDates,
-      recurrenceRule: orAbsent(parsedRecurrenceRule),
+      ...recurrence,
       sourceEventUid: result.sourceEventUid,
       startTime: result.startTime,
       startTimeZone: orAbsent(result.startTimeZone),
@@ -234,20 +276,55 @@ const fetchEventsForCalendars = async (
     });
   }
 
-  return syncableEvents;
+  const events = materializeRecurrenceEvents(syncableEvents, {
+    end: syncWindow.timeMax,
+    start: syncWindow.timeMin,
+  }, {
+    retainOneOffEventsAfterWindowEnd: true,
+  });
+
+  return {
+    diagnostics: {
+      candidateEventStateCount: results.length,
+      excludedBySyncPolicyCount,
+      materializedEventCount: events.length,
+      missingSourceEventUidCount,
+      outsideReconciliationWindowCount,
+      syncableEventCount: syncableEvents.length,
+    },
+    events,
+  };
+};
+
+const getEventsForCalendars = async (
+  database: BunSQLClient,
+  calendarIds: string[],
+  syncWindow: OAuthSyncWindow = getOAuthSyncWindow(YEARS_UNTIL_FUTURE),
+): Promise<MaterializedSyncableEvent[]> => {
+  const result = await getEventsForCalendarsWithDiagnostics(database, calendarIds, syncWindow);
+  return result.events;
 };
 
 const getEventsForDestination = async (
-  database: BunSQLDatabase,
+  database: BunSQLClient,
   destinationCalendarId: string,
-): Promise<SyncableEvent[]> => {
+  syncWindow: OAuthSyncWindow = getOAuthSyncWindow(YEARS_UNTIL_FUTURE),
+): Promise<MaterializedSyncableEvent[]> => {
   const sourceCalendarIds = await getMappedSourceCalendarIds(database, destinationCalendarId);
 
   if (sourceCalendarIds.length === EMPTY_SOURCES_COUNT) {
     return [];
   }
 
-  return fetchEventsForCalendars(database, sourceCalendarIds);
+  return getEventsForCalendars(database, sourceCalendarIds, syncWindow);
 };
 
-export { getEventsForDestination, shouldExcludeSyncEvent };
+export {
+  getEventsForCalendars,
+  getEventsForCalendarsWithDiagnostics,
+  getEventsForDestination,
+  getMappedSourceCalendarIds,
+  isEventInDestinationReconciliationWindow,
+  shouldExcludeSyncEvent,
+};
+export type { DestinationEventReadDiagnostics, DestinationEventReadResult };

@@ -1,4 +1,6 @@
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
+import type { BunSQLClient } from "./database-client";
+import type { IcsDuration, IcsExceptionDates, IcsRecurrenceRule } from "ts-ics";
 import type { RefreshLockStore } from "./oauth/refresh-coordinator";
 
 type AuthType = "oauth" | "caldav" | "none";
@@ -45,14 +47,17 @@ interface ProviderDefinition {
 
 interface SyncableEvent {
   id: string;
+  /** The persisted event_states row that owns this logical event. */
+  eventStateId?: string;
   sourceEventUid: string;
   startTime: Date;
   endTime: Date;
   availability?: EventAvailability;
   isAllDay?: boolean;
   startTimeZone?: string;
-  recurrenceRule?: object;
-  exceptionDates?: object;
+  recurrenceDuration?: IcsDuration;
+  recurrenceRule?: IcsRecurrenceRule;
+  exceptionDates?: Date[];
   recurrenceId?: Date;
   summary: string;
   description?: string;
@@ -63,11 +68,23 @@ interface SyncableEvent {
   calendarUrl: string | null;
 }
 
+type MaterializedSyncableEvent = Omit<
+  SyncableEvent,
+  "exceptionDates" | "recurrenceDuration" | "recurrenceId" | "recurrenceRule"
+> & {
+  exceptionDates?: never;
+  recurrenceDuration?: never;
+  recurrenceId?: never;
+  recurrenceRule?: never;
+};
+
 interface PushResult {
   success: boolean;
   remoteId?: string;
   deleteId?: string;
   error?: string;
+  errorType?: string;
+  statusCode?: number;
   shouldContinue?: boolean;
   conflictResolved?: boolean;
 }
@@ -75,6 +92,8 @@ interface PushResult {
 interface DeleteResult {
   success: boolean;
   error?: string;
+  errorType?: string;
+  statusCode?: number;
   shouldContinue?: boolean;
 }
 
@@ -91,14 +110,24 @@ interface RemoteEvent {
   startTime: Date;
   endTime: Date;
   isKeeperEvent: boolean;
+  editableContentHash?: string;
+  editableAvailability?: EventAvailability;
+  supportedAvailabilities?: EventAvailability[];
 }
 
 type SyncOperation =
-  | { type: "add"; event: SyncableEvent }
-  | { type: "remove"; uid: string; deleteId: string; startTime: Date };
+  | { type: "add"; event: MaterializedSyncableEvent; staleMappingId?: string }
+  | { type: "remove"; uid: string; deleteId: string; startTime: Date }
+  | {
+    type: "replace";
+    event: MaterializedSyncableEvent;
+    staleMappingId: string;
+    uid: string;
+    deleteId: string;
+  };
 
 interface ListRemoteEventsOptions {
-  until: Date;
+  timeMin: Date;
 }
 
 type BroadcastSyncStatus = (
@@ -136,14 +165,16 @@ interface CalDAVConfig extends ProviderConfig {
 
 interface SourceEvent {
   uid: string;
+  sourceEventId?: string;
   startTime: Date;
   endTime: Date;
   sourceEventType?: SourceEventType;
   availability?: EventAvailability;
   isAllDay?: boolean;
   startTimeZone?: string;
-  recurrenceRule?: object;
-  exceptionDates?: object;
+  recurrenceDuration?: IcsDuration;
+  recurrenceRule?: IcsRecurrenceRule;
+  exceptionDates?: IcsExceptionDates;
   recurrenceId?: Date;
   title?: string;
   description?: string;
@@ -163,7 +194,7 @@ interface SourceSyncResult {
 }
 
 interface OAuthSourceConfig {
-  database: BunSQLDatabase;
+  database: BunSQLClient;
   userId: string;
   calendarId: string;
   externalCalendarId: string;
@@ -186,6 +217,7 @@ export type {
   SourcePreferenceOption,
   SourcePreferencesConfig,
   SyncableEvent,
+  MaterializedSyncableEvent,
   PushResult,
   DeleteResult,
   SyncResult,
