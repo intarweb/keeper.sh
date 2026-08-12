@@ -51,6 +51,18 @@ Keeper.sh is free with two accounts and three connections, and $5 flat at thirty
 
 Four of those rows carry no published speed figure at all. Keeper.sh reads every calendar every minute, iCloud and CalDAV included.
 
+## Which ones can an AI assistant drive?
+
+Three of the nine publish an MCP server, the connector that lets an assistant like Claude or ChatGPT act on your calendar rather than just talk about it.
+
+| Tool | MCP server | Tools |
+|---|---|---|
+| **Keeper.sh** | Yes, OAuth 2.1 with a consent screen | 11 — list calendars, read events, create, update, delete, RSVP, pending invites, combined link |
+| **SyncDate** | [Yes](https://syncdate.app/mcp) | 12, including triggering and pausing a sync |
+| **OneCal** | [Yes](https://www.onecal.io/integrations/calendar-mcp-server) | 8 |
+
+Keeper.sh's is free at 25 calls a day and uncapped on Pro, and the REST API behind it does the same things from a script. Checked 11 August 2026.
+
 ## Ten calendars: $5 here, $40 for eight at CalendarBridge
 
 OneCal, CalendarBridge and SyncThemCalendars all charge by the calendar or by the sync pair. The price goes up in proportion to how bad your problem is. A contractor with nine client calendars plus a personal one is the worst case, and a common one.
@@ -78,7 +90,9 @@ What arrives is a block of busy time named after the calendar it came from. Titl
 
 Cancel a meeting and the copy goes with it. Keeper.sh keeps a record of every copy it wrote so it can take that copy back, and it never deletes an event it did not create.
 
-It works with Google, Outlook, iCloud, Fastmail, and any other calendar that uses the CalDAV standard. Read-only calendar links work too, so the conference feed and the university timetable block time against work like everything else. The API reads and writes: create, move, cancel or RSVP across every connected calendar from a script, or from an AI assistant.
+It works with Google, Outlook, iCloud, Fastmail, and any other calendar that uses the CalDAV standard. Read-only calendar links work too, so the conference feed and the university timetable block time against work like everything else.
+
+Keeper.sh also ships an MCP server with 11 tools, so an assistant like Claude can list your calendars, read events, and create, move, cancel or RSVP to them. The same actions are in the REST API. Both are free at 25 calls a day and uncapped on Pro.
 
 The code is [AGPL-3.0 on GitHub](https://github.com/ridafkih/keeper.sh), with seven published Docker images, including a standalone container that brings up the whole stack. The version you can run yourself is the version that runs the hosted service. [Start on the hosted version](https://www.keeper.sh/register) — same engine, none of the upkeep.
 
