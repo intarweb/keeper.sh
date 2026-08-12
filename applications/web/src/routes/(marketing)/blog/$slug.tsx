@@ -1,12 +1,24 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
+import type { AllowedTags, Components } from "streamdown";
 import { Heading1 } from "@/components/ui/primitives/heading";
 import { Prose } from "@/components/ui/primitives/prose";
 import { ExternalTextLink } from "@/components/ui/primitives/text-link";
 import { Text } from "@/components/ui/primitives/text";
 import { ArticleCta } from "@/features/marketing/components/article-cta";
+import { MarkdownFaq, MarkdownFaqItem } from "@/features/marketing/components/markdown-faq";
 import { findBlogPostBySlug } from "@/lib/blog-posts";
 import { formatIsoDate } from "@/utils/date";
-import { canonicalUrl, jsonLdScript, seoMeta, blogPostingSchema, breadcrumbSchema } from "@/lib/seo";
+import { canonicalUrl, jsonLdScript, seoMeta, blogPostingSchema, breadcrumbSchema, faqPageSchema } from "@/lib/seo";
+
+const MARKDOWN_FAQ_TAGS: AllowedTags = {
+  faq: [],
+  "faq-item": ["question"],
+};
+
+const MARKDOWN_FAQ_COMPONENTS = {
+  faq: MarkdownFaq,
+  "faq-item": MarkdownFaqItem,
+} as Components;
 
 export const Route = createFileRoute("/(marketing)/blog/$slug")({
   component: BlogPostPage,
@@ -48,6 +60,9 @@ export const Route = createFileRoute("/(marketing)/blog/$slug")({
           { name: "Blog", path: "/blog" },
           { name: blogPost.metadata.title, path: postUrl },
         ])),
+        ...(blogPost.faq.length > 0
+          ? [jsonLdScript(faqPageSchema(postUrl, blogPost.faq))]
+          : []),
       ],
     };
   },
@@ -87,7 +102,9 @@ function BlogPostPage() {
         </div>
       </header>
 
-      <Prose>{blogPost.content}</Prose>
+      <Prose allowedTags={MARKDOWN_FAQ_TAGS} components={MARKDOWN_FAQ_COMPONENTS}>
+        {blogPost.content}
+      </Prose>
 
       <ArticleCta />
     </div>

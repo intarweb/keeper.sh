@@ -3,7 +3,6 @@ title: "Open-Source Calendar Sync Tools Compared"
 description: "The self-hostable projects people reach for when they want calendars in sync, grouped by what they actually do, with licences and release dates taken from each project's own repository."
 blurb: "Search for an open-source calendar sync tool and most of what comes back is a CalDAV server or an Android client. This sorts the projects by what they actually do."
 slug: "open-source-calendar-sync"
-checkedAt: "2026-08-11"
 createdAt: "2026-08-11"
 updatedAt: "2026-08-11"
 tags:
@@ -11,15 +10,6 @@ tags:
   - "self-hosting"
   - "caldav"
   - "sync"
-faq:
-  - question: "What is the best open-source tool for syncing calendars between accounts?"
-    answer: "It depends what you mean by syncing. If you want events from a work Google account to block time on a personal Outlook account, the tools that do that directly are Keeper.sh and vdirsyncer, or a workflow you build yourself in n8n or Activepieces. Radicale, Baïkal, Nextcloud and EteSync are places to host calendars, not tools for copying events between accounts."
-  - question: "Is Radicale or Baïkal a calendar sync tool?"
-    answer: "No. Both are CalDAV and CardDAV servers. They give you somewhere to keep calendars that you control. Neither connects to Google Calendar or Microsoft Graph and neither copies events between third-party accounts. They are often the right answer to a different question."
-  - question: "Is n8n open source?"
-    answer: "n8n is distributed under the Sustainable Use License version 1.0, which is not an OSI-approved open-source licence. Its terms limit use to your own internal business purposes and allow redistribution only free of charge for non-commercial purposes. The project describes itself as fair-code."
-  - question: "Can I self-host Keeper.sh, and do I lose features?"
-    answer: "Yes, under AGPL-3.0, with published Docker images. Self-hosted instances get every Pro feature with no licence key. You do lose passkey and social login, which are only enabled in commercial mode, and you are responsible for running Postgres and Redis."
 ---
 
 Search for an open-source calendar sync tool and you get a list that mixes together three unrelated kinds of software. Most of what comes back is a CalDAV server or an Android client, neither of which will copy an event from your work calendar onto your personal one. This article sorts them by what they actually do.
@@ -96,35 +86,44 @@ An end-to-end encrypted sync stack, AGPL-3.0, with its own server, clients and a
 
 ## Picking between them
 
-Pick something other than Keeper.sh if you want a calendar server you own, in which case Radicale or Baïkal, or Nextcloud if you want the rest of Nextcloud with it. Pick EteSync if end-to-end encryption over your own calendar data matters more than mirroring between providers. Pick vdirsyncer if you are comfortable with a CLI, a cron job and configuration files — it costs nothing to run and it is a genuinely small, well-understood tool. If you already run n8n or Activepieces and want the sync logic under your own control, build it there rather than adding another service. And if you need your CalDAV calendars on Android, that is DAVx⁵, alongside whatever else you use.
+Pick something other than Keeper.sh if you want a calendar server you own, in which case Radicale or Baïkal, or Nextcloud if you want the rest of Nextcloud with it. Pick EteSync if you want its encrypted sync stack across your own devices rather than mirroring between providers. Pick vdirsyncer if you are comfortable with a CLI, a cron job and configuration files — it costs nothing to run and it is a genuinely small, well-understood tool. If you already run n8n or Activepieces and want the sync logic under your own control, build it there rather than adding another service. And if you need your CalDAV calendars on Android, that is DAVx⁵, alongside whatever else you use.
 
 Keeper.sh is the better fit when you want mirroring between accounts to work without assembling it yourself, when you need Google and Microsoft over their real APIs with incremental sync rather than CalDAV shims, when you want a hosted option and a self-hosted option with the same feature set, when AGPL-3.0 matters to you more than a source-available licence with use restrictions, and when you want anonymised busy blocks by default rather than full event copies.
 
 ## What Keeper.sh does not do
 
-Keeper.sh is not a calendar server. It does not store your calendars for you in a way you would want to point a client at, and it is not a replacement for Radicale, Baïkal or Nextcloud. It has no mobile app, no desktop client, and no end-to-end encryption of the events it holds.
+Keeper.sh is not a calendar server. It does not store your calendars for you in a way you would want to point a client at, and it is not a replacement for Radicale, Baïkal or Nextcloud. It has no mobile app and no desktop client.
 
 It also polls rather than subscribing to provider webhooks, so changes take up to a minute on Pro and up to 30 minutes on the free plan to reach a destination calendar. Incremental sync works on Google and Outlook only; CalDAV sources are refetched and diffed on every cycle.
 
 Self-hosting is genuinely full-featured, with one caveat worth stating: passkey and social login are only enabled in commercial mode, so a self-hosted instance uses email and password.
 
+## Frequently asked questions
+
+<faq>
+<faq-item question="What is the best open-source tool for syncing calendars between accounts?">It depends what you mean by syncing. If you want events from a work Google account to block time on a personal Outlook account, the tools that do that directly are Keeper.sh and vdirsyncer, or a workflow you build yourself in n8n or Activepieces. Radicale, Baïkal, Nextcloud and EteSync are places to host calendars, not tools for copying events between accounts.</faq-item>
+<faq-item question="Is Radicale or Baïkal a calendar sync tool?">No. Both are CalDAV and CardDAV servers. They give you somewhere to keep calendars that you control. Neither connects to Google Calendar or Microsoft Graph and neither copies events between third-party accounts. They are often the right answer to a different question.</faq-item>
+<faq-item question="Is n8n open source?">n8n is distributed under the Sustainable Use License version 1.0, which is not an OSI-approved open-source licence. Its terms limit use to your own internal business purposes and allow redistribution only free of charge for non-commercial purposes. The project describes itself as fair-code.</faq-item>
+<faq-item question="Can I self-host Keeper.sh, and do I lose features?">Yes, under AGPL-3.0, with published Docker images. Self-hosted instances get every Pro feature with no licence key. You do lose passkey and social login, which are only enabled in commercial mode, and you are responsible for running Postgres and Redis.</faq-item>
+</faq>
+
 ## Sources
 
 Every third-party claim above comes from one of these pages, each checked on 11 August 2026.
 
-1. [Keeper.sh repository](https://github.com/ridafkih/keeper.sh) — AGPL-3.0 licence, Docker images, self-hosting instructions. Checked 11 August 2026.
-2. [vdirsyncer configuration docs](https://vdirsyncer.pimutils.org/en/stable/config.html) — BSD 3-Clause licence, storage pairs, `google_calendar` storage. Checked 11 August 2026.
-3. [vdirsyncer repository](https://github.com/pimutils/vdirsyncer) — latest tag v0.20.0, commit dated 28 August 2025. Checked 11 August 2026.
-4. [n8n LICENSE.md](https://github.com/n8n-io/n8n/blob/master/LICENSE.md) — Sustainable Use License v1.0, internal business purposes and non-commercial distribution. Checked 11 August 2026.
-5. [n8n documentation](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.googlecalendar/) — Google Calendar node and Microsoft Outlook node with calendar and event operations. Checked 11 August 2026.
-6. [n8n Cloud pricing](https://n8n.io/pricing/) — Starter, Pro, Business and Enterprise tiers. Checked 11 August 2026.
-7. [Activepieces repository LICENSE](https://github.com/activepieces/activepieces/blob/main/LICENSE) — MIT with the `packages/ee` directories under a separate licence. Checked 11 August 2026.
-8. [Activepieces Google Calendar piece](https://www.activepieces.com/pieces/google-calendar) — Google Calendar and Microsoft Outlook Calendar pieces, available triggers and actions. Checked 11 August 2026.
-9. [Radicale](https://radicale.org/v3.html) — CalDAV and CardDAV server, GPLv3, release v3.7.8 on 6 August 2026. Checked 11 August 2026.
-10. [Baïkal](https://sabre.io/baikal/) — lightweight CalDAV and CardDAV server, GPL-3.0, release 0.12.1 on 5 August 2026. Checked 11 August 2026.
-11. [Nextcloud Calendar documentation](https://docs.nextcloud.com/server/latest/user_manual/en/groupware/calendar.html) — read-only subscription from link, refreshed weekly. Checked 11 August 2026.
-12. [Nextcloud Calendar repository](https://github.com/nextcloud/calendar) — AGPL-3.0 licence, latest tag v6.6.0 dated 28 July 2026. Checked 11 August 2026.
-13. [DAVx⁵](https://www.davx5.com/) — all-in-one CalDAV, CardDAV and WebDAV solution for Android, GPL-3.0, release v4.5.19-ose on 3 August 2026. Checked 11 August 2026.
-14. [DAVx⁵ documentation](https://www.davx5.com/tested-with/google) — Google accounts work over CalDAV with OAuth 2.0 and are not officially supported by either party. Checked 11 August 2026.
-15. [EteSync](https://www.etesync.com/) — end-to-end encrypted sync for contacts, calendars, tasks and notes, with a DAV bridge. Checked 11 August 2026.
-16. [EteSync server repository](https://github.com/etesync/server) — AGPL-3.0 licence, latest tag v0.14.2 with a commit dated 13 June 2024. Checked 11 August 2026.
+1. [Keeper.sh repository](https://github.com/ridafkih/keeper.sh) — AGPL-3.0 licence, Docker images, self-hosting instructions.
+2. [vdirsyncer configuration docs](https://vdirsyncer.pimutils.org/en/stable/config.html) — BSD 3-Clause licence, storage pairs, `google_calendar` storage.
+3. [vdirsyncer repository](https://github.com/pimutils/vdirsyncer) — latest tag v0.20.0, commit dated 28 August 2025.
+4. [n8n LICENSE.md](https://github.com/n8n-io/n8n/blob/master/LICENSE.md) — Sustainable Use License v1.0, internal business purposes and non-commercial distribution.
+5. [n8n documentation](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.googlecalendar/) — Google Calendar node and Microsoft Outlook node with calendar and event operations.
+6. [n8n Cloud pricing](https://n8n.io/pricing/) — Starter, Pro, Business and Enterprise tiers.
+7. [Activepieces repository LICENSE](https://github.com/activepieces/activepieces/blob/main/LICENSE) — MIT with the `packages/ee` directories under a separate licence.
+8. [Activepieces Google Calendar piece](https://www.activepieces.com/pieces/google-calendar) — Google Calendar and Microsoft Outlook Calendar pieces, available triggers and actions.
+9. [Radicale](https://radicale.org/v3.html) — CalDAV and CardDAV server, GPLv3, release v3.7.8 on 6 August 2026.
+10. [Baïkal](https://sabre.io/baikal/) — lightweight CalDAV and CardDAV server, GPL-3.0, release 0.12.1 on 5 August 2026.
+11. [Nextcloud Calendar documentation](https://docs.nextcloud.com/server/latest/user_manual/en/groupware/calendar.html) — read-only subscription from link, refreshed weekly.
+12. [Nextcloud Calendar repository](https://github.com/nextcloud/calendar) — AGPL-3.0 licence, latest tag v6.6.0 dated 28 July 2026.
+13. [DAVx⁵](https://www.davx5.com/) — all-in-one CalDAV, CardDAV and WebDAV solution for Android, GPL-3.0, release v4.5.19-ose on 3 August 2026.
+14. [DAVx⁵ documentation](https://www.davx5.com/tested-with/google) — Google accounts work over CalDAV with OAuth 2.0 and are not officially supported by either party.
+15. [EteSync](https://www.etesync.com/) — end-to-end encrypted sync for contacts, calendars, tasks and notes, with a DAV bridge.
+16. [EteSync server repository](https://github.com/etesync/server) — AGPL-3.0 licence, latest tag v0.14.2 with a commit dated 13 June 2024.

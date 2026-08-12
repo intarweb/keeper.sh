@@ -17,7 +17,6 @@ const staticEntries: SitemapEntry[] = [
   { loc: `${SITE_URL}/blog`, lastmod: "2026-03-09" },
   { loc: `${SITE_URL}/privacy`, lastmod: "2025-12-01" },
   { loc: `${SITE_URL}/terms`, lastmod: "2025-12-01" },
-  { loc: `${SITE_URL}/compare`, lastmod: "2026-08-11" },
 ];
 
 function parseFrontmatter(raw: string, file: string): Record<string, unknown> {
@@ -77,7 +76,6 @@ function buildSitemapXml(entries: SitemapEntry[]): string {
 
 export function sitemapPlugin(): Plugin {
   let blogDir: string;
-  let compareDir: string;
 
   return {
     name: "keeper-sitemap",
@@ -85,14 +83,12 @@ export function sitemapPlugin(): Plugin {
 
     configResolved(config) {
       blogDir = resolve(config.root, "src/content/blog");
-      compareDir = resolve(config.root, "src/content/compare");
     },
 
     generateBundle() {
       const entries = [
         ...staticEntries,
         ...discoverContentEntries(blogDir, "/blog", "Blog post"),
-        ...discoverContentEntries(compareDir, "/compare", "Compare article"),
       ];
 
       this.emitFile({

@@ -6,7 +6,6 @@ import svgr from "vite-plugin-svgr";
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 import { blogPlugin } from "./plugins/blog";
-import { comparePlugin } from "./plugins/compare";
 import { sitemapPlugin } from "./plugins/sitemap";
 
 export default defineConfig(({ isSsrBuild }) => ({
@@ -17,7 +16,6 @@ export default defineConfig(({ isSsrBuild }) => ({
   },
   plugins: [
     blogPlugin(),
-    comparePlugin(),
     tailwindcss(),
     tanstackRouter({
       autoCodeSplitting: true,

@@ -11,8 +11,14 @@ export interface BlogPostMetadata {
   updatedAt: string;
 }
 
+export interface BlogPostFaqEntry {
+  answer: string;
+  question: string;
+}
+
 export interface BlogPost {
   content: string;
+  faq: BlogPostFaqEntry[];
   metadata: BlogPostMetadata;
   slug: string;
 }
