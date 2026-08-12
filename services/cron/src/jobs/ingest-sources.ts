@@ -456,10 +456,6 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
 };
 
 const ingestCalDAVSources = async (): Promise<{ added: number; removed: number; errors: number; ingestEvents: Record<string, unknown>[] }> => {
-  if (!env.ENCRYPTION_KEY) {
-    return { added: 0, removed: 0, errors: 0, ingestEvents: [] };
-  }
-
   const encryptionKey = env.ENCRYPTION_KEY;
 
   const caldavSources = await database

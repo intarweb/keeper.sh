@@ -158,7 +158,7 @@ interface ResolveProviderOptions {
   userId: string;
   accountId: string;
   oauthConfig: OAuthConfig;
-  encryptionKey?: string;
+  encryptionKey: string;
   refreshLockStore?: RefreshLockStore | null;
   rateLimiter?: RedisRateLimiter;
   signal?: AbortSignal;
@@ -179,7 +179,7 @@ const resolveSyncProvider = (options: ResolveProviderOptions): Promise<CalendarS
     );
   }
 
-  if (CALDAV_PROVIDERS.has(options.provider) && options.encryptionKey) {
+  if (CALDAV_PROVIDERS.has(options.provider)) {
     return resolveCalDAVProvider(
       options.database,
       options.calendarId,

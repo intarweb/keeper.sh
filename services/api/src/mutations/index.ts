@@ -45,7 +45,7 @@ interface MutationDependencies {
   database: KeeperDatabase;
   oauthTokenRefresher?: OAuthTokenRefresher;
   refreshLockStore?: RefreshLockStore | null;
-  encryptionKey?: string;
+  encryptionKey: string;
 }
 
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
@@ -167,7 +167,7 @@ const dispatchCreateEvent = (
     return createEventViaOAuth(credentials, input, deps);
   }
 
-  if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && deps.encryptionKey && credentials.calendarUrl) {
+  if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && credentials.calendarUrl) {
     return createEventViaCalDAV(credentials, input, deps.encryptionKey);
   }
 
@@ -246,7 +246,7 @@ const dispatchUpdateEvent = async (
     return { success: false, error: `Unsupported OAuth provider: ${credentials.provider}` };
   }
 
-  if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && deps.encryptionKey && credentials.calendarUrl) {
+  if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && credentials.calendarUrl) {
     return updateCalDAVEvent(
       {
         serverUrl: credentials.caldav.serverUrl,
@@ -382,7 +382,7 @@ const deleteEventMutation = async (
           return result;
         }
       }
-    } else if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && deps.encryptionKey && credentials.calendarUrl) {
+    } else if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && credentials.calendarUrl) {
       const result = await deleteCalDAVEvent(
         {
           serverUrl: credentials.caldav.serverUrl,
@@ -458,7 +458,7 @@ const rsvpEventMutation = async (
     return { success: false, error: `RSVP not supported for provider: ${credentials.provider}` };
   }
 
-  if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && deps.encryptionKey && credentials.calendarUrl) {
+  if (credentials.caldav && CALDAV_PROVIDERS.has(credentials.provider) && credentials.calendarUrl) {
     return rsvpCalDAVEvent(
       {
         serverUrl: credentials.caldav.serverUrl,
@@ -561,7 +561,7 @@ const fetchPendingInvitesForCalendar = (
     return fetchOAuthPendingInvites(credentials, from, to, deps);
   }
 
-  if (credentials.caldav && deps.encryptionKey) {
+  if (credentials.caldav) {
     return fetchCalDAVPendingInvites(credentials, from, to, deps.encryptionKey);
   }
 
