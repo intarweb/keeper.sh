@@ -18,6 +18,7 @@ import type {
   EventMapping,
   DestinationEventReadDiagnostics,
   MaterializedSyncableEvent,
+  ReconciliationScope,
   RefreshLockStore,
   RemoteEvent,
   SyncProgressUpdate,
@@ -278,6 +279,32 @@ const haveSourceCalendarsChanged = (
     (calendarId, index) => calendarId !== orderedAtLocalRead[index],
   );
 };
+
+interface DestinationReconciliationScopeContext {
+  authoritativeSourceWindows: ReadonlyMap<string, SyncWindow>;
+  authoritativeWindow: SyncWindow | null;
+  eventReadDiagnostics: DestinationEventReadDiagnostics;
+  requestedWindow: SyncWindow;
+  sourceCalendarIdsAtLocalRead: string[];
+}
+
+/*
+ * A series withheld for exceeding the occurrence budget is absent from the local read
+ * for a technical limit, not because the source dropped it. Reconciliation needs that
+ * distinction, or every mirror of the series is deleted at the provider and re-added
+ * the moment the series comes back under budget.
+ */
+const createDestinationReconciliationScope = (
+  context: DestinationReconciliationScopeContext,
+): ReconciliationScope => ({
+  authoritativeSourceWindows: context.authoritativeSourceWindows,
+  authoritativeWindow: context.authoritativeWindow,
+  configuredSourceCalendarIds: new Set(context.sourceCalendarIdsAtLocalRead),
+  requestedWindow: context.requestedWindow,
+  withheldSourceEventStateIds: new Set(
+    context.eventReadDiagnostics.overBudgetSourceEventStateIds,
+  ),
+});
 
 const createDestinationReconciliationWideEventFields = (
   context: DestinationReconciliationContext,
@@ -663,15 +690,13 @@ const syncDestinationsForUser = async (
             callbacks.onSyncEvent(enrichedEvent);
           }
         },
-        reconciliationScope: {
-          authoritativeWindow,
+        reconciliationScope: createDestinationReconciliationScope({
           authoritativeSourceWindows,
-          configuredSourceCalendarIds: new Set(sourceCalendarIdsAtLocalRead),
+          authoritativeWindow,
+          eventReadDiagnostics,
           requestedWindow,
-          withheldSourceEventStateIds: new Set(
-            eventReadDiagnostics.overBudgetSourceEventStateIds,
-          ),
-        },
+          sourceCalendarIdsAtLocalRead,
+        }),
       });
 
       callbacks?.onCalendarComplete?.({
@@ -726,6 +751,7 @@ const syncDestinationsForUser = async (
 };
 
 export {
+  createDestinationReconciliationScope,
   createDestinationReconciliationWideEventFields,
   readDestinationReconciliationState,
   resolveStoredSourceCoverage,
