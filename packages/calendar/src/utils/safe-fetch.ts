@@ -1,14 +1,19 @@
 import { resolve4, resolve6 } from "node:dns/promises";
 import ipaddr from "ipaddr.js";
 import { getDomain } from "tldts";
+import { RequestTimeoutError, buildTimeoutSignal } from "../core/utils/fetch-with-timeout";
+import type { TimeoutSignal } from "../core/utils/fetch-with-timeout";
 
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
 const MAX_REDIRECTS = 10;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+const STALE_SOCKET_ERROR_CODE = "ECONNRESET";
 
 interface SafeFetchOptions {
   blockPrivateResolution?: boolean;
   allowedPrivateHosts?: Set<string>;
+  timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 class UrlSafetyError extends Error {
@@ -150,11 +155,43 @@ const getHeadersForRedirect = (
   return headers;
 };
 
+const isStaleSocketError = (error: unknown): boolean => error instanceof Error && "code" in error && error.code === STALE_SOCKET_ERROR_CODE;
+
+const isReplayableBody = (body: RequestInit["body"]): boolean => !body || typeof body === "string" || body instanceof URLSearchParams || body instanceof Blob || body instanceof ArrayBuffer || ArrayBuffer.isView(body);
+
+const isReplayableRequest = (input: string | Request | URL, init: RequestInit | undefined): boolean => {
+  if (input instanceof Request && input.body) {
+    return false;
+  }
+  return isReplayableBody(init?.body);
+};
+
+/*
+ * Bun keeps pooled sockets alive past a server's `Connection: close` and fails
+ * the next request on that host with ECONNRESET (oven-sh/bun#9881). CalDAV
+ * servers such as mailbox.org close the connection on well-known redirects,
+ * so a single retry on a fresh socket is required for discovery to work.
+ */
+const fetchWithStaleSocketRetry = async (
+  input: string | Request | URL,
+  init: RequestInit | undefined,
+): Promise<Response> => {
+  try {
+    return await globalThis.fetch(input, init);
+  } catch (error) {
+    if (!isStaleSocketError(error) || !isReplayableRequest(input, init)) {
+      throw error;
+    }
+    return globalThis.fetch(input, init);
+  }
+};
+
 const followRedirects = async (
   initialUrl: string,
   initialResponse: Response,
   init: RequestInit | undefined,
   options: SafeFetchOptions | undefined,
+  signal: AbortSignal | null | undefined,
 ): Promise<Response> => {
   const headers = toHeaderRecord(init?.headers);
   let currentUrl = initialUrl;
@@ -172,10 +209,11 @@ const followRedirects = async (
     currentHeaders = getHeadersForRedirect(currentHeaders, currentUrl, redirectUrl);
     currentUrl = redirectUrl;
 
-    currentResponse = await globalThis.fetch(currentUrl, {
+    currentResponse = await fetchWithStaleSocketRetry(currentUrl, {
       ...init,
       headers: currentHeaders,
       redirect: "manual",
+      signal,
     });
 
     if (!isRedirect(currentResponse)) {
@@ -193,22 +231,75 @@ const extractUrl = (input: string | Request | URL): string => {
   return input.toString();
 };
 
+const resolveTimeoutSignal = (
+  options: SafeFetchOptions | undefined,
+  externalSignal: AbortSignal | null | undefined,
+): TimeoutSignal | null => {
+  if (!options?.timeoutMs) {
+    return null;
+  }
+  return buildTimeoutSignal(options.timeoutMs, externalSignal);
+};
+
+const resolveRequestSignal = (
+  timeout: TimeoutSignal | null,
+  externalSignal: AbortSignal | null | undefined,
+): AbortSignal | null | undefined => timeout?.signal ?? externalSignal;
+
+const resolveExternalSignal = (
+  input: string | Request | URL,
+  init: RequestInit | undefined,
+  options: SafeFetchOptions | undefined,
+): AbortSignal | null => {
+  const signals: AbortSignal[] = [];
+  if (options?.signal) {
+    signals.push(options.signal);
+  }
+  if (init?.signal) {
+    signals.push(init.signal);
+  }
+  if (input instanceof Request) {
+    signals.push(input.signal);
+  }
+  const uniqueSignals = [...new Set(signals)];
+
+  if (uniqueSignals.length === 0) {
+    return null;
+  }
+  if (uniqueSignals.length === 1) {
+    return uniqueSignals.at(0) ?? null;
+  }
+  return AbortSignal.any(uniqueSignals);
+};
+
 const createSafeFetch = (options?: SafeFetchOptions): SafeFetch => async (input, init) => {
     const url = extractUrl(input);
     await validateUrlSafety(url, options);
 
     const callerWantsManual = init?.redirect === "manual";
 
-    const response = await globalThis.fetch(input, {
-      ...init,
-      redirect: "manual",
-    });
+    const externalSignal = resolveExternalSignal(input, init, options);
+    const timeout = resolveTimeoutSignal(options, externalSignal);
+    const signal = resolveRequestSignal(timeout, externalSignal);
 
-    if (callerWantsManual || !isRedirect(response)) {
-      return response;
+    try {
+      const response = await fetchWithStaleSocketRetry(input, {
+        ...init,
+        redirect: "manual",
+        signal,
+      });
+
+      if (callerWantsManual || !isRedirect(response)) {
+        return response;
+      }
+
+      return await followRedirects(url, response, init, options, signal);
+    } catch (error) {
+      if (timeout?.isTimeout() && options?.timeoutMs) {
+        throw new RequestTimeoutError(options.timeoutMs);
+      }
+      throw error;
     }
-
-    return followRedirects(url, response, init, options);
   };
 
 export { createSafeFetch, UrlSafetyError, validateUrlSafety };

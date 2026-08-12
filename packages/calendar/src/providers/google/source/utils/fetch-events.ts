@@ -17,6 +17,7 @@ import { parseEventDateTime } from "../../shared/date-time";
 import { isKeeperEvent } from "../../../../core/events/identity";
 import { withBackoff } from "../../shared/backoff";
 import { isRateLimitApiError } from "../../shared/errors";
+import { buildTimeoutSignal } from "../../../../core/utils/fetch-with-timeout";
 
 const EMPTY_API_ERROR: GoogleApiError = {};
 
@@ -65,6 +66,7 @@ interface PageFetchOptions {
   timeMax?: Date;
   maxResults: number;
   pageToken?: string;
+  signal?: AbortSignal;
 }
 
 interface PageFetchResult {
@@ -76,10 +78,34 @@ interface FullSyncRequiredResult {
   fullSyncRequired: true;
 }
 
+const getGoogleRevisionTime = (event: GoogleCalendarEvent): number | null => {
+  const value = event.updated ?? event.created;
+  if (!value) {
+    return null;
+  }
+  const revisionTime = new Date(value).getTime();
+  if (Number.isNaN(revisionTime)) {
+    return null;
+  }
+  return revisionTime;
+};
+
+const shouldReplaceGoogleRevision = (
+  current: GoogleCalendarEvent,
+  candidate: GoogleCalendarEvent,
+): boolean => {
+  const currentTime = getGoogleRevisionTime(current);
+  const candidateTime = getGoogleRevisionTime(candidate);
+  if (currentTime !== null && candidateTime !== null && currentTime !== candidateTime) {
+    return candidateTime > currentTime;
+  }
+  return true;
+};
+
 const fetchEventsPage = async (
   options: PageFetchOptions,
 ): Promise<PageFetchResult | FullSyncRequiredResult> => {
-  const { accessToken, baseUrl, syncToken, timeMin, timeMax, maxResults, pageToken } = options;
+  const { accessToken, baseUrl, syncToken, timeMin, timeMax, maxResults, pageToken, signal } = options;
 
   const url = new URL(baseUrl);
   url.searchParams.set("maxResults", String(maxResults));
@@ -100,13 +126,14 @@ const fetchEventsPage = async (
     url.searchParams.set("pageToken", pageToken);
   }
 
+  const timeout = buildTimeoutSignal(REQUEST_TIMEOUT_MS, signal);
   const response = await fetch(url.toString(), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: timeout.signal,
   }).catch((error) => {
-    if (isRequestTimeoutError(error)) {
+    if (timeout.isTimeout() || isRequestTimeoutError(error) && !signal?.aborted) {
       throw new EventsFetchError(
         `Failed to fetch events: timeout after ${REQUEST_TIMEOUT_MS}ms`,
         408,
@@ -148,24 +175,39 @@ const fetchCalendarEvents = async (options: FetchEventsOptions): Promise<FetchEv
     timeMax,
     maxResults = GOOGLE_CALENDAR_MAX_RESULTS,
     rateLimiter,
+    signal,
   } = options;
 
   const baseUrl = `${GOOGLE_CALENDAR_EVENTS_URL}/${encodeURIComponent(calendarId)}/events`;
-  const events: GoogleCalendarEvent[] = [];
-  const cancelledEventUids: string[] = [];
+  const changedEventsById = new Map<string, GoogleCalendarEvent>();
+  const changedEventsWithoutId: GoogleCalendarEvent[] = [];
   const isDeltaSync = Boolean(syncToken);
+  const collectEvents = (pageEvents: GoogleCalendarEvent[]): void => {
+    for (const event of pageEvents) {
+      if (event.id) {
+        const current = changedEventsById.get(event.id);
+        if (current && !shouldReplaceGoogleRevision(current, event)) {
+          continue;
+        }
+        changedEventsById.set(event.id, event);
+      } else if (event.status !== "cancelled") {
+        changedEventsWithoutId.push(event);
+      }
+    }
+  };
 
   const fetchPageWithBackoff = (pageOptions: PageFetchOptions): Promise<PageFetchResult | FullSyncRequiredResult> =>
     withBackoff(
       () => fetchEventsPage(pageOptions),
       {
+        signal,
         shouldRetry: (error) =>
           error instanceof EventsFetchError && isRateLimitApiError(error.status, error.apiError),
       },
     );
 
   if (rateLimiter) {
-    await rateLimiter.acquire(1);
+    await rateLimiter.acquire(1, signal);
   }
 
   let result = await fetchPageWithBackoff({
@@ -175,28 +217,20 @@ const fetchCalendarEvents = async (options: FetchEventsOptions): Promise<FetchEv
     syncToken,
     timeMax,
     timeMin,
+    signal,
   });
 
   if (result.fullSyncRequired) {
     return { events: [], fullSyncRequired: true };
   }
 
-  for (const event of result.data.items ?? []) {
-    if (event.status === "cancelled") {
-      const uid = event.iCalUID ?? event.id;
-      if (uid) {
-        cancelledEventUids.push(uid);
-      }
-    } else {
-      events.push(event);
-    }
-  }
+  collectEvents(result.data.items ?? []);
 
   let lastSyncToken = result.data.nextSyncToken;
 
   while (result.data.nextPageToken) {
     if (rateLimiter) {
-      await rateLimiter.acquire(1);
+      await rateLimiter.acquire(1, signal);
     }
 
     result = await fetchPageWithBackoff({
@@ -207,37 +241,44 @@ const fetchCalendarEvents = async (options: FetchEventsOptions): Promise<FetchEv
       syncToken,
       timeMax,
       timeMin,
+      signal,
     });
 
     if (result.fullSyncRequired) {
       return { events: [], fullSyncRequired: true };
     }
 
-    for (const event of result.data.items ?? []) {
-      if (event.status === "cancelled") {
-        const uid = event.iCalUID ?? event.id;
-        if (uid) {
-          cancelledEventUids.push(uid);
-        }
-      } else {
-        events.push(event);
-      }
-    }
+    collectEvents(result.data.items ?? []);
 
     if (result.data.nextSyncToken) {
       lastSyncToken = result.data.nextSyncToken;
     }
   }
 
+  const latestChangedEvents = [
+    ...changedEventsWithoutId,
+    ...changedEventsById.values(),
+  ];
   const fetchResult: FetchEventsResult = {
-    events,
+    events: latestChangedEvents.filter((event) => event.status !== "cancelled"),
     fullSyncRequired: false,
     isDeltaSync,
     nextSyncToken: lastSyncToken,
   };
 
   if (isDeltaSync) {
-    fetchResult.cancelledEventUids = cancelledEventUids;
+    fetchResult.changedEventIds = latestChangedEvents.flatMap((event) => {
+      if (!event.id) {
+        return [];
+      }
+      return [event.id];
+    });
+    fetchResult.cancelledEventIds = latestChangedEvents.flatMap((event) => {
+      if (event.status === "cancelled" && event.id) {
+        return [event.id];
+      }
+      return [];
+    });
   }
 
   return fetchResult;
@@ -314,6 +355,7 @@ const parseGoogleEvents = (events: GoogleCalendarEvent[]): EventTimeSlot[] => {
       sourceEventType: resolveSourceEventType(event.eventType),
       startTime: parseEventDateTime(event.start),
       startTimeZone: event.start.timeZone ?? event.end.timeZone,
+      sourceEventId: event.id,
       title: event.summary,
       uid: event.iCalUID,
     });

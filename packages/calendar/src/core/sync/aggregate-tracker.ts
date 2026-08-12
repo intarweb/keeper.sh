@@ -17,6 +17,7 @@ interface SyncAggregateSnapshot {
 
 interface SyncAggregateMessage extends SyncAggregateSnapshot {
   seq: number;
+  emittedAt?: string;
 }
 
 interface SyncAggregateTrackerConfig {
@@ -76,8 +77,12 @@ class SyncAggregateTracker {
     current: CalendarOperationProgress | undefined,
     update: SyncProgressUpdate,
   ): CalendarOperationProgress {
-    const currentProcessed = current?.processed ?? INITIAL_COUNT;
-    const currentTotal = current?.total ?? INITIAL_COUNT;
+    let currentProcessed = INITIAL_COUNT;
+    let currentTotal = INITIAL_COUNT;
+    if (current && current.status !== "idle") {
+      currentProcessed = current.processed;
+      currentTotal = current.total;
+    }
 
     const nextTotal = update.progress?.total ?? currentTotal;
     const nextProcessedRaw = update.progress?.current ?? currentProcessed;
@@ -127,10 +132,12 @@ class SyncAggregateTracker {
         syncEventsRemaining: INITIAL_COUNT,
         syncEventsTotal: INITIAL_COUNT,
       };
+      const syncing = this.syncingHeldByUser.has(userId);
 
       return {
         ...fallback,
-        syncing: false,
+        ...(syncing && { progressPercent: INITIAL_COUNT }),
+        syncing,
       };
     }
 
@@ -170,7 +177,7 @@ class SyncAggregateTracker {
       syncEventsProcessed,
       syncEventsRemaining,
       syncEventsTotal,
-      syncing: syncing && syncEventsRemaining > INITIAL_COUNT,
+      syncing,
     };
   }
 
@@ -239,18 +246,29 @@ class SyncAggregateTracker {
 
   trackDestinationSync(
     result: DestinationSyncResult,
-    lastSyncedAt: string,
+    lastSyncedAt?: string,
   ): SyncAggregateMessage | null {
     const progress = this.getUserProgress(result.userId);
     const current = progress.get(result.calendarId);
     progress.set(result.calendarId, SyncAggregateTracker.finalizeEntry(current));
 
-    const payload = this.computeSnapshot(result.userId, { lastSyncedAt });
+    const options: { lastSyncedAt?: string } = {};
+    if (lastSyncedAt) {
+      options.lastSyncedAt = lastSyncedAt;
+    }
+    const payload = this.computeSnapshot(result.userId, options);
     return this.maybeEmit(result.userId, payload);
   }
 
   holdSyncing(userId: string): void {
     this.syncingHeldByUser.add(userId);
+  }
+
+  resetUser(userId: string): void {
+    this.progressByUser.delete(userId);
+    this.highWaterPercentByUser.delete(userId);
+    this.lastPayloadKeyByUser.delete(userId);
+    this.lastProgressEmitAtByUser.delete(userId);
   }
 
   releaseSyncing(userId: string): void {

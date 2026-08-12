@@ -1,3 +1,4 @@
+import { HTTP_STATUS } from "@keeper.sh/constants";
 import { createDAVClient } from "tsdav";
 import { createSafeFetch } from "../../../utils/safe-fetch";
 import { createDigestAwareFetch } from "./digest-fetch";
@@ -10,6 +11,50 @@ interface CalendarObject {
   etag?: string;
   data?: string;
 }
+
+type CalDAVWriteOperation = "create" | "delete";
+
+class CalDAVHttpError extends Error {
+  readonly operation: CalDAVWriteOperation;
+  readonly status: number;
+
+  constructor(response: Response, operation: CalDAVWriteOperation) {
+    super(`CalDAV ${operation} failed: ${response.status} ${response.statusText}`.trim());
+    this.name = "CalDAVHttpError";
+    this.operation = operation;
+    this.status = response.status;
+  }
+}
+
+class CalDAVAuthenticationError extends Error {
+  readonly status = HTTP_STATUS.UNAUTHORIZED;
+
+  constructor(cause: unknown) {
+    super("Invalid credentials", { cause });
+    this.name = "CalDAVAuthenticationError";
+  }
+}
+
+class CalDAVCreateConflictError extends CalDAVHttpError {
+  constructor(response: Response) {
+    super(response, "create");
+    this.name = "CalDAVCreateConflictError";
+  }
+}
+
+const releaseResponseBody = async (response: Response): Promise<void> => {
+  await response.body?.cancel();
+};
+
+const assertSuccessfulResponse = async (
+  response: Response,
+  operation: CalDAVWriteOperation,
+): Promise<void> => {
+  await releaseResponseBody(response);
+  if (!response.ok) {
+    throw new CalDAVHttpError(response, operation);
+  }
+};
 
 type DAVClientInstance = Awaited<ReturnType<typeof createDAVClient>>;
 
@@ -25,6 +70,7 @@ class CalDAVClient {
   private config: CalDAVClientConfig;
   private safeFetchOptions?: SafeFetchOptions;
   private resolvedAuthMethod: (() => CalDAVAuthMethod | null) | null = null;
+  private lastResponseStatus: (() => number | null) | null = null;
 
   constructor(config: CalDAVClientConfig, safeFetchOptions?: SafeFetchOptions) {
     this.config = config;
@@ -38,12 +84,13 @@ class CalDAVClient {
   private async getClient(): Promise<DAVClientInstance> {
     if (!this.client) {
       const safeFetch = createSafeFetch(this.safeFetchOptions);
-      const { fetch: digestAwareFetch, getResolvedMethod } = createDigestAwareFetch({
+      const { fetch: digestAwareFetch, getLastResponseStatus, getResolvedMethod } = createDigestAwareFetch({
         credentials: this.config.credentials,
         baseFetch: safeFetch,
         knownAuthMethod: this.config.authMethod,
       });
       this.resolvedAuthMethod = getResolvedMethod;
+      this.lastResponseStatus = getLastResponseStatus;
       this.client = await createDAVClient({
         authMethod: "Custom",
         authFunction: () => Promise.resolve({}),
@@ -56,9 +103,22 @@ class CalDAVClient {
     return this.client;
   }
 
+  private async mapAuthenticationFailure<Result>(operation: () => Promise<Result>): Promise<Result> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (this.lastResponseStatus?.() === HTTP_STATUS.UNAUTHORIZED) {
+        throw new CalDAVAuthenticationError(error);
+      }
+      throw error;
+    }
+  }
+
   async discoverCalendars(): Promise<CalendarInfo[]> {
-    const client = await this.getClient();
-    const calendars = await client.fetchCalendars();
+    const calendars = await this.mapAuthenticationFailure(async () => {
+      const client = await this.getClient();
+      return client.fetchCalendars();
+    });
 
     return calendars
       .filter(({ components }) => components?.includes("VEVENT"))
@@ -104,32 +164,54 @@ class CalDAVClient {
       iCalString: params.iCalString,
     });
 
-    await response.body?.cancel?.();
+    if (response.status === 412) {
+      await releaseResponseBody(response);
+      throw new CalDAVCreateConflictError(response);
+    }
+    await assertSuccessfulResponse(response, "create");
   }
 
-  async deleteCalendarObject(params: { calendarUrl: string; filename: string }): Promise<void> {
+  async deleteCalendarObject(params: {
+    calendarUrl: string;
+    filename: string;
+    etag?: string;
+  }): Promise<void> {
     const client = await this.getClient();
     const objectUrl = CalDAVClient.normalizeUrl(params.calendarUrl, params.filename);
 
     const response = await client.deleteCalendarObject({
-      calendarObject: { url: objectUrl },
+      calendarObject: { url: objectUrl, etag: params.etag },
     });
 
-    await response.body?.cancel?.();
+    await assertSuccessfulResponse(response, "delete");
   }
 
-  async fetchCalendarObjects(params: {
+  async fetchCalendarObject(params: {
+    calendarUrl: string;
+    filename: string;
+  }): Promise<CalendarObject | null> {
+    const client = await this.getClient();
+    const objectUrl = CalDAVClient.normalizeUrl(params.calendarUrl, params.filename);
+    const objects = await client.fetchCalendarObjects({
+      calendar: { url: params.calendarUrl },
+      objectUrls: [objectUrl],
+    });
+
+    return objects[0] ?? null;
+  }
+
+  fetchCalendarObjects(params: {
     calendarUrl: string;
     timeRange?: { start: string; end: string };
   }): Promise<CalendarObject[]> {
-    const client = await this.getClient();
+    return this.mapAuthenticationFailure(async () => {
+      const client = await this.getClient();
 
-    const objects = await client.fetchCalendarObjects({
-      calendar: { url: params.calendarUrl },
-      ...(params.timeRange && { timeRange: params.timeRange }),
+      return client.fetchCalendarObjects({
+        calendar: { url: params.calendarUrl },
+        ...(params.timeRange && { timeRange: params.timeRange }),
+      });
     });
-
-    return objects;
   }
 
   private static ensureTrailingSlash(url: string): string {
@@ -149,4 +231,10 @@ class CalDAVClient {
 const createCalDAVClient = (config: CalDAVClientConfig, safeFetchOptions?: SafeFetchOptions): CalDAVClient =>
   new CalDAVClient(config, safeFetchOptions);
 
-export { CalDAVClient, createCalDAVClient };
+export {
+  CalDAVAuthenticationError,
+  CalDAVClient,
+  CalDAVCreateConflictError,
+  CalDAVHttpError,
+  createCalDAVClient,
+};

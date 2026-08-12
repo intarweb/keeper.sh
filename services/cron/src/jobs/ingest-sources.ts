@@ -3,14 +3,23 @@ import {
   ingestSource,
   allSettledWithConcurrency,
   insertEventStatesWithConflictResolution,
+  buildEventStateInsertRow,
   createGoogleTokenRefresher,
   createMicrosoftTokenRefresher,
   createCoordinatedRefresher,
   createRedisRateLimiter,
   ensureValidToken,
+  isTimeoutError,
+  buildCalendarBackoffState,
+  SOURCE_INGEST_LOCK_NAMESPACE,
 } from "@keeper.sh/calendar";
-import type { IngestionChanges, IngestionFetchEventsResult, RedisRateLimiter, TokenState } from "@keeper.sh/calendar";
-import { createIcsSourceFetcher } from "@keeper.sh/calendar/ics";
+import { INGEST_SOURCE_TIMEOUT_MS, PROVIDER_INGEST_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
+import type { CalendarBackoffState, IngestionFetchEventsResult, IngestionPersistenceWork, IngestionResult, RedisRateLimiter, TokenState } from "@keeper.sh/calendar";
+import {
+  createIcsSourceFetcher,
+  interpretFullDayTimedEventsAsAllDay,
+  persistCalendarSnapshot,
+} from "@keeper.sh/calendar/ics";
 import { createGoogleSourceFetcher } from "@keeper.sh/calendar/google";
 import { createOutlookSourceFetcher } from "@keeper.sh/calendar/outlook";
 import { createCalDAVSourceFetcher, isCalDAVAuthenticationError } from "@keeper.sh/calendar/caldav";
@@ -22,96 +31,182 @@ import {
   eventStatesTable,
   oauthCredentialsTable,
 } from "@keeper.sh/database/schema";
-import { and, arrayContains, eq, inArray } from "drizzle-orm";
+import { and, arrayContains, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { withCronWideEvent } from "@/utils/with-wide-event";
 import { context, widelog } from "@/utils/logging";
 import { database, refreshLockRedis, refreshLockStore } from "@/context";
 import env from "@/env";
 import { safeFetchOptions } from "@/utils/safe-fetch-options";
+import { resolveMissingCalendarFailure } from "@/utils/provider-ingest-failure";
+import { withAbortTimeout } from "@/utils/with-abort-timeout";
+import { createSyncLock } from "@keeper.sh/sync";
 
-const SOURCE_TIMEOUT_MS = 60_000;
+const SOURCE_TIMEOUT_MS = INGEST_SOURCE_TIMEOUT_MS;
+const SOURCE_TIMEOUT_DATABASE_GRACE_MS = 5000;
 const SOURCE_CONCURRENCY = 5;
-const GOOGLE_REQUESTS_PER_MINUTE = 500;
+const SOURCE_INGEST_LOCK_KEY_PREFIX = "source-ingest:";
+const sourceIngestLock = createSyncLock(refreshLockRedis);
 
-const serializeOptionalJson = (value: unknown): string | null => {
-  if (!value) {
-    return null;
+const runSourceIngest = async (
+  calendarId: string,
+  signal: AbortSignal,
+  work: (isCurrent: () => Promise<boolean>) => Promise<IngestionResult>,
+): Promise<IngestionResult> => {
+  const lockResult = await sourceIngestLock.acquire(
+    `${SOURCE_INGEST_LOCK_KEY_PREFIX}${calendarId}`,
+    signal,
+  );
+  if (!lockResult.acquired) {
+    signal.throwIfAborted();
+    return { eventsAdded: 0, eventsRemoved: 0 };
   }
-  return JSON.stringify(value);
+  try {
+    return await work(lockResult.handle.isCurrent);
+  } finally {
+    await lockResult.handle.release();
+  }
 };
 
-const withTimeout = <TResult>(
-  operation: () => Promise<TResult>,
-  timeoutMs: number,
-): Promise<TResult> =>
-  Promise.race([
-    Promise.resolve().then(operation),
-    Bun.sleep(timeoutMs).then((): never => {
-      throw new Error(`Source ingestion timed out after ${timeoutMs}ms`);
-    }),
-  ]);
+const resolveIngestErrorSlug = (error: unknown): string => {
+  if (!isTimeoutError(error)) {
+    return "provider-api-error";
+  }
+  widelog.set("timeout.fired", true);
+  widelog.set("timeout.kind", "request");
+  widelog.set("timeout.limit_ms", PROVIDER_INGEST_REQUEST_TIMEOUT_MS);
+  return "provider-request-timeout";
+};
+const GOOGLE_REQUESTS_PER_MINUTE = 500;
 
-const createIngestionFlush = (calendarId: string) =>
-  async (changes: IngestionChanges): Promise<void> => {
-    await database.transaction(async (transaction) => {
-      if (changes.deletes.length > 0) {
-        await transaction
-          .delete(eventStatesTable)
-          .where(
-            and(
-              eq(eventStatesTable.calendarId, calendarId),
-              inArray(eventStatesTable.id, changes.deletes),
-            ),
-          );
-      }
-
-      if (changes.inserts.length > 0) {
-        await insertEventStatesWithConflictResolution(
-          transaction,
-          changes.inserts.map((event) => ({
-            availability: event.availability,
-            calendarId,
-            description: event.description,
-            endTime: event.endTime,
-            exceptionDates: serializeOptionalJson(event.exceptionDates),
-            isAllDay: event.isAllDay,
-            location: event.location,
-            recurrenceRule: serializeOptionalJson(event.recurrenceRule),
-            recurrenceId: event.recurrenceId,
-            sourceEventType: event.sourceEventType,
-            sourceEventUid: event.uid,
-            startTime: event.startTime,
-            startTimeZone: event.startTimeZone,
-            title: event.title,
-          })),
-        );
-      }
-
-      if ("syncToken" in changes) {
-        await transaction
-          .update(calendarsTable)
-          .set({ syncToken: changes.syncToken })
-          .where(eq(calendarsTable.id, calendarId));
-      }
-    });
-  };
-
-const readExistingEvents = (calendarId: string) =>
-  database
-    .select({
-      availability: eventStatesTable.availability,
-      description: eventStatesTable.description,
-      endTime: eventStatesTable.endTime,
-      id: eventStatesTable.id,
-      isAllDay: eventStatesTable.isAllDay,
-      location: eventStatesTable.location,
-      sourceEventType: eventStatesTable.sourceEventType,
-      sourceEventUid: eventStatesTable.sourceEventUid,
-      startTime: eventStatesTable.startTime,
-      title: eventStatesTable.title,
+const resetIngestBackoff = async (calendarId: string): Promise<void> => {
+  await database
+    .update(calendarsTable)
+    .set({
+      ingestFailureCount: 0,
+      ingestLastFailureAt: null,
+      ingestNextAttemptAt: null,
     })
-    .from(eventStatesTable)
-    .where(eq(eventStatesTable.calendarId, calendarId));
+    .where(eq(calendarsTable.id, calendarId));
+};
+
+const applyIngestBackoff = async (
+  calendarId: string,
+  currentFailureCount: number,
+): Promise<CalendarBackoffState> => {
+  const state = buildCalendarBackoffState(currentFailureCount);
+  await database
+    .update(calendarsTable)
+    .set({
+      ingestFailureCount: state.failureCount,
+      ingestLastFailureAt: state.lastFailureAt,
+      ingestNextAttemptAt: state.nextAttemptAt,
+    })
+    .where(eq(calendarsTable.id, calendarId));
+  return state;
+};
+
+const logIngestBackoff = (state: CalendarBackoffState): void => {
+  widelog.set("retry.failure_count", state.failureCount);
+  if (state.nextAttemptAt) {
+    widelog.set("retry.next_attempt_at", state.nextAttemptAt.toISOString());
+  }
+};
+
+const createIngestionPersistenceTransaction = (
+  calendarId: string,
+  signal: AbortSignal,
+  deadlineAt: number,
+) =>
+  (work: IngestionPersistenceWork) => database.transaction(async (transaction) => {
+    const setRemainingStatementTimeout = async (): Promise<void> => {
+      signal.throwIfAborted();
+      const remainingMs = Math.max(1, Math.ceil(deadlineAt - Date.now()));
+      await transaction.execute(
+        sql`select set_config('statement_timeout', ${String(remainingMs)}, true)`,
+      );
+      signal.throwIfAborted();
+    };
+
+    const initialRemainingMs = Math.max(1, Math.ceil(deadlineAt - Date.now()));
+    await transaction.execute(sql`select set_config(
+      'idle_in_transaction_session_timeout',
+      ${String(initialRemainingMs + SOURCE_TIMEOUT_DATABASE_GRACE_MS)},
+      true
+    )`);
+    await setRemainingStatementTimeout();
+    await transaction.execute(
+      sql`select pg_advisory_xact_lock(${SOURCE_INGEST_LOCK_NAMESPACE}, hashtext(${calendarId}))`,
+    );
+    signal.throwIfAborted();
+
+    const result = await work({
+      readExistingEvents: async () => {
+        await setRemainingStatementTimeout();
+        const events = await transaction.select({
+          availability: eventStatesTable.availability,
+          description: eventStatesTable.description,
+          endTime: eventStatesTable.endTime,
+          exceptionDates: eventStatesTable.exceptionDates,
+          id: eventStatesTable.id,
+          isAllDay: eventStatesTable.isAllDay,
+          location: eventStatesTable.location,
+          recurrenceId: eventStatesTable.recurrenceId,
+          recurrenceRule: eventStatesTable.recurrenceRule,
+          sourceEventId: eventStatesTable.sourceEventId,
+          sourceEventType: eventStatesTable.sourceEventType,
+          sourceEventUid: eventStatesTable.sourceEventUid,
+          startTime: eventStatesTable.startTime,
+          startTimeZone: eventStatesTable.startTimeZone,
+          title: eventStatesTable.title,
+        })
+        .from(eventStatesTable)
+          .where(eq(eventStatesTable.calendarId, calendarId));
+        signal.throwIfAborted();
+        return events;
+      },
+      flush: async (changes) => {
+        signal.throwIfAborted();
+        if (changes.deletes.length > 0) {
+          await setRemainingStatementTimeout();
+          await transaction
+            .delete(eventStatesTable)
+            .where(
+              and(
+                eq(eventStatesTable.calendarId, calendarId),
+                inArray(eventStatesTable.id, changes.deletes),
+              ),
+            );
+          signal.throwIfAborted();
+        }
+
+        if (changes.inserts.length > 0) {
+          await setRemainingStatementTimeout();
+          await insertEventStatesWithConflictResolution(
+            transaction,
+            changes.inserts.map((event) => buildEventStateInsertRow(calendarId, event)),
+          );
+          signal.throwIfAborted();
+        }
+
+        if ("syncToken" in changes) {
+          await setRemainingStatementTimeout();
+          await transaction
+            .update(calendarsTable)
+            .set({ syncToken: changes.syncToken })
+            .where(eq(calendarsTable.id, calendarId));
+          signal.throwIfAborted();
+        }
+
+        if (changes.snapshot) {
+          await setRemainingStatementTimeout();
+          await persistCalendarSnapshot(transaction, calendarId, changes.snapshot);
+          signal.throwIfAborted();
+        }
+      },
+    });
+    signal.throwIfAborted();
+    return result;
+  });
 
 const resolveTokenRefresher = (provider: string) => {
   if (provider === "google" && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
@@ -145,9 +240,11 @@ const resolveRateLimiter = (provider: string, userId: string): RedisRateLimiter 
 
 interface OAuthFetcherParams {
   accessToken: string;
+  calendarId: string;
   externalCalendarId: string;
   syncToken: string | null;
   rateLimiter?: RedisRateLimiter;
+  signal?: AbortSignal;
 }
 
 const resolveOAuthFetcher = (
@@ -182,6 +279,7 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
       refreshToken: oauthCredentialsTable.refreshToken,
       expiresAt: oauthCredentialsTable.expiresAt,
       userId: calendarsTable.userId,
+      ingestFailureCount: calendarsTable.ingestFailureCount,
     })
     .from(calendarsTable)
     .innerJoin(calendarAccountsTable, eq(calendarsTable.accountId, calendarAccountsTable.id))
@@ -190,6 +288,10 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
       and(
         arrayContains(calendarsTable.capabilities, ["pull"]),
         eq(calendarsTable.disabled, false),
+        or(
+          isNull(calendarsTable.ingestNextAttemptAt),
+          lte(calendarsTable.ingestNextAttemptAt, new Date()),
+        ),
       ),
     );
 
@@ -200,7 +302,7 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
 
   const settlements = await allSettledWithConcurrency(
     oauthSources.map((source) => () =>
-      withTimeout((): Promise<IngestionSourceResult> =>
+      withAbortTimeout((signal, deadlineAt): Promise<IngestionSourceResult> =>
         context(async () => {
           widelog.set("operation.name", "ingest-source");
           widelog.set("operation.type", "job");
@@ -244,9 +346,11 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
 
             const resolvedFetcher = resolveOAuthFetcher(source.provider, {
               accessToken: tokenState.accessToken,
+              calendarId: source.calendarId,
               externalCalendarId: source.externalCalendarId,
               syncToken: source.syncToken,
               rateLimiter,
+              signal,
             });
 
             if (!resolvedFetcher) {
@@ -261,19 +365,24 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
             const ingestEvents: Record<string, unknown>[] = [];
 
             const result = await widelog.time.measure("duration_ms", () =>
-              ingestSource({
+              runSourceIngest(source.calendarId, signal, (isCurrent) => ingestSource({
                 calendarId: source.calendarId,
                 fetchEvents: () => fetcher.fetchEvents(),
-                readExistingEvents: () => readExistingEvents(source.calendarId),
-                flush: createIngestionFlush(source.calendarId),
+                isCurrent,
+                withPersistenceTransaction:
+                  createIngestionPersistenceTransaction(source.calendarId, signal, deadlineAt),
                 onIngestEvent: (event) => {
                   ingestEvents.push({
                     ...event,
                     "source.provider": source.provider,
                   });
                 },
-              }),
+              })),
             );
+
+            if (source.ingestFailureCount > 0) {
+              await resetIngestBackoff(source.calendarId);
+            }
 
             widelog.set("sync.events_added", result.eventsAdded);
             widelog.set("sync.events_removed", result.eventsRemoved);
@@ -285,15 +394,13 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
 
             widelog.set("outcome", "error");
 
-            if (error instanceof Error && "status" in error && error.status === 404) {
-              widelog.errorFields(error, { slug: "provider-calendar-not-found", retriable: false });
-
-              await database
-                .update(calendarsTable)
-                .set({ disabled: true })
-                .where(eq(calendarsTable.id, source.calendarId));
-
-              return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [] };
+            const missingCalendarFailure = resolveMissingCalendarFailure(error);
+            if (missingCalendarFailure) {
+              widelog.errorFields(error, missingCalendarFailure);
+              logIngestBackoff(
+                await applyIngestBackoff(source.calendarId, source.ingestFailureCount),
+              );
+              throw error;
             }
 
             if (error instanceof Error && "authRequired" in error && error.authRequired === true) {
@@ -318,7 +425,13 @@ const ingestOAuthSources = async (): Promise<{ added: number; removed: number; e
               return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [] };
             }
 
-            widelog.errorFields(error, { slug: "provider-api-error", retriable: true });
+            widelog.errorFields(error, {
+              slug: resolveIngestErrorSlug(error),
+              retriable: true,
+            });
+            logIngestBackoff(
+              await applyIngestBackoff(source.calendarId, source.ingestFailureCount),
+            );
             throw error;
           } finally {
             widelog.flush();
@@ -359,6 +472,7 @@ const ingestCalDAVSources = async (): Promise<{ added: number; removed: number; 
       encryptedPassword: caldavCredentialsTable.encryptedPassword,
       serverUrl: caldavCredentialsTable.serverUrl,
       userId: calendarsTable.userId,
+      ingestFailureCount: calendarsTable.ingestFailureCount,
     })
     .from(calendarsTable)
     .innerJoin(calendarAccountsTable, eq(calendarsTable.accountId, calendarAccountsTable.id))
@@ -367,6 +481,10 @@ const ingestCalDAVSources = async (): Promise<{ added: number; removed: number; 
       and(
         arrayContains(calendarsTable.capabilities, ["pull"]),
         eq(calendarsTable.disabled, false),
+        or(
+          isNull(calendarsTable.ingestNextAttemptAt),
+          lte(calendarsTable.ingestNextAttemptAt, new Date()),
+        ),
       ),
     );
 
@@ -377,7 +495,7 @@ const ingestCalDAVSources = async (): Promise<{ added: number; removed: number; 
 
   const settlements = await allSettledWithConcurrency(
     caldavSources.map((source) => () =>
-      withTimeout((): Promise<IngestionSourceResult> =>
+      withAbortTimeout((signal, deadlineAt): Promise<IngestionSourceResult> =>
         context(async () => {
           widelog.set("operation.name", "ingest-source");
           widelog.set("operation.type", "job");
@@ -395,25 +513,30 @@ const ingestCalDAVSources = async (): Promise<{ added: number; removed: number; 
               serverUrl: source.serverUrl,
               username: source.username,
               password,
-              safeFetchOptions,
+              safeFetchOptions: { ...safeFetchOptions, signal },
             });
 
             const ingestEvents: Record<string, unknown>[] = [];
 
             const result = await widelog.time.measure("duration_ms", () =>
-              ingestSource({
+              runSourceIngest(source.calendarId, signal, (isCurrent) => ingestSource({
                 calendarId: source.calendarId,
                 fetchEvents: () => fetcher.fetchEvents(),
-                readExistingEvents: () => readExistingEvents(source.calendarId),
-                flush: createIngestionFlush(source.calendarId),
+                isCurrent,
+                withPersistenceTransaction:
+                  createIngestionPersistenceTransaction(source.calendarId, signal, deadlineAt),
                 onIngestEvent: (event) => {
                   ingestEvents.push({
                     ...event,
                     "source.provider": source.provider,
                   });
                 },
-              }),
+              })),
             );
+
+            if (source.ingestFailureCount > 0) {
+              await resetIngestBackoff(source.calendarId);
+            }
 
             widelog.set("sync.events_added", result.eventsAdded);
             widelog.set("sync.events_removed", result.eventsRemoved);
@@ -436,16 +559,19 @@ const ingestCalDAVSources = async (): Promise<{ added: number; removed: number; 
               return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [] };
             }
 
-            if (error instanceof Error && error.message.includes("404")) {
-              widelog.errorFields(error, { slug: "provider-calendar-not-found", retriable: false });
-
-              await database
-                .update(calendarsTable)
-                .set({ disabled: true })
-                .where(eq(calendarsTable.id, source.calendarId));
+            const missingCalendarFailure = resolveMissingCalendarFailure(error);
+            if (missingCalendarFailure) {
+              widelog.errorFields(error, missingCalendarFailure);
             } else {
-              widelog.errorFields(error, { slug: "provider-api-error", retriable: true });
+              widelog.errorFields(error, {
+                slug: resolveIngestErrorSlug(error),
+                retriable: true,
+              });
             }
+
+            logIngestBackoff(
+              await applyIngestBackoff(source.calendarId, source.ingestFailureCount),
+            );
 
             throw error;
           } finally {
@@ -475,13 +601,19 @@ const ingestIcsSources = async (): Promise<{ added: number; removed: number; err
     .select({
       calendarId: calendarsTable.id,
       url: calendarsTable.url,
+      treatFullDayTimedEventsAsAllDay: calendarsTable.treatFullDayTimedEventsAsAllDay,
       userId: calendarsTable.userId,
+      ingestFailureCount: calendarsTable.ingestFailureCount,
     })
     .from(calendarsTable)
     .where(
       and(
         eq(calendarsTable.calendarType, "ical"),
         eq(calendarsTable.disabled, false),
+        or(
+          isNull(calendarsTable.ingestNextAttemptAt),
+          lte(calendarsTable.ingestNextAttemptAt, new Date()),
+        ),
       ),
     );
 
@@ -492,7 +624,7 @@ const ingestIcsSources = async (): Promise<{ added: number; removed: number; err
 
   const settlements = await allSettledWithConcurrency(
     icsSources.map((source) => () =>
-      withTimeout((): Promise<IngestionSourceResult> =>
+      withAbortTimeout((signal, deadlineAt): Promise<IngestionSourceResult> =>
         context(async () => {
           widelog.set("operation.name", "ingest-source");
           widelog.set("operation.type", "job");
@@ -514,25 +646,37 @@ const ingestIcsSources = async (): Promise<{ added: number; removed: number; err
               calendarId: source.calendarId,
               url: source.url,
               database,
-              safeFetchOptions,
+              safeFetchOptions: { ...safeFetchOptions, signal },
             });
 
             const ingestEvents: Record<string, unknown>[] = [];
 
             const result = await widelog.time.measure("duration_ms", () =>
-              ingestSource({
+              runSourceIngest(source.calendarId, signal, (isCurrent) => ingestSource({
                 calendarId: source.calendarId,
-                fetchEvents: () => fetcher.fetchEvents(),
-                readExistingEvents: () => readExistingEvents(source.calendarId),
-                flush: createIngestionFlush(source.calendarId),
+                fetchEvents: () =>
+                  fetcher.fetchEvents({
+                    interpretEvents: (events, fetchContext) =>
+                      interpretFullDayTimedEventsAsAllDay(events, {
+                        calendarTimeZone: fetchContext.calendarTimeZone,
+                        enabled: source.treatFullDayTimedEventsAsAllDay,
+                      }),
+                  }),
+                isCurrent,
+                withPersistenceTransaction:
+                  createIngestionPersistenceTransaction(source.calendarId, signal, deadlineAt),
                 onIngestEvent: (event) => {
                   ingestEvents.push({
                     ...event,
                     "source.provider": "ical",
                   });
                 },
-              }),
+              })),
             );
+
+            if (source.ingestFailureCount > 0) {
+              await resetIngestBackoff(source.calendarId);
+            }
 
             widelog.set("sync.events_added", result.eventsAdded);
             widelog.set("sync.events_removed", result.eventsRemoved);
@@ -543,7 +687,13 @@ const ingestIcsSources = async (): Promise<{ added: number; removed: number; err
           } catch (error) {
 
             widelog.set("outcome", "error");
-            widelog.errorFields(error, { slug: "provider-api-error", retriable: true });
+            widelog.errorFields(error, {
+              slug: resolveIngestErrorSlug(error),
+              retriable: true,
+            });
+            logIngestBackoff(
+              await applyIngestBackoff(source.calendarId, source.ingestFailureCount),
+            );
             throw error;
           } finally {
             widelog.flush();
@@ -569,11 +719,28 @@ const ingestIcsSources = async (): Promise<{ added: number; removed: number; err
 
 export default withCronWideEvent({
   async callback() {
-    await Promise.allSettled([
+    const settlements = await Promise.allSettled([
       ingestOAuthSources(),
       ingestCalDAVSources(),
       ingestIcsSources(),
     ]);
+    const failures: unknown[] = [];
+    let failedSourceCount = 0;
+
+    for (const settlement of settlements) {
+      if (settlement.status === "rejected") {
+        failures.push(settlement.reason);
+        continue;
+      }
+      failedSourceCount += settlement.value.errors;
+    }
+
+    if (failedSourceCount > 0) {
+      failures.push(new Error(`${failedSourceCount} calendar source ingestions failed`));
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Calendar source ingestion completed with failures");
+    }
   },
   cron: "@every_1_minutes",
   immediate: true,

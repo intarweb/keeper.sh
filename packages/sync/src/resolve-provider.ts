@@ -9,6 +9,7 @@ import { createGoogleSyncProvider } from "@keeper.sh/calendar/google";
 import { createOutlookSyncProvider } from "@keeper.sh/calendar/outlook";
 import { createCalDAVSyncProvider } from "@keeper.sh/calendar/caldav";
 import { resolveAuthMethod } from "@keeper.sh/calendar/digest-fetch";
+import { PROVIDER_PUSH_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
 import { decryptPassword } from "@keeper.sh/database";
 import {
   calendarAccountsTable,
@@ -107,6 +108,7 @@ const resolveOAuthProvider = async (
         refreshLockStore,
         rawRefresh: (refreshToken) => refreshMicrosoftToken(refreshToken),
       }),
+      signal,
     });
   }
 
@@ -117,6 +119,7 @@ const resolveCalDAVProvider = async (
   database: BunSQLDatabase,
   calendarId: string,
   encryptionKey: string,
+  signal?: AbortSignal,
 ): Promise<CalendarSyncProvider | null> => {
   const [caldavCred] = await database
     .select({
@@ -144,6 +147,7 @@ const resolveCalDAVProvider = async (
     serverUrl: caldavCred.serverUrl,
     username: caldavCred.username,
     password,
+    safeFetchOptions: { timeoutMs: PROVIDER_PUSH_REQUEST_TIMEOUT_MS, signal },
   });
 };
 
@@ -180,6 +184,7 @@ const resolveSyncProvider = (options: ResolveProviderOptions): Promise<CalendarS
       options.database,
       options.calendarId,
       options.encryptionKey,
+      options.signal,
     );
   }
 

@@ -12,6 +12,16 @@ interface AggregateDecision {
   nextSeq: number;
 }
 
+const resolveAggregateLastSyncedAt = (
+  currentLastSyncedAt: string | null,
+  nextAggregate: SyncAggregateData,
+): string | null => {
+  if ("lastSyncedAt" in nextAggregate) {
+    return nextAggregate.lastSyncedAt ?? null;
+  }
+  return currentLastSyncedAt;
+};
+
 const parseTimestampMs = (value: string | null | undefined): number | null => {
   if (!value) {
     return null;
@@ -44,10 +54,6 @@ const isForwardProgress = (
   }
 
   if (next.progressPercent > current.progressPercent) {
-    return true;
-  }
-
-  if (current.state === "idle" && next.syncing) {
     return true;
   }
 
@@ -110,5 +116,9 @@ const shouldAcceptAggregatePayload = (
   };
 };
 
-export { parseIncomingSocketAction, shouldAcceptAggregatePayload };
+export {
+  parseIncomingSocketAction,
+  resolveAggregateLastSyncedAt,
+  shouldAcceptAggregatePayload,
+};
 export type { IncomingSocketAction, AggregateDecision };

@@ -16,6 +16,7 @@ const sourcePatchBodySchema = type({
   "excludeFocusTime?": "boolean",
   "excludeOutOfOffice?": "boolean",
   "includeInIcalFeed?": "boolean",
+  "treatFullDayTimedEventsAsAllDay?": "boolean",
   "+": "reject",
 });
 type SourcePatchBody = typeof sourcePatchBodySchema.infer;
@@ -39,6 +40,7 @@ const eventCreateBodySchema = type({
   endTime: "string",
   "isAllDay?": "boolean",
   "availability?": "'busy' | 'free'",
+  "timezone?": "string",
   "+": "reject",
 });
 type EventCreateBody = typeof eventCreateBodySchema.infer;
@@ -51,6 +53,7 @@ const eventPatchBodySchema = type({
   "endTime?": "string",
   "isAllDay?": "boolean",
   "availability?": "'busy' | 'free'",
+  "timezone?": "string",
   "rsvpStatus?": "'accepted' | 'declined' | 'tentative'",
   "+": "reject",
 });

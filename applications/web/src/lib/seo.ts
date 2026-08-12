@@ -1,5 +1,6 @@
-const SITE_URL = "https://keeper.sh";
+const SITE_URL = "https://www.keeper.sh";
 const SITE_NAME = "Keeper.sh";
+const DEFAULT_IMAGE_PATH = "/open-graph.png";
 
 export function canonicalUrl(path: string): string {
   return `${SITE_URL}${path}`;
@@ -15,16 +16,19 @@ export function seoMeta({
   path,
   type = "website",
   brandPosition = "after",
+  imagePath = DEFAULT_IMAGE_PATH,
 }: {
   title: string;
   description: string;
   path: string;
   type?: string;
   brandPosition?: "before" | "after";
+  imagePath?: string;
 }) {
   const fullTitle = brandPosition === "before"
     ? `${SITE_NAME} — ${title}`
     : `${title} · ${SITE_NAME}`;
+  const imageUrl = canonicalUrl(imagePath);
   return [
     { title: fullTitle },
     { content: description, name: "description" },
@@ -33,13 +37,13 @@ export function seoMeta({
     { content: description, property: "og:description" },
     { content: canonicalUrl(path), property: "og:url" },
     { content: SITE_NAME, property: "og:site_name" },
-    { content: `${SITE_URL}/open-graph.png`, property: "og:image" },
+    { content: imageUrl, property: "og:image" },
     { content: "1200", property: "og:image:width" },
     { content: "630", property: "og:image:height" },
     { content: "summary_large_image", name: "twitter:card" },
     { content: title, name: "twitter:title" },
     { content: description, name: "twitter:description" },
-    { content: `${SITE_URL}/open-graph.png`, name: "twitter:image" },
+    { content: imageUrl, name: "twitter:image" },
   ];
 }
 
@@ -137,6 +141,29 @@ export function softwareApplicationSchema() {
   };
 }
 
+export function faqSchema(items: Array<{ question: string; answer: string }>) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "@id": `${SITE_URL}/#faq`,
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    mainEntity: items.map((item) => {
+      const question = item.question.trim();
+      const answer = item.answer.trim();
+      if (!question || !answer) {
+        throw new Error(
+          `faqSchema requires a question and answer for every item, received ${JSON.stringify(item)}`,
+        );
+      }
+      return {
+        "@type": "Question",
+        name: question,
+        acceptedAnswer: { "@type": "Answer", text: answer },
+      };
+    }),
+  };
+}
+
 export function collectionPageSchema(posts: Array<{ slug: string; metadata: { title: string } }>) {
   return {
     "@context": "https://schema.org",
@@ -172,6 +199,7 @@ export function blogPostingSchema(post: {
   createdAt: string;
   updatedAt: string;
   tags: string[];
+  imagePath?: string;
 }) {
   const url = canonicalUrl(`/blog/${post.slug}`);
   return {
@@ -180,7 +208,7 @@ export function blogPostingSchema(post: {
     "@id": `${url}/#blogposting`,
     headline: post.title,
     description: post.description,
-    image: `${SITE_URL}/open-graph.png`,
+    image: canonicalUrl(post.imagePath ?? DEFAULT_IMAGE_PATH),
     url,
     datePublished: post.createdAt,
     dateModified: post.updatedAt,

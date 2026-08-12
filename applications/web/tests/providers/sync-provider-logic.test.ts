@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CompositeSyncState, SyncAggregateData } from "@/state/sync";
 import {
   parseIncomingSocketAction,
+  resolveAggregateLastSyncedAt,
   shouldAcceptAggregatePayload,
 } from "../../src/providers/sync-provider-logic";
 
@@ -101,7 +102,7 @@ describe("shouldAcceptAggregatePayload", () => {
     expect(decision.nextSeq).toBe(8);
   });
 
-  it("accepts lower sequence when a new sync cycle starts", () => {
+  it("rejects lower sequence syncing payload after idle completion", () => {
     const current = createCurrentState({
       progressPercent: 100,
       seq: 25,
@@ -116,16 +117,16 @@ describe("shouldAcceptAggregatePayload", () => {
       25,
       createAggregate({
         lastSyncedAt: current.lastSyncedAt,
-        progressPercent: 0,
+        progressPercent: 4.77,
         seq: 1,
         syncing: true,
         syncEventsProcessed: 0,
-        syncEventsRemaining: 12,
-        syncEventsTotal: 12,
+        syncEventsRemaining: 3513,
+        syncEventsTotal: 3689,
       }),
     );
 
-    expect(decision.accepted).toBe(true);
+    expect(decision.accepted).toBe(false);
     expect(decision.nextSeq).toBe(25);
   });
 
@@ -207,5 +208,23 @@ describe("shouldAcceptAggregatePayload", () => {
 
     expect(decision.accepted).toBe(false);
     expect(decision.nextSeq).toBe(50);
+  });
+});
+
+describe("resolveAggregateLastSyncedAt", () => {
+  it("preserves the current timestamp when an aggregate omits it", () => {
+    const next = createAggregate();
+    Reflect.deleteProperty(next, "lastSyncedAt");
+
+    expect(resolveAggregateLastSyncedAt("2026-03-08T12:00:00.000Z", next)).toBe(
+      "2026-03-08T12:00:00.000Z",
+    );
+  });
+
+  it("applies an explicit null timestamp", () => {
+    expect(resolveAggregateLastSyncedAt(
+      "2026-03-08T12:00:00.000Z",
+      createAggregate({ lastSyncedAt: null }),
+    )).toBeNull();
   });
 });

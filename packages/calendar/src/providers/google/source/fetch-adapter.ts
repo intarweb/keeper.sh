@@ -1,16 +1,19 @@
 import type { FetchEventsResult } from "../../../core/sync-engine/ingest";
 import type { RedisRateLimiter } from "../../../core/utils/redis-rate-limiter";
-import { resolveSyncTokenForWindow } from "../../../core/oauth/sync-token";
-import { getOAuthSyncWindow, OAUTH_SYNC_WINDOW_VERSION } from "../../../core/oauth/sync-window";
+import { encodeStoredSyncToken, resolveSyncTokenForWindow } from "../../../core/oauth/sync-token";
+import { getOAuthSyncTokenVersion, getOAuthSyncWindow } from "../../../core/oauth/sync-window";
+import { filterSourceEventsToSyncWindow } from "../../../core/source/sync-diagnostics";
 import { fetchCalendarEvents, parseGoogleEvents } from "./utils/fetch-events";
 
 const YEARS_UNTIL_FUTURE = 2;
 
 interface GoogleSourceFetcherConfig {
   accessToken: string;
+  calendarId: string;
   externalCalendarId: string;
   syncToken: string | null;
   rateLimiter?: RedisRateLimiter;
+  signal?: AbortSignal;
 }
 
 interface GoogleSourceFetcher {
@@ -23,15 +26,17 @@ const createGoogleSourceFetcher = (config: GoogleSourceFetcherConfig): GoogleSou
       accessToken: config.accessToken,
       calendarId: config.externalCalendarId,
       rateLimiter: config.rateLimiter,
+      signal: config.signal,
     };
+    const syncWindow = getOAuthSyncWindow(YEARS_UNTIL_FUTURE);
+    const syncTokenVersion = getOAuthSyncTokenVersion(0, new Date(), config.calendarId);
 
     const syncTokenResolution = resolveSyncTokenForWindow(
       config.syncToken,
-      OAUTH_SYNC_WINDOW_VERSION,
+      syncTokenVersion,
     );
 
     if (syncTokenResolution.syncToken === null) {
-      const syncWindow = getOAuthSyncWindow(YEARS_UNTIL_FUTURE);
       fetchOptions.timeMin = syncWindow.timeMin;
       fetchOptions.timeMax = syncWindow.timeMax;
     } else {
@@ -43,14 +48,22 @@ const createGoogleSourceFetcher = (config: GoogleSourceFetcherConfig): GoogleSou
     if (result.fullSyncRequired) {
       return { events: [], fullSyncRequired: true };
     }
+    if (!result.nextSyncToken) {
+      return { events: [], fullSyncRequired: true };
+    }
 
-    const events = parseGoogleEvents(result.events);
+    const parsedEvents = parseGoogleEvents(result.events);
+    const { events } = filterSourceEventsToSyncWindow(parsedEvents, syncWindow);
 
     return {
       events,
-      nextSyncToken: result.nextSyncToken,
-      cancelledEventUids: result.cancelledEventUids,
+      changedEventIds: result.changedEventIds,
+      cancelledEventIds: result.cancelledEventIds,
       isDeltaSync: result.isDeltaSync,
+      nextSyncToken: encodeStoredSyncToken(
+        result.nextSyncToken,
+        syncTokenVersion,
+      ),
     };
   };
 

@@ -363,7 +363,7 @@ const hasExistingOAuthCalendar = async (
   return hasExistingOAuthCalendarWithDatabase(database, options);
 };
 
-const syncOAuthSourcesByProvider = async (providerId: string): Promise<void> => {
+const syncOAuthSourcesByProvider = async (userId: string, providerId: string): Promise<void> => {
   const { database, oauthProviders, refreshLockStore } = await import("@/context");
   const sourceProvider = getSourceProvider(providerId, {
     database,
@@ -373,7 +373,7 @@ const syncOAuthSourcesByProvider = async (providerId: string): Promise<void> => 
   if (!sourceProvider) {
     return;
   }
-  await sourceProvider.syncAllSources();
+  await sourceProvider.syncSourcesForUser(userId);
 };
 
 const createOAuthSourceRecordWithDatabase = async (
@@ -461,7 +461,7 @@ const createDefaultCreateOAuthSourceDependencies = (): CreateOAuthSourceDependen
   hasExistingCalendar: hasExistingOAuthCalendar,
   triggerSync: (userId, provider) => {
     spawnBackgroundJob("oauth-source-sync", { userId, provider }, async () => {
-      await syncOAuthSourcesByProvider(provider);
+      await syncOAuthSourcesByProvider(userId, provider);
       const { premiumService } = await import("@/context");
       const plan = await premiumService.getUserPlan(userId);
       if (!plan) {
@@ -707,7 +707,7 @@ const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDepend
   },
   triggerSync: (userId, provider) => {
     spawnBackgroundJob("oauth-account-import", { userId, provider }, async () => {
-      await syncOAuthSourcesByProvider(provider);
+      await syncOAuthSourcesByProvider(userId, provider);
       const { premiumService } = await import("@/context");
       const plan = await premiumService.getUserPlan(userId);
       if (!plan) {
@@ -854,17 +854,23 @@ const insertOAuthCalendarsWithDatabase = async (
 const importOAuthAccountCalendars = async (
   options: ImportOAuthAccountOptions,
 ): Promise<string> => {
-  const { database } = await import("@/context");
+  const { database, premiumService } = await import("@/context");
+
+  const dependencies = createDefaultImportOAuthAccountDependencies();
+
+  const plan = await premiumService.getUserPlan(options.userId);
+  const externalCalendars = await dependencies.listCalendars(options.provider, options.accessToken);
 
   return database.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(${USER_ACCOUNT_LOCK_NAMESPACE}, hashtext(${options.userId}))`,
     );
 
-    const dependencies = createDefaultImportOAuthAccountDependencies();
-
     return importOAuthAccountCalendarsWithDependencies(options, {
       ...dependencies,
+      canAddAccount: (_userId, currentCount) =>
+        Promise.resolve(currentCount < premiumService.getAccountLimit(plan)),
+      listCalendars: () => Promise.resolve(externalCalendars),
       countUserAccounts: (userId) => countUserAccountsWithDatabase(tx, userId),
       createAccountId: (accountOptions) => createOAuthAccountIdWithDatabase(tx, accountOptions),
       findExistingAccountId: (accountOptions) => findOAuthAccountIdWithDatabase(tx, accountOptions),

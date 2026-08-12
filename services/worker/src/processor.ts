@@ -2,10 +2,15 @@ import type { Job } from "bullmq";
 import type { PushSyncJobPayload, PushSyncJobResult } from "@keeper.sh/queue";
 import { USER_TIMEOUT_MS } from "@keeper.sh/queue";
 import type { DestinationSyncResult } from "@keeper.sh/calendar";
-import { createSyncAggregateRuntime } from "@keeper.sh/calendar";
-import { syncDestinationsForUser } from "@keeper.sh/sync";
+import {
+  createSyncAggregateRuntime,
+  mergeAbortSignals,
+  RecurrenceMaterializationLimitError,
+} from "@keeper.sh/calendar";
+import { syncDestinationsForUser, SyncLockRenewalError } from "@keeper.sh/sync";
 import { createBroadcastService } from "@keeper.sh/broadcast";
 import { syncStatusTable } from "@keeper.sh/database/schema";
+import { classifyDatabaseError, getDatabaseErrorDetails } from "@keeper.sh/database";
 import { database, refreshLockRedis, refreshLockStore } from "./context";
 import { context, widelog } from "./utils/logging";
 import env from "./env";
@@ -17,19 +22,157 @@ const resolveCount = (value: unknown): number => {
   return 0;
 };
 
-const classifySyncError = (error: unknown): string => {
+const toError = (value: unknown): Error => {
+  if (value instanceof Error) {
+    return value;
+  }
+  return new Error(String(value));
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const resolveErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
   if (typeof error === "string") {
-    if (error.includes("conflict") || error.includes("409")) {
-      return "sync-push-conflict";
-    }
-    if (error.includes("timeout")) {
-      return "provider-api-timeout";
-    }
-    if (error.includes("rate") || error.includes("429")) {
-      return "provider-rate-limited";
-    }
+    return error;
+  }
+  if (isRecord(error) && typeof error.error === "string") {
+    return error.error;
+  }
+  return String(error);
+};
+
+const resolveErrorStatusCode = (error: unknown): number | null => {
+  if (!isRecord(error)) {
+    return null;
+  }
+  if (typeof error.statusCode === "number") {
+    return error.statusCode;
+  }
+  if (typeof error.status === "number") {
+    return error.status;
+  }
+  return null;
+};
+
+const classifyKnownSyncError = (error: unknown): string | null => {
+  const databaseError = classifyDatabaseError(error);
+  if (databaseError) {
+    return databaseError.slug;
+  }
+
+  if (error instanceof RecurrenceMaterializationLimitError) {
+    return "recurrence-materialization-limit";
+  }
+
+  if (error instanceof SyncLockRenewalError) {
+    return "sync-lock-renewal-failed";
+  }
+
+  return null;
+};
+
+const classifySyncError = (error: unknown): string => {
+  const knownErrorSlug = classifyKnownSyncError(error);
+  if (knownErrorSlug) {
+    return knownErrorSlug;
+  }
+
+  const statusCode = resolveErrorStatusCode(error);
+  if (statusCode === 401 || statusCode === 403) {
+    return "provider-auth-failed";
+  }
+  if (statusCode === 409 || statusCode === 412) {
+    return "sync-push-conflict";
+  }
+  if (statusCode === 429) {
+    return "provider-rate-limited";
+  }
+  if (statusCode !== null && statusCode >= 500) {
+    return "provider-api-error";
+  }
+
+  const message = resolveErrorMessage(error).toLowerCase();
+  let errorType = "";
+  if (error instanceof Error) {
+    errorType = error.name;
+  } else if (isRecord(error) && typeof error.errorType === "string") {
+    ({ errorType } = error);
+  }
+  if (message.includes("conflict") || message.includes("409") || message.includes("412")) {
+    return "sync-push-conflict";
+  }
+  if (errorType.includes("Timeout") || message.includes("timeout") || message.includes("timed out")) {
+    return "provider-api-timeout";
+  }
+  if (message.includes("rate") || message.includes("429")) {
+    return "provider-rate-limited";
   }
   return "sync-push-failed";
+};
+
+const recordOperationFailures = (syncEvent: Record<string, unknown>): void => {
+  const operationErrors = syncEvent.operation_errors;
+  if (!Array.isArray(operationErrors)) {
+    return;
+  }
+
+  let samples = 0;
+  for (const operationError of operationErrors) {
+    widelog.error("sync.failures", operationError);
+    if (!isRecord(operationError)) {
+      continue;
+    }
+
+    if (typeof operationError.type === "string") {
+      widelog.append("sync.failure_operations", operationError.type);
+    }
+    if (typeof operationError.errorType === "string") {
+      widelog.append("sync.failure_error_types", operationError.errorType);
+    }
+    if (typeof operationError.statusCode === "number") {
+      widelog.append("sync.failure_status_codes", operationError.statusCode);
+    }
+    if (samples < 3 && typeof operationError.error === "string") {
+      let operation = "unknown";
+      if (typeof operationError.type === "string") {
+        operation = operationError.type;
+      }
+      widelog.append("sync.error_samples", `[${operation}] ${operationError.error}`.slice(0, 500));
+      samples += 1;
+    }
+  }
+};
+
+const applySyncEventFields = (syncEvent: Record<string, unknown>): void => {
+  for (const [key, value] of Object.entries(syncEvent)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      widelog.set(key, value);
+    }
+  }
+  recordOperationFailures(syncEvent);
+};
+
+const applyDatabaseErrorFields = (error: unknown): void => {
+  const details = getDatabaseErrorDetails(error);
+  if (!details) {
+    return;
+  }
+  if (details.sqlState) {
+    widelog.set("error.database.sqlstate", details.sqlState);
+  }
+  if (details.message) {
+    widelog.set("error.database.message", details.message);
+  }
+  if (details.detail) {
+    widelog.set("error.database.detail", details.detail);
+  }
+  if (details.constraint) {
+    widelog.set("error.database.constraint", details.constraint);
+  }
 };
 
 const broadcastService = createBroadcastService({ redis: refreshLockRedis });
@@ -53,10 +196,24 @@ const persistSyncStatus = async (result: DestinationSyncResult, syncedAt: Date):
     });
 };
 
+const reportAggregateError = (scope: string, error: Error): void => {
+  widelog.set("operation.name", "sync-aggregate");
+  widelog.set("operation.type", "internal");
+  widelog.set("sync_aggregate.scope", scope);
+  widelog.set("outcome", "error");
+  widelog.error(`sync_aggregate.${scope}`, error);
+  widelog.errorFields(error, {
+    prefix: "sync_aggregate.error",
+    slug: classifySyncError(error),
+  });
+  widelog.flush();
+};
+
 const syncAggregateRuntime = createSyncAggregateRuntime({
   broadcast: (broadcastUserId, eventName, payload) => {
     broadcastService.emit(broadcastUserId, eventName, payload);
   },
+  onError: reportAggregateError,
   persistSyncStatus,
   redis: refreshLockRedis,
 });
@@ -80,12 +237,13 @@ const processJob = (
   signal: AbortSignal | undefined,
 ): Promise<PushSyncJobResult> =>
   context(async () => {
-    const { userId } = job.data;
+    const { calendarId, userId } = job.data;
 
     widelog.set("operation.name", "push-sync").sticky();
     widelog.set("operation.type", "job").sticky();
     widelog.set("sync.direction", "push").sticky();
     widelog.set("user.id", userId).sticky();
+    widelog.set("calendar.id", calendarId).sticky();
     widelog.set("user.plan", job.data.plan).sticky();
     widelog.set("job.id", job.id ?? "").sticky();
     widelog.set("job.name", job.name).sticky();
@@ -95,15 +253,20 @@ const processJob = (
 
     const deadlineMs = Date.now() + USER_TIMEOUT_MS;
 
-    let flushed = false;
+    const deadlineController = new AbortController();
+    const deadlineTimer = setTimeout(() => deadlineController.abort(), USER_TIMEOUT_MS);
+    let needsFlush = true;
+    const pendingDestinationSyncs: Promise<void>[] = [];
 
     try {
+      const abortSignal = mergeAbortSignals(deadlineController.signal, signal);
       const result = await syncDestinationsForUser(userId, {
+        destinationCalendarId: calendarId,
         database,
         redis: refreshLockRedis,
         refreshLockStore,
         deadlineMs,
-        abortSignal: signal,
+        abortSignal,
         encryptionKey: env.ENCRYPTION_KEY,
         oauthConfig: {
           googleClientId: env.GOOGLE_CLIENT_ID,
@@ -113,6 +276,9 @@ const processJob = (
         },
       }, {
         onProgress: (update) => {
+          if (signal?.aborted) {
+            return;
+          }
           syncAggregateRuntime.onSyncProgress(update);
           job.updateProgress({
             calendarId: update.calendarId,
@@ -121,20 +287,37 @@ const processJob = (
           });
         },
         onSyncEvent: (syncEvent) => {
-          const calendarId = syncEvent["calendar.id"];
+          if (signal?.aborted) {
+            return;
+          }
+          applySyncEventFields(syncEvent);
+          needsFlush = true;
+
+          const syncEventCalendarId = syncEvent["calendar.id"];
           const localCount = syncEvent["local_events.count"];
           const remoteCount = syncEvent["remote_events.count"];
+          const addFailed = resolveCount(syncEvent["events.add_failed"]);
+          const removeFailed = resolveCount(syncEvent["events.remove_failed"]);
+          const completedOutcome = syncEvent["outcome"] === "success"
+            || syncEvent["outcome"] === "in-sync";
 
-          if (typeof calendarId !== "string") {
+          if (typeof syncEventCalendarId !== "string") {
             return;
           }
 
-          syncAggregateRuntime.onDestinationSync({
-            userId,
-            calendarId,
-            localEventCount: resolveCount(localCount),
-            remoteEventCount: resolveCount(remoteCount),
-          });
+          pendingDestinationSyncs.push(
+            syncAggregateRuntime
+              .onDestinationSync({
+                userId,
+                calendarId: syncEventCalendarId,
+                completedSuccessfully: completedOutcome && addFailed === 0 && removeFailed === 0,
+                localEventCount: resolveCount(localCount),
+                remoteEventCount: resolveCount(remoteCount),
+              })
+              .catch((error: unknown) => {
+                reportAggregateError("destination-sync", toError(error));
+              }),
+          );
         },
         onCalendarComplete: (completion) => {
           widelog.set("provider.name", completion.provider);
@@ -146,25 +329,50 @@ const processJob = (
           widelog.set("sync.conflicts_resolved", completion.conflictsResolved);
           widelog.set("duration_ms", completion.durationMs);
 
-          for (const syncError of completion.errors) {
-            widelog.error("sync.failures", syncError);
-          }
-
-          const unclassifiedErrors = completion.errors
-            .filter((syncError) => classifySyncError(syncError) === "sync-push-failed")
-            .slice(0, 3);
-
-          for (const sample of unclassifiedErrors) {
-            widelog.append("sync.error_samples", sample.slice(0, 200));
+          if (!completion.syncEvent) {
+            for (const syncError of completion.errors) {
+              widelog.error("sync.failures", syncError);
+            }
           }
 
           const totalFailed = completion.addFailed + completion.removeFailed;
           const totalAttempted = completion.added + completion.removed + totalFailed;
-          widelog.set("outcome", resolveSyncOutcome(totalFailed, totalAttempted));
+          const syncOutcome = completion.syncEvent?.outcome;
+          let outcome = "success";
+          if (totalFailed > 0) {
+            outcome = resolveSyncOutcome(totalFailed, totalAttempted);
+          } else if (typeof syncOutcome === "string") {
+            outcome = syncOutcome;
+          }
+          widelog.set("outcome", outcome);
           widelog.flush();
-          flushed = true;
+          needsFlush = false;
+        },
+        onCalendarError: (failure) => {
+          widelog.set("provider.name", failure.provider);
+          widelog.set("provider.account_id", failure.accountId);
+          widelog.set("provider.calendar_id", failure.calendarId);
+          widelog.set("duration_ms", failure.durationMs);
+          widelog.set("retry.backoff_applied", true);
+          widelog.set("outcome", "error");
+          widelog.errorFields(failure.error, { slug: classifySyncError(failure.error) });
+          widelog.flush();
+          needsFlush = false;
         },
       });
+
+      if (result.syncEvents.length === 0) {
+        const completedWithErrors = result.errors.length > 0;
+        let outcome = "success";
+        if (completedWithErrors) {
+          outcome = "error";
+        }
+        widelog.set("outcome", outcome);
+        for (const syncError of result.errors) {
+          widelog.error("sync.failures", syncError);
+        }
+        needsFlush = true;
+      }
 
       return {
         added: result.added,
@@ -175,10 +383,21 @@ const processJob = (
       };
     } catch (error) {
       widelog.set("outcome", "error");
-      widelog.errorFields(error, { slug: "push-sync-failed" });
+      applyDatabaseErrorFields(error);
+      widelog.errorFields(error, { slug: classifySyncError(error) });
+      needsFlush = true;
       throw error;
     } finally {
-      if (!flushed) {
+      await Promise.all(pendingDestinationSyncs);
+      clearTimeout(deadlineTimer);
+      if (deadlineController.signal.aborted) {
+        widelog.set("timeout.fired", true);
+        widelog.set("timeout.kind", "job_deadline");
+        widelog.set("timeout.limit_ms", USER_TIMEOUT_MS);
+        widelog.set("error.slug", "sync-deadline-exceeded");
+        needsFlush = true;
+      }
+      if (needsFlush) {
         widelog.flush();
       }
     }

@@ -2,14 +2,19 @@
 
 # About
 
-Keeper is a simple & open-source calendar syncing tool. It allows you to pull events from remotely hosted iCal or ICS links, and push them to one or many calendars so the time slots can align across them all.
+Keeper.sh is a simple & open-source calendar syncing tool. It allows you to pull events from your Google Calendar, Outlook, iCloud, Fastmail, CalDAV server, or a remotely hosted iCal or ICS links, and push them to one or many calendars so the time slots can align across them all. Google, Outlook, iCloud, Fastmail, and CalDAV are first-class integrations that can each be used as a source or as a destination, while iCal and ICS links are pull-only. It also serves as a global MCP server and API for you or your agents to manage all your calendars from one convenient interface. You can use the hosted version for convenience and zero-setup, or self-host to get Pro features free. 
 
 # Features
 
-- Aggregating calendar events from remote sources
+- First-class Google Calendar, Outlook, iCloud, Fastmail, and CalDAV integrations, each usable as a source or a destination
+- Pull-only ingestion of remotely hosted iCal and ICS links
+- Incremental syncing on Google and Outlook using provider sync tokens rather than refetching everything
 - Event content agnostic syncing engine
 - Push aggregate events to one or more calendars
+- Per-source privacy controls to strip event names, descriptions, and locations, replacing the title with a `{{calendar_name}}` or `{{event_name}}` template
+- REST API under `/api/v1` authenticated with API tokens
 - MCP (Model Context Protocol) server for AI agent calendar access
+- Combined iCal feed you can subscribe to from any calendar app
 - Open source under AGPL-3.0
 - Easy to self-host
 - Easy-to-purge remote events
@@ -71,7 +76,7 @@ sudo update-ca-certificates
 bun dev
 ```
 
-This starts PostgreSQL, Redis, and a Caddy reverse proxy via Docker Compose, along with the API, web, MCP, and cron services locally. Once running, open `https://keeper.localhost`.
+This starts PostgreSQL, Redis, and a Caddy reverse proxy via Docker Compose, along with the API, web, MCP, cron, and worker services locally. Once running, open `https://keeper.localhost`.
 
 ### Architecture
 
@@ -104,23 +109,36 @@ I've probably tried it. It was probably too finicky, ended up making me waste ho
 
 Events are flagged as having been created by Keeper either using a `@keeper.sh` suffix on the remote UID, or in the case of a platform like Outlook that doesn't support custom UIDs, we just put it in a `"keeper.sh"` category.
 
+## How is the syncing split up?
+
+There are two halves, and they run on separate schedules.
+
+Ingestion pulls from your sources into Keeper's own database once a minute, regardless of plan. Google and Outlook are fetched incrementally using the provider's own sync token and delta link respectively, so a run only asks for what changed since the last one. CalDAV, iCloud, and Fastmail are refetched and diffed against the event state Keeper already has stored, and iCal/ICS links are refetched and diffed against the last stored snapshot.
+
+Pushing to destinations is what the refresh interval in the pricing table refers to. The cron service enqueues a job per destination onto a Redis-backed queue every minute for Pro and every thirty minutes for free, and the worker service reconciles the destination calendar. This is polling on our side rather than provider push notifications, so nothing needs to reach your instance from the outside.
+
 # Cloud Hosted
 
 I've made Keeper easy to self-host, but whether you simply want to support the project or don't want to deal with the hassle or overhead of configuring and running your own infrastructure cloud hosting is always an option.
 
 Head to [keeper.sh](https://keeper.sh) to get started with the cloud-hosted version. Use code `README` for 25% off.
 
-|                       | Free       | Pro (Cloud-Hosted) | Pro (Self-Hosted) |
-| --------------------- | ---------- | ------------------ | ----------------- |
-| **Monthly Price**     | $0 USD     | $5 USD             | $0                |
-| **Annual Price**      | $0 USD     | $42 USD (-30%)     | $0                |
-| **Refresh Interval**  | 30 minutes | 1 minute           | 1 minute          |
-| **Source Limit**      | 2          | ∞                  | ∞                 |
-| **Destination Limit** | 1          | ∞                  | ∞                 |
+|                             | Free       | Pro (Cloud-Hosted) | Pro (Self-Hosted) |
+| --------------------------- | ---------- | ------------------ | ----------------- |
+| **Monthly Price**           | $0 USD     | $5 USD             | $0                |
+| **Annual Price**            | $0 USD     | $42 USD (-30%)     | $0                |
+| **Refresh Interval**        | 30 minutes | 1 minute           | 1 minute          |
+| **Linked Account Limit**    | 2          | ∞                  | ∞                 |
+| **Sync Mapping Limit**      | 3          | ∞                  | ∞                 |
+| **Event Filters**           | No         | Yes                | Yes               |
+| **iCal Feed Customization** | No         | Yes                | Yes               |
+| **API Requests**            | 25 per day | ∞                  | ∞                 |
+
+The two limits that bite first are counted separately. A linked account is one connected Google, Outlook, iCloud, Fastmail, or CalDAV account, or one iCal/ICS subscription, and free is capped at two of them however many calendars each exposes. A sync mapping is one source calendar wired to one destination calendar, and free is capped at three, so a single source fanning out to three destinations uses the whole allowance. The refresh interval is how often Keeper pushes to your destinations; ingestion from your sources runs every minute on every plan.
 
 # Self Hosted
 
-By hosting Keeper yourself, you get all premium features for free, can guarantee data governance and autonomy, and it's fun. If you'll be self-hosting, please consider supporting me and development of the project by sponsoring me on GitHub.
+By hosting Keeper.sh yourself, you get all premium features for free, can guarantee data governance and autonomy, and it's fun. If you'll be self-hosting, please consider supporting me and development of the project by sponsoring me on GitHub.
 
 There are seven images currently available, two of them are designed for convenience, while the five are designed to serve the granular underlying services.
 
@@ -135,18 +153,20 @@ There are seven images currently available, two of them are designed for conveni
 | DATABASE_URL                   | `api`, `cron`, `worker`, `mcp` | PostgreSQL connection URL.<br><br>e.g. `postgres://user:pass@postgres:5432/keeper`                                                                                  |
 | REDIS_URL                      | `api`, `cron`, `worker` | Redis connection URL. Must be the same Redis instance across all services.<br><br>e.g. `redis://redis:6379`                                                        |
 | WORKER_JOB_QUEUE_ENABLED       | `cron`        | Required. Set to `true` to enqueue sync jobs to the worker queue, or `false` to disable. If unset, the cron service will exit with a migration notice.              |
+| WORKER_CONCURRENCY             | `worker`      | Optional. Number of sync jobs the worker processes concurrently. Defaults to `25`.                                                                                  |
 | BETTER_AUTH_URL                | `api`, `mcp`  | The base URL used for auth redirects.<br><br>e.g. `http://localhost:3000`                                                                                           |
 | BETTER_AUTH_SECRET             | `api`, `mcp`  | Secret key for session signing.<br><br>e.g. `openssl rand -base64 32`                                                                                               |
-| API_PORT                       | `api`         | Port the Bun API listens on. Defaults to `3001` in container images.                                                                                                |
+| API_PORT                       | `api`         | Required. Port the Bun API listens on. Pre-set to `3001` in the `keeper-standalone` and `keeper-services` images.                                                    |
 | ENV                            | `web`         | Optional. Runtime environment. One of `development`, `production`, or `test`. Defaults to `production`.                                                             |
-| PORT                           | `web`         | Port the web server listens on. Defaults to `3000` in container images.                                                                                             |
+| PORT                           | `web`         | Required. Port the web server listens on. Pre-set to `3000` in the `keeper-standalone` and `keeper-services` images.                                                 |
 | VITE_API_URL                   | `web`         | The URL the web server uses to proxy requests to the Bun API.<br><br>e.g. `http://api:3001`                                                                         |
-| COMMERCIAL_MODE                | `api`, `cron` | Enable Polar billing flow. Set to `true` if using Polar for subscriptions.                                                                                          |
+| COMMERCIAL_MODE                | `api`, `cron`, `mcp`, `web` | Enable Polar billing flow. Set to `true` if using Polar for subscriptions.                                                                            |
 | POLAR_ACCESS_TOKEN             | `api`, `cron` | Optional. Polar API token for subscription management.                                                                                                              |
 | POLAR_MODE                     | `api`, `cron` | Optional. Polar environment, `sandbox` or `production`.                                                                                                             |
 | POLAR_WEBHOOK_SECRET           | `api`         | Optional. Secret to verify Polar webhooks.                                                                                                                          |
 | ENCRYPTION_KEY                 | `api`, `cron`, `worker` | Key for encrypting CalDAV credentials at rest.<br><br>e.g. `openssl rand -base64 32`                                                                                |
 | RESEND_API_KEY                 | `api`         | Optional. API key for sending emails via Resend.                                                                                                                    |
+| FEEDBACK_EMAIL                 | `api`         | Optional. Address that in-app feedback submissions are emailed to. Requires `RESEND_API_KEY`.                                                                        |
 | PASSKEY_RP_ID                  | `api`         | Optional. Relying party ID for passkey authentication.                                                                                                              |
 | PASSKEY_RP_NAME                | `api`         | Optional. Relying party display name for passkeys.                                                                                                                  |
 | PASSKEY_ORIGIN                 | `api`         | Optional. Origin allowed for passkey flows (e.g., `https://keeper.example.com`).                                                                                    |
@@ -158,18 +178,18 @@ There are seven images currently available, two of them are designed for conveni
 | BLOCK_PRIVATE_RESOLUTION       | `api`, `cron` | Optional. Set to `true` to block outbound fetches (ICS subscriptions, CalDAV servers) from resolving to private/reserved network addresses. Prevents SSRF. Defaults to `false` for backward compatibility with self-hosted setups that use local CalDAV/ICS servers. |
 | PRIVATE_RESOLUTION_WHITELIST          | `api`, `cron` | Optional. When `BLOCK_PRIVATE_RESOLUTION` is `true`, this comma-separated list of hostnames or IPs is exempt from the restriction.<br><br>e.g. `192.168.1.50,radicale.local,10.0.2.12` |
 | TRUSTED_ORIGINS                | `api`         | Optional. Comma-separated list of additional trusted origins for CSRF protection.<br><br>e.g. `http://192.168.1.100,http://keeper.local,https://keeper.example.com` |
-| MCP_PUBLIC_URL                 | `api`, `mcp`  | Optional. Public URL of the MCP resource. Enables OAuth on the API and identifies the MCP server to clients.<br><br>e.g. `https://keeper.example.com/mcp`           |
+| WEBSOCKET_URL                  | `api`         | Optional. External URL clients should open the realtime socket against. When unset, clients connect to the API's own `/api/socket` path.<br><br>e.g. `wss://socket.keeper.example.com` |
+| MCP_PUBLIC_URL                 | `api`, `mcp`  | Optional on `api`, required by `mcp`. Public URL of the MCP resource. Enables OAuth on the API and identifies the MCP server to clients.<br><br>e.g. `https://keeper.example.com/mcp` |
 | VITE_MCP_URL                   | `web`         | Optional. Internal URL the web server uses to proxy `/mcp` requests to the MCP service.<br><br>e.g. `http://mcp:3002`                                              |
-| MCP_PORT                       | `mcp`         | Optional. Port the MCP server listens on.<br><br>e.g. `3002`                                                                                                       |
-| OTEL_EXPORTER_OTLP_ENDPOINT    | `api`, `cron`, `worker`, `mcp`, `web` | Optional. When set, enables forwarding structured logs to an OpenTelemetry collector via [`pino-opentelemetry-transport`](https://github.com/Vunovati/pino-opentelemetry-transport). The transport runs in a dedicated worker thread and does not affect application performance.<br><br>e.g. `https://otel-collector.example.com:4318` |
+| MCP_PORT                       | `mcp`         | Required by `mcp`. Port the MCP server listens on.<br><br>e.g. `3002`                                                                                              |
+| OTEL_EXPORTER_OTLP_ENDPOINT    | `api`, `cron`, `worker`, `mcp`, `web` | Optional. When set, enables forwarding structured logs to an OpenTelemetry collector. Each service pipes its stdout through the `keeper-otelemetry` binary from [`@keeper.sh/otelemetry`](./packages/otelemetry), which runs as a separate process and does not affect application performance.<br><br>e.g. `https://otel-collector.example.com:4318` |
 | OTEL_EXPORTER_OTLP_PROTOCOL    | `api`, `cron`, `worker`, `mcp`, `web` | Optional. Protocol used by the OTLP exporter. Defaults to `http/protobuf` per the OpenTelemetry spec.<br><br>e.g. `http/protobuf`, `grpc`, `http/json` |
 | OTEL_EXPORTER_OTLP_HEADERS     | `api`, `cron`, `worker`, `mcp`, `web` | Optional. Headers sent with every OTLP export request. Use this for authentication (e.g. Basic auth or API keys).<br><br>e.g. `Authorization=Basic dXNlcjpwYXNz` |
 
-The following environment variables are baked into the web image at **build time**. They are pre-configured in the official Docker images and only need to be set if you are building from source.
+The following environment variables are read by the `web` server at **runtime** and serialized into the page as public runtime configuration. All of them are optional.
 
 | Name                              | Description                                                        |
 | --------------------------------- | ------------------------------------------------------------------ |
-| VITE_COMMERCIAL_MODE              | Toggle commercial mode in the web UI (`true`/`false`).             |
 | POLAR_PRO_MONTHLY_PRODUCT_ID      | Optional. Polar monthly product ID to power in-app upgrade links.  |
 | POLAR_PRO_YEARLY_PRODUCT_ID       | Optional. Polar yearly product ID to power in-app upgrade links.   |
 | VITE_VISITORS_NOW_TOKEN           | Optional. [visitors.now](https://visitors.now) token for analytics |
@@ -186,17 +206,17 @@ The following environment variables are baked into the web image at **build time
 
 | Tag                        | Description                                                                                                                                              | Included Services                                                                        |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `keeper-standalone:2.11`    | The "standalone" image is everything you need to get up and running with Keeper with as little configuration as possible.                                | `keeper-web`, `keeper-api`, `keeper-cron`, `keeper-worker`, `redis`, `postgresql`, `caddy` |
-| `keeper-services:2.11`      | If you'd like for the Redis & Database to exist outside of the container, you can use the "services" image to launch without them included in the image. | `keeper-web`, `keeper-api`, `keeper-cron`, `keeper-worker`                                 |
-| `keeper-web:2.11`           | An image containing the Vite SSR web interface.                                                                                                          | `keeper-web`                                                                              |
-| `keeper-api:2.11`           | An image containing the Bun API service.                                                                                                                 | `keeper-api`                                                                              |
-| `keeper-cron:2.11`          | An image containing the Bun cron service. Requires `keeper-worker` for destination syncing.                                                              | `keeper-cron`                                                                             |
-| `keeper-worker:2.11`        | An image containing the BullMQ worker that processes calendar sync jobs enqueued by `keeper-cron`.                                                       | `keeper-worker`                                                                           |
-| `keeper-mcp:2.11`           | An image containing the MCP server for AI agent calendar access. Optional — only needed if using MCP clients.                                            | `keeper-mcp`                                                                              |
+| `keeper-standalone:2`    | The "standalone" image is everything you need to get up and running with Keeper with as little configuration as possible.                                | `keeper-web`, `keeper-api`, `keeper-cron`, `keeper-worker`, `redis`, `postgresql`, `caddy` |
+| `keeper-services:2`      | If you'd like for the Redis & Database to exist outside of the container, you can use the "services" image to launch without them included in the image. | `keeper-web`, `keeper-api`, `keeper-cron`, `keeper-worker`                                 |
+| `keeper-web:2`           | An image containing the Vite SSR web interface.                                                                                                          | `keeper-web`                                                                              |
+| `keeper-api:2`           | An image containing the Bun API service.                                                                                                                 | `keeper-api`                                                                              |
+| `keeper-cron:2`          | An image containing the Bun cron service. Requires `keeper-worker` for destination syncing.                                                              | `keeper-cron`                                                                             |
+| `keeper-worker:2`        | An image containing the BullMQ worker that processes calendar sync jobs enqueued by `keeper-cron`.                                                       | `keeper-worker`                                                                           |
+| `keeper-mcp:2`           | An image containing the MCP server for AI agent calendar access. Optional — only needed if using MCP clients.                                            | `keeper-mcp`                                                                              |
 
 > [!TIP]
 >
-> Pin your images to a major.minor version tag (e.g., `2.9`) rather than `latest`. This prevents breaking changes from automatically applying when you pull new images.
+> Pin your images to a major.minor version tag (e.g., `2.13`) rather than `latest`. This prevents breaking changes from automatically applying when you pull new images.
 
 ## Prerequisites
 
@@ -224,7 +244,7 @@ Microsoft does not appear to do documentation well, the best I could find for no
 
 ## Standalone Container
 
-While you'd typically want to run containers granularly, if you just want to get up and running, a convenience image `keeper-standalone:2.11` has been provided. This container contains the `cron`, `worker`, `web`, `api` services as well as a configured `redis`, `database`, and `caddy` instance that puts everything behind the same port. While this is the easiest way to spin up Keeper, it is not recognized as best-practice.
+While you'd typically want to run containers granularly, if you just want to get up and running, a convenience image `keeper-standalone:2` has been provided. This container contains the `cron`, `worker`, `web`, `api` services as well as a configured `redis`, `database`, and `caddy` instance that puts everything behind the same port. While this is the easiest way to spin up Keeper, it is not recognized as best-practice.
 
 ### Generate `keeper-standalone` Environment Variables
 
@@ -269,7 +289,7 @@ docker run -d \
   -p 80:80 \
   -v keeper-data:/var/lib/postgresql/data \
   --env-file .env \
-  ghcr.io/ridafkih/keeper-standalone:2.11
+  ghcr.io/ridafkih/keeper-standalone:2
 ```
 
 ### Run `keeper-standalone` with Docker Compose
@@ -279,7 +299,7 @@ If you'd prefer to use a `compose.yaml` file, the following is an example. Remem
 ```yaml
 services:
   keeper:
-    image: ghcr.io/ridafkih/keeper-standalone:2.11
+    image: ghcr.io/ridafkih/keeper-standalone:2
     ports:
       - "80:80"
     volumes:
@@ -307,7 +327,7 @@ With all said and done, you can access Keeper at http://localhost/. You can use 
 
 ## Collective Services Image
 
-If you'd like to bring your own Redis and PostgreSQL, you can use the `keeper-services` image. This contains the `cron`, `web` and `api` services in one.
+If you'd like to bring your own Redis and PostgreSQL, you can use the `keeper-services` image. This contains the `cron`, `worker`, `web` and `api` services in one.
 
 ### Generate `keeper-services` Environment Variables
 
@@ -465,6 +485,23 @@ services:
       DATABASE_URL: postgres://keeper:keeper@postgres:5432/keeper
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      WORKER_JOB_QUEUE_ENABLED: "true"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    image: ghcr.io/ridafkih/keeper-worker:latest
+    environment:
+      DATABASE_URL: postgres://keeper:keeper@postgres:5432/keeper
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
@@ -497,21 +534,64 @@ Once that's configured, you can launch Keeper using the following command.
 docker compose up -d
 ```
 
+# REST API
+
+Keeper exposes a REST API under `/api/v1`. It is the same interface the dashboard and the MCP server use, so anything an agent can do through MCP you can do with `curl`.
+
+## Authentication
+
+Create an API token from **Settings → API Tokens** in the dashboard. Tokens are prefixed with `kpr_` and the full value is only returned once, at creation time. Pass it as a bearer token.
+
+```bash
+curl https://keeper.example.com/api/v1/calendars \
+  -H "Authorization: Bearer kpr_..."
+```
+
+`/api/v1` routes also accept a logged-in browser session or an MCP OAuth access token, so all three callers hit the same handlers. Token management itself lives at `/api/tokens` and requires a browser session rather than an API token.
+
+## Endpoints
+
+| Method   | Path                                     | Description                                                                                                                                                    |
+| -------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/v1/calendars`                      | List connected calendars. Accepts an optional comma-delimited `provider` filter.                                                                                |
+| `GET`    | `/api/v1/calendars/{calendarId}/invites` | List invitations on a calendar that have not been responded to, within a date range.                                                                            |
+| `GET`    | `/api/v1/accounts`                       | List connected calendar accounts and how many calendars each has. Accepts an optional comma-delimited `provider` filter.                                        |
+| `GET`    | `/api/v1/events`                         | List events in a date range. Accepts `calendarId`, `availability`, and `isAllDay` filters, and `count=true` to return only a count.                             |
+| `POST`   | `/api/v1/events`                         | Create an event. Requires `calendarId`, `title`, `startTime`, and `endTime`.                                                                                    |
+| `GET`    | `/api/v1/events/{id}`                    | Get a single event.                                                                                                                                            |
+| `PATCH`  | `/api/v1/events/{id}`                    | Update an event's fields, or send `rsvpStatus` to respond to an invitation.                                                                                     |
+| `DELETE` | `/api/v1/events/{id}`                    | Delete an event.                                                                                                                                               |
+| `GET`    | `/api/v1/ical`                           | Get the URL of your iCal feed.                                                                                                                                 |
+
+Range parameters `from` and `to` are ISO 8601 datetimes. If omitted, `from` defaults to now and `to` defaults to a week after `from`. A range may not exceed 732 days.
+
+> [!NOTE]
+>
+> On the free plan the API is capped at 25 requests per day, after which requests return `429`. Pro is uncapped, and self-hosted instances running without `COMMERCIAL_MODE` are treated as Pro.
+
 # MCP (Model Context Protocol)
 
 Keeper includes an optional MCP server that lets AI agents (such as Claude) access your calendar data through a standardized protocol. The MCP server authenticates via OAuth 2.1 with a consent flow hosted by the web application.
 
 ## Available Tools
 
-| Tool              | Description                                                                                          |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `list_calendars`  | List all calendars connected to Keeper, including provider name and account.                          |
-| `get_events`      | Get calendar events within a date range. Accepts ISO 8601 datetimes and an IANA timezone identifier. |
-| `get_event_count` | Get the total number of calendar events synced to Keeper.                                            |
+| Tool                  | Description                                                                                                                                   |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_calendars`      | List all calendars connected to Keeper, including provider name and account.                                                                   |
+| `get_event_count`     | Get the number of calendar events. Optionally scoped to a date range with `from` and `to` ISO 8601 datetimes.                                  |
+| `get_events`          | Get calendar events within a date range. Accepts ISO 8601 datetimes and an IANA timezone identifier used to localize event times.              |
+| `get_event`           | Get a single calendar event by its ID.                                                                                                         |
+| `create_event`        | Create an event on a connected calendar. Requires a calendar ID, title, start time, and end time.                                               |
+| `update_event`        | Update an existing calendar event. Only the fields you provide are updated.                                                                    |
+| `delete_event`        | Delete a calendar event by its ID.                                                                                                             |
+| `get_pending_invites` | Get invitations on a calendar that have not been responded to within a date range.                                                             |
+| `rsvp_event`          | Respond to a calendar event invitation with `accepted`, `declined`, or `tentative`.                                                            |
+| `list_accounts`       | List all connected calendar accounts with provider information.                                                                                |
+| `get_ical_feed`       | Get your iCal feed URL for subscribing in other calendar apps.                                                                                 |
 
 ## Connecting an MCP Client
 
-To connect an MCP-compatible client (e.g. Claude Code, Claude Desktop), point it at your MCP server URL. The client will be guided through the OAuth consent flow to authorize read access to your calendar data.
+To connect an MCP-compatible client (e.g. Claude Code, Claude Desktop), point it at your MCP server URL. The client will be guided through the OAuth consent flow to authorize read and write access to your calendar data — the toolset can create, update, delete, and RSVP to events, not just read them.
 
 Example Claude Code MCP configuration:
 
@@ -544,41 +624,30 @@ To enable MCP on a self-hosted instance:
 
 ## Applications
 
-1. [@keeper.sh/api](./applications/api)
-2. [@keeper.sh/cron](./applications/cron)
-3. [@keeper.sh/mcp](./applications/mcp)
-4. [@keeper.sh/web](./applications/canary-web)
-5. @keeper.sh/cli _(Coming Soon)_
-6. @keeper.sh/mobile _(Coming Soon)_
-7. @keeper.sh/ssh _(Coming Soon)_
+1. [@keeper.sh/web](./applications/web)
+2. @keeper.sh/cli _(Coming Soon)_
+3. @keeper.sh/mobile _(Coming Soon)_
+4. @keeper.sh/ssh _(Coming Soon)_
+
+## Services
+
+1. [@keeper.sh/api](./services/api)
+2. [@keeper.sh/cron](./services/cron)
+3. [@keeper.sh/mcp](./services/mcp)
+4. [@keeper.sh/worker](./services/worker)
 
 ## Modules
 
 1. [@keeper.sh/auth](./packages/auth)
-1. [@keeper.sh/auth-plugin-username-only](./packages/auth-plugin-username-only)
 1. [@keeper.sh/broadcast](./packages/broadcast)
-1. [@keeper.sh/broadcast-client](./packages/broadcast-client)
 1. [@keeper.sh/calendar](./packages/calendar)
 1. [@keeper.sh/constants](./packages/constants)
 1. [@keeper.sh/data-schemas](./packages/data-schemas)
 1. [@keeper.sh/database](./packages/database)
-1. [@keeper.sh/date-utils](./packages/date-utils)
-1. [@keeper.sh/encryption](./packages/encryption)
-1. [@keeper.sh/env](./packages/env)
+1. [@keeper.sh/digest-fetch](./packages/digest-fetch)
 1. [@keeper.sh/fixtures](./packages/fixtures)
-1. [@keeper.sh/keeper-api](./packages/keeper-api)
-1. [@keeper.sh/oauth](./packages/oauth)
-1. [@keeper.sh/oauth-google](./packages/oauth-google)
-1. [@keeper.sh/oauth-microsoft](./packages/oauth-microsoft)
+1. [@keeper.sh/otelemetry](./packages/otelemetry)
 1. [@keeper.sh/premium](./packages/premium)
-1. [@keeper.sh/provider-caldav](./packages/provider-caldav)
-1. [@keeper.sh/provider-core](./packages/provider-core)
-1. [@keeper.sh/provider-fastmail](./packages/provider-fastmail)
-1. [@keeper.sh/provider-google-calendar](./packages/provider-google-calendar)
-1. [@keeper.sh/provider-icloud](./packages/provider-icloud)
-1. [@keeper.sh/provider-outlook](./packages/provider-outlook)
-1. [@keeper.sh/provider-registry](./packages/provider-registry)
-1. [@keeper.sh/pull-calendar](./packages/pull-calendar)
-1. [@keeper.sh/sync-calendar](./packages/sync-calendar)
-1. [@keeper.sh/sync-events](./packages/sync-events)
+1. [@keeper.sh/queue](./packages/queue)
+1. [@keeper.sh/sync](./packages/sync)
 1. [@keeper.sh/typescript-config](./packages/typescript-config)

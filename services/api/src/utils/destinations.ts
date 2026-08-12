@@ -15,6 +15,10 @@ import type {
 } from "@keeper.sh/calendar";
 import { database, oauthProviders, redis } from "@/context";
 import { invalidateCalendarsForAccount } from "@/utils/invalidate-calendars";
+import {
+  buildReconnectedCalendarState,
+  RECONNECTED_CALENDAR_STATE,
+} from "@/utils/calendar-state";
 
 const FIRST_RESULT_LIMIT = 1;
 const EMPTY_RESULT_COUNT = 0;
@@ -156,12 +160,13 @@ const upsertAccountAndCalendarWithDatabase = async (
     })
     .onConflictDoUpdate({
       set: setClause,
+      setWhere: eq(calendarAccountsTable.userId, base.userId),
       target: [calendarAccountsTable.provider, calendarAccountsTable.accountId],
     })
     .returning({ id: calendarAccountsTable.id });
 
   if (!account) {
-    return;
+    throw new Error("This account is already linked to another user");
   }
 
   const [existingCalendar] = await databaseClient
@@ -236,6 +241,10 @@ const saveCalendarDestinationWithDatabase = async (
       .limit(FIRST_RESULT_LIMIT);
 
     if (existingCalendar) {
+      await databaseClient
+        .update(calendarsTable)
+        .set(RECONNECTED_CALENDAR_STATE)
+        .where(eq(calendarsTable.id, existingCalendar.id));
       await initializeSyncStatusWithDatabase(databaseClient, existingCalendar.id);
     }
     return;
@@ -313,7 +322,10 @@ const deleteCalendarDestination = async (
   userId: string,
   accountId: string,
 ): Promise<boolean> => {
-  await invalidateCalendarsForAccount(database, redis, accountId);
+  const owned = await invalidateCalendarsForAccount(database, redis, userId, accountId);
+  if (!owned) {
+    return false;
+  }
 
   const result = await database
     .delete(calendarAccountsTable)
@@ -389,7 +401,7 @@ const saveCalDAVDestinationWithDatabase = async (
     if (existingCalendar) {
       await databaseClient
         .update(calendarsTable)
-        .set({ calendarUrl })
+        .set(buildReconnectedCalendarState(calendarUrl))
         .where(eq(calendarsTable.id, existingCalendar.id));
       await initializeSyncStatusWithDatabase(databaseClient, existingCalendar.id);
     }
@@ -476,4 +488,5 @@ export {
   saveCalDAVDestination,
   saveCalDAVDestinationWithDatabase,
   saveCalendarDestinationWithDatabase,
+  upsertAccountAndCalendarWithDatabase,
 };

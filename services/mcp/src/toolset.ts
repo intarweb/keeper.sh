@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const keeperEventSchema = z.object({
   id: z.string(),
+  eventStateId: z.string().uuid().nullable(),
   startTime: z.string(),
   endTime: z.string(),
   title: z.string().nullable(),
@@ -209,7 +210,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
     title: "Get event",
     description: "Get a single calendar event by its ID.",
     inputSchema: {
-      eventId: z.string().uuid().describe("The event ID"),
+      eventId: z.string().describe("The event ID returned by get_events"),
     },
     execute: (context, input) => {
       if (!input?.eventId || typeof input.eventId !== "string") {
@@ -221,7 +222,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   create_event: {
     title: "Create event",
     description:
-      "Create a new calendar event on a connected calendar. Requires calendarId, title, startTime, and endTime.",
+      "Create a new calendar event on a connected calendar. Requires calendarId, title, startTime, and endTime. Pass an IANA timezone so the event renders in local time on CalDAV calendars (iCloud, Fastmail) instead of GMT.",
     inputSchema: {
       calendarId: z.string().uuid().describe("The calendar to create the event on"),
       title: z.string().describe("Event title"),
@@ -231,6 +232,10 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
       endTime: z.string().datetime().describe("End time in ISO 8601 format"),
       isAllDay: z.boolean().optional().describe("Whether the event is all-day"),
       availability: z.enum(["busy", "free"]).optional().describe("Availability status"),
+      timezone: z
+        .string()
+        .optional()
+        .describe("IANA timezone identifier (e.g. America/New_York) the event's local time is in"),
     },
     execute: (context, input) => {
       if (!input?.calendarId || !input?.title || !input?.startTime || !input?.endTime) {
@@ -247,7 +252,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
     description:
       "Update an existing calendar event. Only provided fields are updated.",
     inputSchema: {
-      eventId: z.string().uuid().describe("The event ID to update"),
+      eventId: z.string().describe("The event ID returned by get_events"),
       title: z.string().optional().describe("Updated event title"),
       description: z.string().optional().describe("Updated event description"),
       location: z.string().optional().describe("Updated event location"),
@@ -255,6 +260,10 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
       endTime: z.string().datetime().optional().describe("Updated end time"),
       isAllDay: z.boolean().optional().describe("Whether the event is all-day"),
       availability: z.enum(["busy", "free"]).optional().describe("Updated availability"),
+      timezone: z
+        .string()
+        .optional()
+        .describe("IANA timezone identifier (e.g. America/New_York) the event's local time is in"),
     },
     execute: (context, input) => {
       if (!input?.eventId || typeof input.eventId !== "string") {
@@ -271,7 +280,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
     title: "Delete event",
     description: "Delete a calendar event by its ID.",
     inputSchema: {
-      eventId: z.string().uuid().describe("The event ID to delete"),
+      eventId: z.string().describe("The event ID returned by get_events"),
     },
     execute: async (context, input) => {
       if (!input?.eventId || typeof input.eventId !== "string") {
@@ -288,7 +297,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
     description:
       "Respond to a calendar event invitation. Set rsvpStatus to 'accepted', 'declined', or 'tentative'.",
     inputSchema: {
-      eventId: z.string().uuid().describe("The event ID to respond to"),
+      eventId: z.string().describe("The event ID returned by get_events"),
       rsvpStatus: z.enum(["accepted", "declined", "tentative"]).describe("The RSVP response"),
     },
     execute: (context, input) => {

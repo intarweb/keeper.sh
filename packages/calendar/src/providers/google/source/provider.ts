@@ -1,11 +1,21 @@
-import { buildSourceEventStateIdsToRemove, buildSourceEventsToAdd } from "../../../core/source/event-diff";
-import { filterSourceEventsToSyncWindow, resolveSourceSyncTokenAction, splitSourceEventsByStorageIdentity } from "../../../core/source/sync-diagnostics";
-import { insertEventStatesWithConflictResolution } from "../../../core/source/write-event-states";
+import {
+  buildSourceEventStateIdsToRemove,
+  buildSourceEventsToAdd,
+} from "../../../core/source/event-diff";
+import {
+  buildInvalidStoredEventIdsToRemove,
+  parseStoredSourceEventStatesRecoveringInvalid,
+} from "../../../core/source/stored-event-state";
+import { filterSourceEventsToSyncWindow, resolveSourceSyncTokenAction, splitSourceEventsByPersistenceIdentity } from "../../../core/source/sync-diagnostics";
+import {
+  buildEventStateInsertRow,
+  insertEventStatesWithConflictResolution,
+} from "../../../core/source/write-event-states";
 import { OAuthSourceProvider, type ProcessEventsOptions } from "../../../core/oauth/source-provider";
 import type { FetchEventsResult as BaseFetchEventsResult } from "../../../core/oauth/source-provider";
 import { createOAuthSourceProvider, type SourceProvider } from "../../../core/oauth/create-source-provider";
 import { encodeStoredSyncToken, resolveSyncTokenForWindow } from "../../../core/oauth/sync-token";
-import { getOAuthSyncWindow, OAUTH_SYNC_WINDOW_VERSION } from "../../../core/oauth/sync-window";
+import { getOAuthSyncTokenVersion, getOAuthSyncWindow } from "../../../core/oauth/sync-window";
 import type { OAuthTokenProvider } from "../../../core/oauth/token-provider";
 import type { RefreshLockStore } from "../../../core/oauth/refresh-coordinator";
 import type { OAuthSourceConfig, SourceEvent, SourceSyncResult } from "../../../core/types";
@@ -17,17 +27,12 @@ import {
 } from "@keeper.sh/database/schema";
 import { and, arrayContains, eq, gt, inArray, lt, or } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
+import type { BunSQLClient } from "../../../core/database-client";
 import { fetchCalendarEvents, parseGoogleEvents } from "./utils/fetch-events";
 
 const GOOGLE_PROVIDER_ID = "google";
 const EMPTY_COUNT = 0;
 
-const stringifyIfPresent = (value: unknown) => {
-  if (!value) {
-    return;
-  }
-  return JSON.stringify(value);
-};
 const YEARS_UNTIL_FUTURE = 2;
 
 interface GoogleSourceConfig extends OAuthSourceConfig {
@@ -53,9 +58,14 @@ class GoogleCalendarSourceProvider extends OAuthSourceProvider<GoogleSourceConfi
       accessToken: this.currentAccessToken,
       calendarId: this.config.externalCalendarId,
     };
+    const syncTokenVersion = getOAuthSyncTokenVersion(
+      0,
+      new Date(),
+      this.config.calendarId,
+    );
     const syncTokenResolution = resolveSyncTokenForWindow(
       syncToken,
-      OAUTH_SYNC_WINDOW_VERSION,
+      syncTokenVersion,
     );
 
     if (syncTokenResolution.requiresBackfill && syncToken !== null) {
@@ -78,14 +88,16 @@ class GoogleCalendarSourceProvider extends OAuthSourceProvider<GoogleSourceConfi
 
     const events = parseGoogleEvents(result.events);
     const fetchResult: BaseFetchEventsResult = {
+      changedEventIds: result.changedEventIds,
       events,
       fullSyncRequired: false,
       isDeltaSync: result.isDeltaSync,
       nextSyncToken: result.nextSyncToken,
+      syncTokenVersion,
     };
 
-    if (result.cancelledEventUids) {
-      fetchResult.cancelledEventUids = result.cancelledEventUids;
+    if (result.cancelledEventIds) {
+      fetchResult.cancelledEventIds = result.cancelledEventIds;
     }
 
     return fetchResult;
@@ -96,7 +108,13 @@ class GoogleCalendarSourceProvider extends OAuthSourceProvider<GoogleSourceConfi
     options: ProcessEventsOptions,
   ): Promise<SourceSyncResult> {
     const { database, calendarId } = this.config;
-    const { nextSyncToken, isDeltaSync, cancelledEventUids } = options;
+    const {
+      cancelledEventIds,
+      changedEventIds,
+      isDeltaSync,
+      nextSyncToken,
+      syncTokenVersion,
+    } = options;
     const syncWindow = getOAuthSyncWindow(YEARS_UNTIL_FUTURE);
     const {
       events: eventsInWindow,
@@ -109,34 +127,57 @@ class GoogleCalendarSourceProvider extends OAuthSourceProvider<GoogleSourceConfi
       syncWindow,
     );
 
-    const existingEvents = await database
+    const storedEvents = await database
       .select({
         availability: eventStatesTable.availability,
         description: eventStatesTable.description,
         id: eventStatesTable.id,
         endTime: eventStatesTable.endTime,
+        exceptionDates: eventStatesTable.exceptionDates,
         isAllDay: eventStatesTable.isAllDay,
         location: eventStatesTable.location,
+        recurrenceId: eventStatesTable.recurrenceId,
+        recurrenceRule: eventStatesTable.recurrenceRule,
         sourceEventType: eventStatesTable.sourceEventType,
+        sourceEventId: eventStatesTable.sourceEventId,
         sourceEventUid: eventStatesTable.sourceEventUid,
         startTime: eventStatesTable.startTime,
+        startTimeZone: eventStatesTable.startTimeZone,
         title: eventStatesTable.title,
       })
       .from(eventStatesTable)
       .where(eq(eventStatesTable.calendarId, calendarId));
+    const parseResult = parseStoredSourceEventStatesRecoveringInvalid(storedEvents);
+    const existingEvents = parseResult.events;
+    if (isDeltaSync && parseResult.failures.length > 0) {
+      await this.clearSyncToken();
+      return {
+        eventsAdded: 0,
+        eventsFilteredOutOfWindow,
+        eventsRemoved: 0,
+        fullSyncRequired: true,
+        syncTokenResetCount: 1,
+      };
+    }
 
     const eventsToAdd = buildSourceEventsToAdd(existingEvents, eventsInWindow, { isDeltaSync });
-    const eventStateIdsToRemove = buildSourceEventStateIdsToRemove(
-      existingEvents,
-      eventsInWindow,
-      { cancelledEventUids, isDeltaSync },
-    );
-    const { eventsToInsert, eventsToUpdate } = splitSourceEventsByStorageIdentity(
+    const eventStateIdsToRemove = [...new Set([
+      ...buildInvalidStoredEventIdsToRemove(parseResult.failures, eventsInWindow),
+      ...buildSourceEventStateIdsToRemove(
+        existingEvents,
+        eventsInWindow,
+        { cancelledEventIds, changedEventIds, isDeltaSync },
+      ),
+    ])];
+    const { eventsToInsert, eventsToUpdate } = splitSourceEventsByPersistenceIdentity(
       existingEvents,
       eventsToAdd,
     );
 
-    if (eventStateIdsToRemove.length > EMPTY_COUNT || eventsToAdd.length > EMPTY_COUNT) {
+    if (
+      eventStateIdsToRemove.length > EMPTY_COUNT
+      || eventsToAdd.length > EMPTY_COUNT
+    ) {
       await database.transaction(async (transactionDatabase) => {
         if (eventStateIdsToRemove.length > EMPTY_COUNT) {
           await transactionDatabase
@@ -152,21 +193,7 @@ class GoogleCalendarSourceProvider extends OAuthSourceProvider<GoogleSourceConfi
         if (eventsToAdd.length > EMPTY_COUNT) {
           await insertEventStatesWithConflictResolution(
             transactionDatabase,
-            eventsToAdd.map((event) => ({
-              availability: event.availability,
-              calendarId,
-              description: event.description,
-              endTime: event.endTime,
-              exceptionDates: stringifyIfPresent(event.exceptionDates),
-              isAllDay: event.isAllDay,
-              location: event.location,
-              recurrenceRule: stringifyIfPresent(event.recurrenceRule),
-              sourceEventType: event.sourceEventType,
-              sourceEventUid: event.uid,
-              startTime: event.startTime,
-              startTimeZone: event.startTimeZone,
-              title: event.title,
-            })),
+            eventsToAdd.map((event) => buildEventStateInsertRow(calendarId, event)),
           );
         }
       });
@@ -179,7 +206,10 @@ class GoogleCalendarSourceProvider extends OAuthSourceProvider<GoogleSourceConfi
 
     if (syncTokenAction.nextSyncTokenToPersist) {
       await this.updateSyncToken(
-        encodeStoredSyncToken(syncTokenAction.nextSyncTokenToPersist, OAUTH_SYNC_WINDOW_VERSION),
+        encodeStoredSyncToken(
+          syncTokenAction.nextSyncTokenToPersist,
+          syncTokenVersion ?? getOAuthSyncTokenVersion(0, new Date(), this.config.calendarId),
+        ),
       );
     }
 
@@ -194,7 +224,7 @@ class GoogleCalendarSourceProvider extends OAuthSourceProvider<GoogleSourceConfi
     };
   }
   private static async removeOutOfRangeEvents(
-    database: BunSQLDatabase,
+    database: BunSQLClient,
     calendarId: string,
     syncWindow: { timeMin: Date; timeMax: Date },
   ): Promise<void> {
@@ -239,7 +269,16 @@ interface CreateGoogleSourceProviderConfig {
 
 const getGoogleSourcesWithCredentials = async (
   database: BunSQLDatabase,
+  userId: string | null,
 ): Promise<GoogleSourceAccount[]> => {
+  const sourceConditions = [
+    eq(calendarsTable.calendarType, "oauth"),
+    arrayContains(calendarsTable.capabilities, ["pull"]),
+    eq(calendarAccountsTable.provider, GOOGLE_PROVIDER_ID),
+  ];
+  if (userId !== null) {
+    sourceConditions.push(eq(calendarsTable.userId, userId));
+  }
   const sources = await database
     .select({
       accessToken: oauthCredentialsTable.accessToken,
@@ -264,13 +303,7 @@ const getGoogleSourcesWithCredentials = async (
       oauthCredentialsTable,
       eq(calendarAccountsTable.oauthCredentialId, oauthCredentialsTable.id),
     )
-    .where(
-      and(
-        eq(calendarsTable.calendarType, "oauth"),
-        arrayContains(calendarsTable.capabilities, ["pull"]),
-        eq(calendarAccountsTable.provider, GOOGLE_PROVIDER_ID),
-      ),
-    );
+    .where(and(...sourceConditions));
 
   return sources.flatMap((source) => {
     if (!source.externalCalendarId) {return [];}
@@ -307,7 +340,8 @@ const createGoogleCalendarSourceProvider = (
     createProviderInstance: (providerConfig, oauth) =>
       new GoogleCalendarSourceProvider(providerConfig, oauth),
     database,
-    getAllSources: getGoogleSourcesWithCredentials,
+    getAllSources: (db) => getGoogleSourcesWithCredentials(db, null),
+    getSourcesForUser: getGoogleSourcesWithCredentials,
     oauthProvider,
     refreshLockStore,
   });

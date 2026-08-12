@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { isNotNull, isNull, sql } from "drizzle-orm";
 import { user } from "./auth-schema";
 
 const DEFAULT_EVENT_COUNT = 0;
@@ -80,6 +81,7 @@ const calendarAccountsTable = pgTable(
     index("calendar_accounts_user_idx").on(table.userId),
     index("calendar_accounts_provider_idx").on(table.provider),
     index("calendar_accounts_needs_reauth_idx").on(table.needsReauthentication),
+    uniqueIndex("calendar_accounts_provider_account_idx").on(table.provider, table.accountId),
   ],
 );
 
@@ -99,11 +101,15 @@ const calendarsTable = pgTable(
     excludeFocusTime: boolean().notNull().default(false),
     excludeOutOfOffice: boolean().notNull().default(false),
     includeInIcalFeed: boolean().notNull().default(false),
+    treatFullDayTimedEventsAsAllDay: boolean().notNull().default(false),
     customEventName: text().notNull().default(""),
     disabled: boolean().notNull().default(false),
     failureCount: integer().notNull().default(0),
     lastFailureAt: timestamp(),
     nextAttemptAt: timestamp(),
+    ingestFailureCount: integer().notNull().default(0),
+    ingestLastFailureAt: timestamp(),
+    ingestNextAttemptAt: timestamp(),
     externalCalendarId: text(),
     id: uuid().notNull().primaryKey().defaultRandom(),
     capabilities: text().array().notNull().default(["pull"]),
@@ -155,6 +161,7 @@ const eventStatesTable = pgTable(
     exceptionDates: text(),
     recurrenceId: timestamp(),
     isAllDay: boolean(),
+    sourceEventId: text(),
     sourceEventType: text(),
     sourceEventUid: text(),
     startTime: timestamp().notNull(),
@@ -165,12 +172,15 @@ const eventStatesTable = pgTable(
     index("event_states_start_time_idx").on(table.startTime),
     index("event_states_end_time_idx").on(table.endTime),
     index("event_states_calendar_idx").on(table.calendarId),
-    uniqueIndex("event_states_identity_idx").on(
-      table.calendarId,
-      table.sourceEventUid,
-      table.startTime,
-      table.endTime,
-    ),
+    uniqueIndex("event_states_source_event_idx")
+      .on(table.calendarId, table.sourceEventId)
+      .where(isNotNull(table.sourceEventId)),
+    uniqueIndex("event_states_recurring_instance_idx")
+      .on(table.calendarId, table.sourceEventUid, table.recurrenceId)
+      .where(sql`${table.sourceEventId} is null and ${table.recurrenceId} is not null`),
+    uniqueIndex("event_states_non_recurring_instance_idx")
+      .on(table.calendarId, table.sourceEventUid, table.startTime, table.endTime)
+      .where(sql`${table.sourceEventId} is null and ${table.recurrenceId} is null`),
   ],
 );
 
@@ -252,12 +262,19 @@ const eventMappingsTable = pgTable(
       .notNull()
       .references(() => eventStatesTable.id, { onDelete: "cascade" }),
     id: uuid().notNull().primaryKey().defaultRandom(),
+    syncEventId: text(),
     syncEventHash: text(),
     startTime: timestamp().notNull(),
   },
   (table) => [
-    uniqueIndex("event_mappings_event_cal_idx").on(table.eventStateId, table.calendarId),
+    uniqueIndex("event_mappings_sync_event_cal_idx")
+      .on(table.calendarId, table.syncEventId)
+      .where(isNotNull(table.syncEventId)),
     index("event_mappings_calendar_idx").on(table.calendarId),
+    index("event_mappings_event_state_idx").on(table.eventStateId),
+    index("event_mappings_missing_sync_event_idx")
+      .on(table.id)
+      .where(isNull(table.syncEventId)),
     index("event_mappings_sync_hash_idx").on(table.syncEventHash),
   ],
 );
