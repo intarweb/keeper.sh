@@ -612,13 +612,93 @@ Example Claude Code MCP configuration:
 >
 > MCP is fully optional. All MCP-related environment variables are optional across every service and image. If they are not set, Keeper starts normally without MCP functionality. Existing self-hosted deployments are unaffected.
 
-The MCP server is proxied through the web service at `/mcp`, the same way the API is proxied at `/api`. MCP is **not** bundled in the `keeper-standalone` or `keeper-services` convenience images — run the `keeper-mcp` image as a separate container alongside them.
+The MCP server is proxied through the web service at `/mcp`, the same way the API is proxied at `/api`. MCP is **not** bundled in the `keeper-standalone` or `keeper-services` convenience images — run the `keeper-mcp` image as a separate container alongside them. How you wire that container up depends on which image you started from, so follow the section that matches your deployment.
 
-To enable MCP on a self-hosted instance:
+### MCP with `keeper-services` or Individual Service Images
+
+Both of these connect to a PostgreSQL instance you provide, so the MCP container can be pointed at that same database over your Compose network like any other service.
 
 1. Run the `keeper-mcp` container with `MCP_PORT`, `MCP_PUBLIC_URL`, `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL`.
 2. Set `MCP_PUBLIC_URL` on the `api` service to the same value (e.g. `https://keeper.example.com/mcp`).
 3. Set `VITE_MCP_URL` on the `web` service to the internal URL of the MCP container (e.g. `http://mcp:3002`).
+
+### MCP with `keeper-standalone`
+
+The standalone image is a different situation. Its PostgreSQL only listens on `localhost` inside the container and only port `80` is published, so a `keeper-mcp` container sitting next to it on the Compose network has no route to the database at all — no value of `DATABASE_URL` will connect.
+
+The fix is to give the MCP container the standalone container's network namespace with `network_mode`, so that `localhost` means the same thing in both. From there the MCP server reaches PostgreSQL at `localhost:5432`, and the web service inside standalone proxies `/mcp` to it, so MCP is served from your existing port and needs no published port of its own.
+
+| Variable             | Container            | Value                                                                                                                                                     |
+| -------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_PUBLIC_URL`     | `keeper`, `mcp`      | The same value on both. Your instance URL with `/mcp` appended. It identifies the MCP server to clients, and it is what enables OAuth on the API.<br><br>e.g. `http://192.168.1.198/mcp` |
+| `BETTER_AUTH_SECRET` | `keeper`, `mcp`      | The same value on both, from the `.env` you already generated. It signs sessions, so a mismatch makes every MCP token fail to validate.                     |
+| `BETTER_AUTH_URL`    | `keeper`, `mcp`      | Your instance URL, **not** the MCP URL.<br><br>e.g. `http://192.168.1.198`                                                                                  |
+| `VITE_MCP_URL`       | `keeper`             | Where the bundled web service proxies `/mcp` to. With a shared namespace this is loopback.<br><br>e.g. `http://127.0.0.1:3002`                              |
+| `DATABASE_URL`       | `mcp`                | Standalone's internal PostgreSQL, reachable on loopback once the namespace is shared.<br><br>`postgresql://keeper:keeper@localhost:5432/keeper`             |
+| `MCP_PORT`           | `mcp`                | Port the MCP server listens on, matching the port in `VITE_MCP_URL`.<br><br>e.g. `3002`                                                                     |
+
+Extending the [standalone `compose.yaml`](#run-keeper-standalone-with-docker-compose), that comes out to the following. Note that `mcp` declares no `ports` of its own, because a container sharing a namespace cannot publish its own.
+
+```yaml
+services:
+  keeper:
+    image: ghcr.io/ridafkih/keeper-standalone:2
+    ports:
+      - "80:80"
+    volumes:
+      - keeper-data:/var/lib/postgresql/data
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL}
+      VITE_MCP_URL: http://127.0.0.1:3002
+
+  mcp:
+    image: ghcr.io/ridafkih/keeper-mcp:2
+    network_mode: "service:keeper"
+    depends_on:
+      keeper:
+        condition: service_started
+    environment:
+      MCP_PORT: 3002
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL}
+      DATABASE_URL: postgresql://keeper:keeper@localhost:5432/keeper
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+
+volumes:
+  keeper-data:
+```
+
+Add the two new values to the `.env` you generated earlier, alongside `BETTER_AUTH_SECRET` and `ENCRYPTION_KEY`. Both should point at the same origin you already reach Keeper on, and that origin needs to be in `TRUSTED_ORIGINS` if it isn't http://localhost.
+
+```bash
+BETTER_AUTH_URL=http://192.168.1.198
+MCP_PUBLIC_URL=http://192.168.1.198/mcp
+```
+
+Your MCP client then points at `http://192.168.1.198/mcp` — the same host and port as the dashboard, no separate port to publish or forward.
+
+> [!TIP]
+>
+> To check that it worked without setting up a client first, request the MCP endpoint directly. An unauthenticated request should come back `401` with a `WWW-Authenticate` header pointing at the OAuth metadata, which means the proxy and the MCP container are both wired up. A `404` means `VITE_MCP_URL` isn't set on the standalone container, so the web service is treating `/mcp` as a page rather than proxying it.
+>
+> ```bash
+> curl -i -X POST http://192.168.1.198/mcp \
+>   -H "Content-Type: application/json" \
+>   -H "Accept: application/json, text/event-stream" \
+>   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+> ```
+
+> [!NOTE]
+>
+> Sharing a network namespace is a workaround for the fact that standalone keeps PostgreSQL on loopback. If you'd rather keep the containers properly isolated, that's a good sign you've outgrown the convenience image — move to [the collective services image](#collective-services-image) with your own PostgreSQL, and wire MCP up the ordinary way.
 
 # Modules
 
