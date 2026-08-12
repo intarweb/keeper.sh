@@ -111,7 +111,7 @@ export function MarkdownTableHeader({
   children,
 }: MarkdownElementProps<"th">) {
   return (
-    <th className="border-b border-interactive-border bg-background-elevated px-3 py-2 text-left align-top font-medium text-foreground">
+    <th className="border-b border-interactive-border bg-background-elevated px-3 py-3 text-left align-top font-medium text-foreground">
       {children}
     </th>
   );
@@ -121,7 +121,7 @@ export function MarkdownTableCell({
   children,
 }: MarkdownElementProps<"td">) {
   return (
-    <td className="border-b border-interactive-border px-3 py-2 align-top">
+    <td className="border-b border-interactive-border px-3 py-3 align-top">
       {children}
     </td>
   );
