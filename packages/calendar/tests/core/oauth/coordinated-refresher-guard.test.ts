@@ -1,4 +1,6 @@
 import { calendarAccountsTable, oauthCredentialsTable } from "@keeper.sh/database/schema";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { describe, expect, it } from "vitest";
 import { createCoordinatedRefresher } from "../../../src/core/oauth/coordinated-refresher";
@@ -26,34 +28,56 @@ const resolveTableName = (table: unknown): string => {
 };
 
 interface StubOptions {
-  selectResult: () => Promise<{ refreshToken: string }[]>;
+  storedRefreshToken: string | null;
   updateResult?: (table: string) => Promise<unknown>;
 }
 
+interface RecordedStatement {
+  params: unknown[];
+  table: string;
+}
+
+const dialect = new PgDialect();
+
+/*
+ * Stands in for the database evaluating the guard the flag write carries: the
+ * row is only touched when the credential still holds the token that failed.
+ */
+const guardMatches = (condition: unknown, storedRefreshToken: string | null): boolean => {
+  if (storedRefreshToken === null) {
+    return false;
+  }
+  const { params } = dialect.sqlToQuery(condition as SQL);
+  return params.includes(storedRefreshToken);
+};
+
 const createDatabaseStub = (options: StubOptions) => {
   const writes: RecordedWrite[] = [];
+  const statements: RecordedStatement[] = [];
   const database = {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () => options.selectResult(),
-        }),
-      }),
-    }),
     update: (table: unknown) => {
       const name = resolveTableName(table);
       return {
-        set: (values: Record<string, unknown>) => {
-          writes.push({ table: name, values });
-          return {
-            where: () => options.updateResult?.(name) ?? Promise.resolve([]),
-          };
-        },
+        set: (values: Record<string, unknown>) => ({
+          where: (condition: unknown) => {
+            statements.push({ params: dialect.sqlToQuery(condition as SQL).params, table: name });
+            const result = options.updateResult?.(name);
+            if (result) {
+              return result;
+            }
+            if (name === "calendar_accounts"
+              && !guardMatches(condition, options.storedRefreshToken)) {
+              return Promise.resolve([]);
+            }
+            writes.push({ table: name, values });
+            return Promise.resolve([]);
+          },
+        }),
       };
     },
   };
 
-  return { database: database as unknown as BunSQLDatabase, writes };
+  return { database: database as unknown as BunSQLDatabase, statements, writes };
 };
 
 const deadCredentialRefresh = () =>
@@ -75,19 +99,23 @@ const buildRefresher = (database: BunSQLDatabase, rawRefresh: RawRefresh) =>
   });
 
 describe("the guard that checks whether the failed refresh token is still stored", () => {
-  it("keeps the credential failure classifiable when the guard read fails", async () => {
-    const { database, writes } = createDatabaseStub({
-      selectResult: () => Promise.reject(new Error("statement timeout on oauth_credentials")),
+  it("decides and writes in one statement, leaving no read-then-write window", async () => {
+    const { database, statements } = createDatabaseStub({
+      storedRefreshToken: FAILED_REFRESH_TOKEN,
     });
     const refresh = buildRefresher(database, deadCredentialRefresh);
 
     await expect(refresh(FAILED_REFRESH_TOKEN)).rejects.toThrow("invalid_grant");
-    expect(writes).toEqual([]);
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.table).toBe("calendar_accounts");
+    expect(statements[0]?.params).toContain(FAILED_REFRESH_TOKEN);
+    expect(statements[0]?.params).toContain(CREDENTIAL_ID);
   });
 
   it("keeps the credential failure classifiable when the marker write fails", async () => {
     const { database } = createDatabaseStub({
-      selectResult: () => Promise.resolve([{ refreshToken: FAILED_REFRESH_TOKEN }]),
+      storedRefreshToken: FAILED_REFRESH_TOKEN,
       updateResult: (table) => {
         if (table === "calendar_accounts") {
           return Promise.reject(new Error("deadlock detected on calendar_accounts"));
@@ -102,7 +130,7 @@ describe("the guard that checks whether the failed refresh token is still stored
 
   it("leaves the account alone when the credential row has been deleted", async () => {
     const { database, writes } = createDatabaseStub({
-      selectResult: () => Promise.resolve([]),
+      storedRefreshToken: null,
     });
     const refresh = buildRefresher(database, deadCredentialRefresh);
 
@@ -114,7 +142,7 @@ describe("the guard that checks whether the failed refresh token is still stored
 describe("a refresh that succeeds", () => {
   it("never touches the account marker and stores the rotated refresh token", async () => {
     const { database, writes } = createDatabaseStub({
-      selectResult: () => Promise.reject(new Error("the guard must not run on success")),
+      storedRefreshToken: FAILED_REFRESH_TOKEN,
     });
     const refresh = buildRefresher(database, () =>
       Promise.resolve({
@@ -132,7 +160,7 @@ describe("a refresh that succeeds", () => {
 
   it("keeps the supplied refresh token when the provider omits a rotated one", async () => {
     const { database, writes } = createDatabaseStub({
-      selectResult: () => Promise.reject(new Error("the guard must not run on success")),
+      storedRefreshToken: FAILED_REFRESH_TOKEN,
     });
     const refresh = buildRefresher(database, () =>
       Promise.resolve({ access_token: "fresh-access-token", expires_in: 3600 }));

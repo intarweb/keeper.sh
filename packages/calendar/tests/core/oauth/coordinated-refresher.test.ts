@@ -1,4 +1,6 @@
 import { calendarAccountsTable, oauthCredentialsTable } from "@keeper.sh/database/schema";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { describe, expect, it } from "vitest";
 import { createCoordinatedRefresher } from "../../../src/core/oauth/coordinated-refresher";
@@ -25,21 +27,34 @@ const resolveTableName = (table: unknown): string => {
   return name;
 };
 
-const createDatabaseStub = (storedRefreshToken: () => string) => {
+const dialect = new PgDialect();
+
+/*
+ * Stands in for the database evaluating the guard the flag write carries: the
+ * row is only touched when the credential still holds the token that failed.
+ */
+const guardMatches = (condition: unknown, storedRefreshToken: string | null): boolean => {
+  if (storedRefreshToken === null) {
+    return false;
+  }
+  const { params } = dialect.sqlToQuery(condition as SQL);
+  return params.includes(storedRefreshToken);
+};
+
+const createDatabaseStub = (storedRefreshToken: () => string | null) => {
   const writes: RecordedWrite[] = [];
   const database = {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () => Promise.resolve([{ refreshToken: storedRefreshToken() }]),
-        }),
-      }),
-    }),
     update: (table: unknown) => ({
-      set: (values: Record<string, unknown>) => {
-        writes.push({ table: resolveTableName(table), values });
-        return { where: () => Promise.resolve([]) };
-      },
+      set: (values: Record<string, unknown>) => ({
+        where: (condition: unknown) => {
+          const name = resolveTableName(table);
+          if (name === "calendar_accounts" && !guardMatches(condition, storedRefreshToken())) {
+            return Promise.resolve([]);
+          }
+          writes.push({ table: name, values });
+          return Promise.resolve([]);
+        },
+      }),
     }),
   };
 

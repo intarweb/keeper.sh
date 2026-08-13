@@ -5,7 +5,7 @@ import {
   calendarAccountsTable,
   oauthCredentialsTable,
 } from "@keeper.sh/database/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 
 const MS_PER_SECOND = 1000;
@@ -23,34 +23,23 @@ interface CoordinatedRefresherOptions {
   }>;
 }
 
-const isStoredRefreshToken = async (
-  database: BunSQLDatabase,
-  oauthCredentialId: string,
-  refreshToken: string,
-): Promise<boolean> => {
-  const [credential] = await database
-    .select({ refreshToken: oauthCredentialsTable.refreshToken })
-    .from(oauthCredentialsTable)
-    .where(eq(oauthCredentialsTable.id, oauthCredentialId))
-    .limit(1);
-
-  return credential?.refreshToken === refreshToken;
-};
-
 const flagAccountReauthentication = async (
   database: BunSQLDatabase,
   oauthCredentialId: string,
   calendarAccountId: string,
   refreshToken: string,
 ): Promise<void> => {
-  if (!await isStoredRefreshToken(database, oauthCredentialId, refreshToken)) {
-    return;
-  }
-
   await database
     .update(calendarAccountsTable)
     .set({ needsReauthentication: true })
-    .where(eq(calendarAccountsTable.id, calendarAccountId));
+    .where(and(
+      eq(calendarAccountsTable.id, calendarAccountId),
+      sql`exists (
+        select 1 from ${oauthCredentialsTable}
+        where ${oauthCredentialsTable.id} = ${oauthCredentialId}
+          and ${oauthCredentialsTable.refreshToken} = ${refreshToken}
+      )`,
+    ));
 };
 
 const createCoordinatedRefresher = (options: CoordinatedRefresherOptions) => {
