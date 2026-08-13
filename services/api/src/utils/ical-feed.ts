@@ -13,14 +13,13 @@ import type { CalendarEvent, FeedSettings } from "./ical-format";
 
 /**
  * A published feed is fetched whole on every poll and the ICS subscription
- * protocol has no pagination, so the response has to be bounded in place. The
- * horizon follows the widest range configured across the feed's own calendars,
- * so it can never cut history a user deliberately asked to keep, and the row cap
- * keeps even a pathological feed under the ~1MB that subscribers such as Google
- * Calendar tolerate (a fully detailed VEVENT measures roughly 350 bytes).
+ * protocol has no pagination, so the horizon is the only thing that bounds it.
+ * That horizon follows the widest range configured across the feed's own
+ * calendars, so the feed carries exactly the events the user asked to keep. It
+ * is deliberately not capped beyond that: a cap silently drops events a
+ * subscriber is relying on, and a feed missing a meeting is worse than a large
+ * one.
  */
-const ICAL_FEED_EVENT_LIMIT = 2500;
-
 interface FeedCalendar {
   id: string;
   syncFutureRange: string;
@@ -28,8 +27,6 @@ interface FeedCalendar {
 }
 
 interface IcalFeedQuery {
-  limit: number;
-  now: Date;
   windowEnd: Date;
   windowStart: Date;
 }
@@ -60,8 +57,6 @@ const createIcalFeedQuery = (
   const window = getConfigurableSyncWindow(historicRange, futureRange, now);
 
   return {
-    limit: ICAL_FEED_EVENT_LIMIT,
-    now,
     windowEnd: window.timeMax,
     windowStart: window.timeMin,
   };
@@ -135,7 +130,6 @@ const generateCalendarFeed = async (
 
 export {
   DEFAULT_FEED_SETTINGS,
-  ICAL_FEED_EVENT_LIMIT,
   createIcalFeedQuery,
   generateCalendarFeed,
 };

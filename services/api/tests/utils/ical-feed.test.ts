@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  ICAL_FEED_EVENT_LIMIT,
-  createIcalFeedQuery,
-  generateCalendarFeed,
-} from "../../src/utils/ical-feed";
+import { createIcalFeedQuery, generateCalendarFeed } from "../../src/utils/ical-feed";
 import type { IcalFeedQuery, StoredFeedEvent } from "../../src/utils/ical-feed";
 
 const NOW = new Date("2026-08-12T12:00:00.000Z");
@@ -41,15 +37,9 @@ const createReader = (events: StoredFeedEvent[]) =>
     const withinWindow = events.filter((event) =>
       event.startTime <= query.windowEnd
       && (event.endTime >= query.windowStart || event.recurrenceRule !== null));
-    const relevance = (event: StoredFeedEvent): number => {
-      if (event.recurrenceRule !== null) {
-        return -1;
-      }
-      return Math.abs(event.startTime.getTime() - query.now.getTime());
-    };
     const ordered = withinWindow.toSorted((first, second) =>
-      relevance(first) - relevance(second));
-    return Promise.resolve(ordered.slice(0, query.limit));
+      first.startTime.getTime() - second.startTime.getTime());
+    return Promise.resolve(ordered);
   };
 
 const feedFor = (events: StoredFeedEvent[]): Promise<string | null> =>
@@ -75,7 +65,6 @@ describe("createIcalFeedQuery", () => {
 
     expect(query.windowStart.getTime()).toBeLessThan(NOW.getTime());
     expect(query.windowEnd.getTime()).toBeGreaterThan(shiftDays(700).getTime());
-    expect(query.limit).toBe(ICAL_FEED_EVENT_LIMIT);
   });
 
   /*
@@ -152,30 +141,14 @@ describe("generateCalendarFeed", () => {
     expect(feed).toContain("weekly-standup");
   });
 
-  it("caps how many events a single feed response serialises", async () => {
-    const overflow = ICAL_FEED_EVENT_LIMIT + 10;
-    const events = Array.from({ length: overflow }, (_value, index) =>
-      createStoredEvent(`event-${index}`, new Date(NOW.getTime() + index * 60_000)));
-
-    const feed = await feedFor(events);
-
-    expect(feed?.split("BEGIN:VEVENT").length ?? 0).toBe(ICAL_FEED_EVENT_LIMIT + 1);
-    expect(feed).not.toContain(`event-${overflow - 1}`);
-    /*
-     * Serialising the cap's worth of events is real work — around half a second
-     * locally and ten times that on a loaded runner — so this needs more than the
-     * five second default rather than failing as a timeout.
-     */
-  }, 30_000);
-
   /*
    * The window reaches as far back as the widest configured range, so a busy
-   * calendar can hold more past events than the cap. Truncating in start order
-   * would spend the whole budget on history and publish a feed that stops before
-   * today, which is the opposite of what a subscriber needs.
+   * calendar can hold far more past events than upcoming ones. Any cap applied in
+   * start order would spend itself on history and publish a feed that stops
+   * before today, so the feed stays uncapped and this holds that line.
    */
-  it("keeps upcoming events when history alone exceeds the cap", async () => {
-    const past = Array.from({ length: ICAL_FEED_EVENT_LIMIT }, (_value, index) =>
+  it("publishes upcoming events on a calendar dominated by history", async () => {
+    const past = Array.from({ length: 5000 }, (_value, index) =>
       createStoredEvent(`past-${index}`, new Date(NOW.getTime() - (index + 1) * 60_000)));
     const upcoming = Array.from({ length: 5 }, (_value, index) =>
       createStoredEvent(`upcoming-${index}`, new Date(NOW.getTime() + (index + 1) * 60_000)));
