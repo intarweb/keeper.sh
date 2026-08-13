@@ -659,11 +659,17 @@ const appendEchoFields = (
   event["echo.mode"] = config.mode;
   event["echo.adopted_count"] = adoptedCount;
   event["echo.adoption_local_divergence_count"] = counts.adoptionLocalDivergenceCount;
+  event["echo.availability_changed_count"] = counts.availabilityChangedCount;
+  event["echo.avoided_availability_changed_count"] = counts.avoidedAvailabilityChangedCount;
   event["echo.avoided_content_changed_count"] = counts.avoidedContentChangedCount;
+  event["echo.avoided_time_changed_count"] = counts.avoidedTimeChangedCount;
   event["echo.content_changed_count"] = counts.contentChangedCount;
   event["echo.eligible_count"] = counts.eligibleCount;
+  event["echo.legacy_availability_changed_count"] = counts.legacyAvailabilityChangedCount;
   event["echo.legacy_content_changed_count"] = counts.legacyContentChangedCount;
+  event["echo.legacy_time_changed_count"] = counts.legacyTimeChangedCount;
   event["echo.missing_count"] = counts.missingCount;
+  event["echo.time_changed_count"] = counts.timeChangedCount;
   event["echo.unconfirmed_count"] = counts.unconfirmedCount;
 };
 

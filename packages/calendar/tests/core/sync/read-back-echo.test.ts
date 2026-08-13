@@ -585,6 +585,89 @@ describe("read-back echo comparison", () => {
     expect(enabled.staleReasonCounts.remoteContentChanged).toBe(0);
   });
 
+  /*
+   * Shadow mode exists to measure the churn the enabled comparison would avoid, so it
+   * has to record the mirrors it would still replace -- including the ones diverging in
+   * a dimension other than content, which are a whole churn family of their own.
+   */
+  it("measures avoided time churn in shadow mode while the legacy rule still drives", () => {
+    const localEvent = createLocalEvent();
+    const contentHash = createEditableEventContentHash(localEvent);
+    const shiftedRemote = createRemoteEvent({
+      editableContentHash: contentHash,
+      endTime: new Date("2026-03-08T15:00:30.000Z"),
+      startTime: new Date("2026-03-08T14:00:30.000Z"),
+    });
+    const mapping = createEventMapping({
+      remoteContentHash: recordedEcho(contentHash, shiftedRemote),
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteEchoAt: NOW,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const shadow = compute([localEvent], [mapping], [shiftedRemote], { mode: "shadow" });
+
+    expect(countReplacements(shadow.operations)).toBe(1);
+    expect(shadow.staleReasonCounts.remoteTimeChanged).toBe(1);
+    expect(shadow.echoCounts.eligibleCount).toBe(1);
+    expect(shadow.echoCounts.timeChangedCount).toBe(0);
+    expect(shadow.echoCounts.avoidedTimeChangedCount).toBe(1);
+    expect(shadow.echoCounts.legacyTimeChangedCount).toBe(1);
+    expect(shadow.adoptionIntents).toHaveLength(0);
+  });
+
+  it("measures avoided availability churn in shadow mode", () => {
+    const localEvent = createLocalEvent({ availability: "free" });
+    const contentHash = createEditableEventContentHash(localEvent);
+    const coercedRemote = createRemoteEvent({
+      editableAvailability: "busy",
+      editableContentHash: contentHash,
+    });
+    const mapping = createEventMapping({
+      remoteContentHash: recordedEcho(contentHash, coercedRemote),
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteEchoAt: NOW,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const shadow = compute([localEvent], [mapping], [coercedRemote], { mode: "shadow" });
+
+    expect(countReplacements(shadow.operations)).toBe(1);
+    expect(shadow.echoCounts.eligibleCount).toBe(1);
+    expect(shadow.echoCounts.availabilityChangedCount).toBe(0);
+    expect(shadow.echoCounts.avoidedAvailabilityChangedCount).toBe(1);
+    expect(shadow.echoCounts.legacyAvailabilityChangedCount).toBe(1);
+    expect(shadow.adoptionIntents).toHaveLength(0);
+  });
+
+  /*
+   * A mirror shadow mode records is still replaced by the legacy rule, and the replace
+   * deletes and re-inserts its row: an adoption written against it would land on an
+   * identifier that no longer exists.
+   */
+  it("records a replaced mirror in shadow mode without proposing an adoption for it", () => {
+    const localEvent = createLocalEvent();
+    const contentHash = createEditableEventContentHash(localEvent);
+    const shiftedRemote = createRemoteEvent({
+      editableContentHash: contentHash,
+      endTime: new Date("2026-03-08T15:00:30.000Z"),
+      startTime: new Date("2026-03-08T14:00:30.000Z"),
+    });
+    const mapping = createEventMapping({
+      remoteContentHash: recordedEcho(contentHash, shiftedRemote),
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteEchoAt: NOW,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const shadow = compute([localEvent], [mapping], [shiftedRemote], { mode: "shadow" });
+    const disabled = compute([localEvent], [mapping], [shiftedRemote], { mode: "off" });
+
+    expect(shadow.operations).toEqual(disabled.operations);
+    expect(shadow.adoptionIntents).toEqual(disabled.adoptionIntents);
+    expect(shadow.mappingUpdates).toEqual(disabled.mappingUpdates);
+  });
+
   it("keeps the legacy rule driving in off mode while the echo would converge", () => {
     const localEvent = createLocalEvent();
     const rewrittenHash = rewriteContent(localEvent);

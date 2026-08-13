@@ -85,11 +85,17 @@ const EMPTY_STALE_REASON_COUNTS = {
 const EMPTY_ECHO_COUNTS = {
   adoptedCount: 0,
   adoptionLocalDivergenceCount: 0,
+  availabilityChangedCount: 0,
+  avoidedAvailabilityChangedCount: 0,
   avoidedContentChangedCount: 0,
+  avoidedTimeChangedCount: 0,
   contentChangedCount: 0,
   eligibleCount: 0,
+  legacyAvailabilityChangedCount: 0,
   legacyContentChangedCount: 0,
+  legacyTimeChangedCount: 0,
   missingCount: 0,
+  timeChangedCount: 0,
   unconfirmedCount: 0,
 };
 

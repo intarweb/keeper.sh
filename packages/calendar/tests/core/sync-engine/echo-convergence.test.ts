@@ -286,15 +286,26 @@ describe("syncCalendar destination echo", () => {
     await harness.runSync();
     const [wideEvent] = harness.syncEvents;
 
-    expect(wideEvent).toMatchObject({
+    expect(wideEvent).toBeDefined();
+    const echoFields = Object.fromEntries(
+      Object.entries(wideEvent ?? {}).filter(([key]) => key.startsWith("echo.")),
+    );
+
+    expect(echoFields).toEqual({
       "echo.adopted_count": 0,
       "echo.adoption_local_divergence_count": 0,
+      "echo.availability_changed_count": 0,
+      "echo.avoided_availability_changed_count": 0,
       "echo.avoided_content_changed_count": 0,
+      "echo.avoided_time_changed_count": 0,
       "echo.content_changed_count": 0,
       "echo.eligible_count": 0,
+      "echo.legacy_availability_changed_count": 0,
       "echo.legacy_content_changed_count": 0,
+      "echo.legacy_time_changed_count": 0,
       "echo.missing_count": 0,
       "echo.mode": "on",
+      "echo.time_changed_count": 0,
       "echo.unconfirmed_count": 0,
     });
   });

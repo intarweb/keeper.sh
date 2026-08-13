@@ -44,11 +44,17 @@ interface EchoAdoption {
 interface EchoCounts {
   adoptedCount: number;
   adoptionLocalDivergenceCount: number;
+  availabilityChangedCount: number;
+  avoidedAvailabilityChangedCount: number;
   avoidedContentChangedCount: number;
+  avoidedTimeChangedCount: number;
   contentChangedCount: number;
   eligibleCount: number;
+  legacyAvailabilityChangedCount: number;
   legacyContentChangedCount: number;
+  legacyTimeChangedCount: number;
   missingCount: number;
+  timeChangedCount: number;
   unconfirmedCount: number;
 }
 
@@ -110,11 +116,17 @@ const createDisabledEchoOptions = (): EchoReconciliationOptions => ({
 const createEchoCounts = (): EchoCounts => ({
   adoptedCount: 0,
   adoptionLocalDivergenceCount: 0,
+  availabilityChangedCount: 0,
+  avoidedAvailabilityChangedCount: 0,
   avoidedContentChangedCount: 0,
+  avoidedTimeChangedCount: 0,
   contentChangedCount: 0,
   eligibleCount: 0,
+  legacyAvailabilityChangedCount: 0,
   legacyContentChangedCount: 0,
+  legacyTimeChangedCount: 0,
   missingCount: 0,
+  timeChangedCount: 0,
   unconfirmedCount: 0,
 });
 
@@ -383,7 +395,7 @@ const recordEchoObservation = (
   counts: EchoCounts,
   mappingId: string,
   decision: RemoteDecision,
-  contentChanged: boolean,
+  replacing: boolean,
 ): EchoAdoption | null => {
   counts.eligibleCount += 1;
   if (decision.echoState === "absent") {
@@ -391,13 +403,23 @@ const recordEchoObservation = (
   } else if (decision.echoState === "unconfirmed") {
     counts.unconfirmedCount += 1;
   }
+  if (decision.echo.availability) {
+    counts.availabilityChangedCount += 1;
+  } else if (decision.legacy.availability) {
+    counts.avoidedAvailabilityChangedCount += 1;
+  }
   if (decision.echo.content) {
     counts.contentChangedCount += 1;
   } else if (decision.legacy.content) {
     counts.avoidedContentChangedCount += 1;
   }
+  if (decision.echo.time) {
+    counts.timeChangedCount += 1;
+  } else if (decision.legacy.time) {
+    counts.avoidedTimeChangedCount += 1;
+  }
 
-  if (contentChanged || decision.observedEcho === null || !decision.recordingNeeded) {
+  if (replacing || decision.observedEcho === null || !decision.recordingNeeded) {
     return null;
   }
   if (decision.legacy.content) {
@@ -496,6 +518,22 @@ const countStaleReasons = (
   }
 };
 
+/*
+ * The standing measure of how far every mirror sits from its source, counted for every
+ * mapping the run compared rather than only the ones it recorded an observation for.
+ */
+const countLegacyDivergences = (counts: EchoCounts, legacy: RemoteStateChanges): void => {
+  if (legacy.availability) {
+    counts.legacyAvailabilityChangedCount += 1;
+  }
+  if (legacy.content) {
+    counts.legacyContentChangedCount += 1;
+  }
+  if (legacy.time) {
+    counts.legacyTimeChangedCount += 1;
+  }
+};
+
 const identifyStaleMappings = (
   mappings: EventMapping[],
   localEventIds: Set<string>,
@@ -542,27 +580,31 @@ const identifyStaleMappings = (
       echoOptions.mode,
     );
     const remoteChanges = decision.effective;
-    const otherReasonStale = localHashChanged
+    const replacing = localHashChanged
       || remoteChanges.availability
+      || remoteChanges.content
       || remoteChanges.time;
+    /*
+     * Observation is gated on the echo verdict rather than the effective one, so that
+     * shadow mode measures what the enabled comparison would have decided: gating on
+     * the effective verdict makes the mirrors churning in the time or availability
+     * dimension the only ones the run never records, which are exactly the ones the
+     * measurement exists for.
+     */
+    const echoReasonStale = localHashChanged
+      || decision.echo.availability
+      || decision.echo.time;
 
-    if (decision.legacy.content) {
-      echoCounts.legacyContentChangedCount += 1;
-    }
+    countLegacyDivergences(echoCounts, decision.legacy);
 
-    if (decision.observedEcho !== null && !otherReasonStale) {
-      const adoption = recordEchoObservation(
-        echoCounts,
-        mapping.id,
-        decision,
-        remoteChanges.content,
-      );
+    if (decision.observedEcho !== null && !echoReasonStale) {
+      const adoption = recordEchoObservation(echoCounts, mapping.id, decision, replacing);
       if (adoption) {
         candidateAdoptions.push(adoption);
       }
     }
 
-    if (otherReasonStale || remoteChanges.content) {
+    if (replacing) {
       countStaleReasons(staleReasonCounts, localHashChanged, remoteChanges);
       const rejectedEcho = resolveRejectedEcho(decision);
       /*
