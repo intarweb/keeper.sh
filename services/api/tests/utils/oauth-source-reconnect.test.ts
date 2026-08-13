@@ -99,7 +99,7 @@ describe("reconnecting an OAuth source", () => {
     state.calendarUpdateError = null;
   });
 
-  it("clears the sticky reauthentication marker and the ingest backoff", async () => {
+  it("clears the sticky reauthentication marker and both backoff clocks", async () => {
     await createOAuthSourceCredential(USER_ID, reconnectPayload);
 
     expect(state.updates.map(({ table }) => table)).toEqual([
@@ -108,6 +108,9 @@ describe("reconnecting an OAuth source", () => {
       "calendars",
     ]);
     expect(state.updates[2]?.values).toEqual({
+      failureCount: 0,
+      lastFailureAt: null,
+      nextAttemptAt: null,
       ingestFailureCount: 0,
       ingestLastFailureAt: null,
       ingestNextAttemptAt: null,

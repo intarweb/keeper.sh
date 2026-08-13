@@ -43,7 +43,7 @@ describe("the columns a manual sync clears", () => {
     state.updates = [];
   });
 
-  it("clears the ingest attempt clock for the user's pull calendars", async () => {
+  it("clears the attempt clocks for the user's active calendars", async () => {
     const result = await triggerSync(USER_ID, "pro");
 
     expect(result).toEqual({ sourcesRefreshed: 2, triggered: true });
@@ -56,6 +56,9 @@ describe("the columns a manual sync clears", () => {
     await triggerSync(USER_ID, "pro");
 
     expect(state.updates[0]?.values).toEqual({
+      failureCount: 0,
+      lastFailureAt: null,
+      nextAttemptAt: null,
       ingestFailureCount: 0,
       ingestLastFailureAt: null,
       ingestNextAttemptAt: null,

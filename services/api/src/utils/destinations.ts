@@ -23,7 +23,7 @@ import {
 import {
   buildReconnectedCalendarState,
   RECONNECTED_CALENDAR_STATE,
-  RECONNECTED_SOURCE_INGEST_STATE,
+  RECONNECTED_BACKOFF_STATE,
 } from "@/utils/calendar-state";
 
 const FIRST_RESULT_LIMIT = 1;
@@ -207,13 +207,13 @@ const upsertAccountAndCalendarWithDatabase = async (
   return calendar?.id;
 };
 
-const clearAccountIngestBackoff = async (
+const clearAccountBackoff = async (
   databaseClient: DestinationDatabase,
   accountId: string,
 ): Promise<void> => {
   await databaseClient
     .update(calendarsTable)
-    .set(RECONNECTED_SOURCE_INGEST_STATE)
+    .set(RECONNECTED_BACKOFF_STATE)
     .where(eq(calendarsTable.accountId, accountId));
 };
 
@@ -264,7 +264,7 @@ const saveCalendarDestinationWithDatabase = async (
       .where(eq(calendarAccountsTable.id, existingAccount.id));
 
     if (!needsReauthentication) {
-      await clearAccountIngestBackoff(databaseClient, existingAccount.id);
+      await clearAccountBackoff(databaseClient, existingAccount.id);
     }
 
     const existingCalendar = await findMappedDestinationCalendar(databaseClient, existingAccount.id);
@@ -433,7 +433,7 @@ const saveCalDAVDestinationWithDatabase = async (
       .set({ email, needsReauthentication: false })
       .where(eq(calendarAccountsTable.id, existingAccount.id));
 
-    await clearAccountIngestBackoff(databaseClient, existingAccount.id);
+    await clearAccountBackoff(databaseClient, existingAccount.id);
 
     const existingCalendar = await findMappedDestinationCalendar(databaseClient, existingAccount.id);
 

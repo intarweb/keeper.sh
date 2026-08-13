@@ -1,4 +1,7 @@
-const RECONNECTED_SOURCE_INGEST_STATE = {
+const RECONNECTED_BACKOFF_STATE = {
+  failureCount: 0,
+  lastFailureAt: null,
+  nextAttemptAt: null,
   ingestFailureCount: 0,
   ingestLastFailureAt: null,
   ingestNextAttemptAt: null,
@@ -6,10 +9,7 @@ const RECONNECTED_SOURCE_INGEST_STATE = {
 
 const RECONNECTED_CALENDAR_STATE = {
   disabled: false,
-  failureCount: 0,
-  lastFailureAt: null,
-  nextAttemptAt: null,
-  ...RECONNECTED_SOURCE_INGEST_STATE,
+  ...RECONNECTED_BACKOFF_STATE,
 } as const;
 
 const buildReconnectedCalendarState = (calendarUrl: string) => ({
@@ -19,6 +19,6 @@ const buildReconnectedCalendarState = (calendarUrl: string) => ({
 
 export {
   buildReconnectedCalendarState,
+  RECONNECTED_BACKOFF_STATE,
   RECONNECTED_CALENDAR_STATE,
-  RECONNECTED_SOURCE_INGEST_STATE,
 };

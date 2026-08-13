@@ -15,7 +15,7 @@ import {
 import { setCalendarPaused } from "../../src/utils/calendar-pause";
 import {
   RECONNECTED_CALENDAR_STATE,
-  RECONNECTED_SOURCE_INGEST_STATE,
+  RECONNECTED_BACKOFF_STATE,
 } from "../../src/utils/calendar-state";
 import type { KeeperDatabase } from "../../src/types";
 
@@ -293,7 +293,7 @@ describe.skipIf(!administrativeUrl)(
 
 describe("the state a source reconnect and a manual Sync now write", () => {
   it("reaches the destination backoff columns the resume path already clears", () => {
-    expect(Object.keys(RECONNECTED_SOURCE_INGEST_STATE).sort())
+    expect(Object.keys(RECONNECTED_BACKOFF_STATE).sort())
       .toEqual(
         Object.keys(RECONNECTED_CALENDAR_STATE)
           .filter((key) => key !== "disabled")

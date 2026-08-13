@@ -41,7 +41,7 @@ const createDatabaseStub = (accountIds: string[]) => {
 };
 
 describe("clearSourceReauthentication", () => {
-  it("clears the sticky reauthentication flag and the ingest backoff on reconnect", async () => {
+  it("clears the sticky reauthentication flag and both backoff clocks on reconnect", async () => {
     const { databaseClient, updates } = createDatabaseStub([ACCOUNT_ID]);
 
     await clearSourceReauthentication(databaseClient, CREDENTIAL_ID);
@@ -51,6 +51,9 @@ describe("clearSourceReauthentication", () => {
       {
         table: "calendars",
         values: {
+          failureCount: 0,
+          lastFailureAt: null,
+          nextAttemptAt: null,
           ingestFailureCount: 0,
           ingestLastFailureAt: null,
           ingestNextAttemptAt: null,
