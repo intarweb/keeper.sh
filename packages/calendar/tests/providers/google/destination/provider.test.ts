@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGoogleSyncProvider } from "../../../../src/providers/google/destination/provider";
+import { serializeRemoteStateEcho } from "../../../../src/core/events/remote-echo";
 import { computeSyncOperations } from "../../../../src/core/sync/operations";
 import {
   createEditableEventContentHash,
@@ -185,7 +186,12 @@ describe("createGoogleSyncProvider", () => {
     const result = computeSyncOperations([event], [mapping], remoteEvents, reconciliationScope);
 
     expect(result.adoptionIntents).toEqual([{
-      contentHash: remoteEvents[0]?.editableContentHash,
+      contentHash: serializeRemoteStateEcho({
+        availability: remoteEvents[0]?.editableAvailability ?? null,
+        contentHash: remoteEvents[0]?.editableContentHash ?? "",
+        endTime: remoteEvents[0]?.endTime ?? null,
+        startTime: remoteEvents[0]?.startTime ?? null,
+      }),
       mappingId: "mapping-id",
     }]);
     expect(result).toMatchObject({

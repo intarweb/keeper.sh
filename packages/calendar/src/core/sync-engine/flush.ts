@@ -75,6 +75,12 @@ const createDatabaseFlush = (database: BunSQLClient): (changes: PendingChanges) 
                 deleteIdentifier: update.deleteIdentifier,
                 syncEventHash: update.syncEventHash,
                 syncEventId: update.syncEventId,
+                ...(update.remoteEcho && {
+                  remoteContentHash: update.remoteEcho.contentHash,
+                  remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+                  remoteEchoAt: update.remoteEcho.observedAt,
+                  remoteRejectedContentHash: null,
+                }),
               })
               .where(eq(eventMappingsTable.id, update.id));
           }

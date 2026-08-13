@@ -11,6 +11,7 @@ import type { EventMapping } from "../events/mappings";
 import { getDatabaseErrorDetails } from "@keeper.sh/database";
 import type { SyncProgressUpdate } from "../sync/types";
 import { createSyncEventContentHash } from "../events/content-hash";
+import { serializeRemoteStateEcho } from "../events/remote-echo";
 import { computeSyncOperations } from "../sync/operations";
 import type {
   EchoAdoption,
@@ -20,7 +21,7 @@ import type {
 } from "../sync/operations";
 import { resolveEchoConfig } from "./echo-config";
 import type { EchoConfig } from "./echo-config";
-import type { CalendarSyncProvider, PendingChanges } from "./types";
+import type { CalendarSyncProvider, PendingChanges, PendingUpdate } from "./types";
 
 /*
  * A run whose provider rejects everything produces one error per operation. The wide
@@ -111,6 +112,18 @@ interface OperationError {
   statusCode?: number;
 }
 
+const resolvePushedEcho = (pushResult: PushResult): string | null => {
+  if (typeof pushResult.editableContentHash !== "string") {
+    return null;
+  }
+  return serializeRemoteStateEcho({
+    availability: pushResult.storedAvailability ?? null,
+    contentHash: pushResult.editableContentHash,
+    endTime: pushResult.storedEndTime ?? null,
+    startTime: pushResult.storedStartTime ?? null,
+  });
+};
+
 const processAddResults = (
   addOperations: Extract<SyncOperation, { type: "add" }>[],
   pushResults: PushResult[],
@@ -158,7 +171,7 @@ const processAddResults = (
       destinationEventUid: pushResult.remoteId,
       deleteIdentifier: pushResult.deleteId ?? pushResult.remoteId,
       syncEventHash: createSyncEventContentHash(operation.event),
-      remoteContentHash: pushResult.editableContentHash ?? null,
+      remoteContentHash: resolvePushedEcho(pushResult),
       remoteRejectedContentHash: operation.rejectedContentHash ?? null,
       startTime: operation.event.startTime,
       endTime: operation.event.endTime,
@@ -831,9 +844,15 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     }
 
     if (mappingUpdates.length > 0) {
+      const updates: PendingUpdate[] = mappingUpdates.map(({ remoteEcho, ...update }) => ({
+        ...update,
+        ...(remoteEcho && {
+          remoteEcho: { contentHash: remoteEcho.contentHash, observedAt },
+        }),
+      }));
       await timer.measure(
         "mapping_flush",
-        () => flush({ deletes: [], inserts: [], updates: mappingUpdates }),
+        () => flush({ deletes: [], inserts: [], updates }),
       );
       flushed = true;
     }

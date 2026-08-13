@@ -14,11 +14,23 @@ import {
   createEditableEventContentHash,
   createSyncEventContentHash,
 } from "../../../src/core/events/content-hash";
+import {
+  readRemoteStateObservation,
+  serializeRemoteStateEcho,
+} from "../../../src/core/events/remote-echo";
 import type { EventMapping } from "../../../src/core/events/mappings";
 import type {
   MaterializedSyncableEvent,
   RemoteEvent,
 } from "../../../src/core/types";
+
+const observedEcho = (remoteEvent: RemoteEvent): string => {
+  const observation = readRemoteStateObservation(remoteEvent);
+  if (!observation) {
+    throw new Error("remote event carries no observable state");
+  }
+  return serializeRemoteStateEcho(observation);
+};
 
 const createEventMapping = (overrides: Partial<EventMapping>): EventMapping => ({
   calendarId: "destination-calendar-id",
@@ -657,7 +669,7 @@ describe("computeSyncOperations", () => {
     expect(result.operations).toEqual([{
         deleteId: mapping.deleteIdentifier,
         event,
-        rejectedContentHash: editedRemote.editableContentHash,
+        rejectedContentHash: observedEcho(editedRemote),
         staleMappingId: mapping.id,
         type: "replace",
         uid: mapping.destinationEventUid,
@@ -686,7 +698,7 @@ describe("computeSyncOperations", () => {
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
       adoptionIntents: [{
-        contentHash: remoteEvent.editableContentHash,
+        contentHash: observedEcho(remoteEvent),
         mappingId: mapping.id,
       }],
       echoCounts: {
@@ -749,7 +761,7 @@ describe("computeSyncOperations", () => {
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
       adoptionIntents: [{
-        contentHash: createEditableEventContentHash(event),
+        contentHash: observedEcho(remoteEvent),
         mappingId: mapping.id,
       }],
       echoCounts: {
@@ -922,6 +934,7 @@ describe("computeSyncOperations", () => {
     expect(result.operations).toEqual([{
       deleteId: remoteEvent.deleteId,
       event,
+      rejectedContentHash: observedEcho(remoteEvent),
       staleMappingId: mapping.id,
       type: "replace",
       uid: mapping.destinationEventUid,

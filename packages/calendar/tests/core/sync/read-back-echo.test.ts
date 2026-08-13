@@ -12,6 +12,7 @@ import {
   createSyncEventContentHash,
   EDITABLE_CONTENT_ECHO_ALGORITHM,
 } from "../../../src/core/events/content-hash";
+import { serializeRemoteStateEcho } from "../../../src/core/events/remote-echo";
 import type { EventMapping } from "../../../src/core/events/mappings";
 import type {
   MaterializedSyncableEvent,
@@ -121,6 +122,18 @@ const applyAdoptions = (
   });
 };
 
+/*
+ * What a read-back of the default remote copy records: the content hash the destination
+ * reported plus the times and availability it reported holding.
+ */
+const recordedEcho = (contentHash: string, remoteEvent = createRemoteEvent()): string =>
+  serializeRemoteStateEcho({
+    availability: remoteEvent.editableAvailability ?? null,
+    contentHash,
+    endTime: remoteEvent.endTime,
+    startTime: remoteEvent.startTime,
+  });
+
 const countReplacements = (operations: SyncOperation[]): number =>
   operations.filter((operation) => operation.type === "replace").length;
 
@@ -150,7 +163,7 @@ describe("read-back echo comparison", () => {
     expect(countReplacements(first.operations)).toBe(0);
     expect(first.staleReasonCounts.remoteContentChanged).toBe(0);
     expect(first.adoptionIntents).toEqual([
-      { contentHash: rewrittenHash, mappingId: "mapping-id-1" },
+      { contentHash: recordedEcho(rewrittenHash), mappingId: "mapping-id-1" },
     ]);
     expect(first.echoCounts).toMatchObject({
       adoptionLocalDivergenceCount: 1,
@@ -196,7 +209,7 @@ describe("read-back echo comparison", () => {
 
     expect(result.staleReasonCounts.remoteContentChanged).toBe(1);
     expect(result.operations).toEqual([expect.objectContaining({
-      rejectedContentHash: rewrittenHash,
+      rejectedContentHash: recordedEcho(rewrittenHash),
       staleMappingId: "mapping-id-1",
       type: "replace",
     })]);
@@ -207,7 +220,7 @@ describe("read-back echo comparison", () => {
     });
   });
 
-  it("accepts the rejected read-back when it survives a fresh push", () => {
+  it("accepts the rejected read-back when it survives a fresh push, and retires the allowance durably", () => {
     const localEvent = createLocalEvent();
     const rewrittenHash = rewriteContent(localEvent);
     const mapping = createEventMapping({
@@ -224,9 +237,11 @@ describe("read-back echo comparison", () => {
     );
 
     expect(countReplacements(result.operations)).toBe(0);
-    expect(result.adoptionIntents).toEqual([
-      { contentHash: rewrittenHash, mappingId: "mapping-id-1" },
-    ]);
+    expect(result.adoptionIntents).toHaveLength(0);
+    expect(result.mappingUpdates).toEqual([expect.objectContaining({
+      id: "mapping-id-1",
+      remoteEcho: { contentHash: recordedEcho(rewrittenHash) },
+    })]);
   });
 
   it("still replaces when the source event itself changed", () => {
@@ -283,7 +298,7 @@ describe("read-back echo comparison", () => {
     const localEvent = createLocalEvent();
     const rewrittenHash = rewriteContent(localEvent);
     const mapping = createEventMapping({
-      remoteContentHash: rewrittenHash,
+      remoteContentHash: recordedEcho(rewrittenHash),
       remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
       remoteEchoAt: new Date(NOW.getTime() - 30 * ONE_DAY_MS),
       syncEventHash: createSyncEventContentHash(localEvent),
@@ -335,7 +350,7 @@ describe("read-back echo comparison", () => {
         destinationEventUid: `uid-${index}`,
         eventStateId: `event-${index}`,
         id: `mapping-${index}`,
-        remoteContentHash: rewriteContent(localEvent),
+        remoteContentHash: recordedEcho(rewriteContent(localEvent)),
         remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
         remoteEchoAt: new Date(NOW.getTime() - 7 * ONE_DAY_MS),
         syncEventHash: createSyncEventContentHash(localEvent),
@@ -591,6 +606,98 @@ describe("read-back echo comparison", () => {
     expect(result.staleReasonCounts.remoteContentChanged).toBe(1);
     expect(result.echoCounts.contentChangedCount).toBe(0);
     expect(result.echoCounts.legacyContentChangedCount).toBe(1);
+  });
+
+  it("settles a destination that stores a shifted time the echo reported", () => {
+    const localEvent = createLocalEvent();
+    const contentHash = createEditableEventContentHash(localEvent);
+    const shiftedRemote = createRemoteEvent({
+      editableContentHash: contentHash,
+      endTime: new Date("2026-03-08T15:00:30.000Z"),
+      startTime: new Date("2026-03-08T14:00:30.000Z"),
+    });
+    const mapping = createEventMapping({
+      remoteContentHash: recordedEcho(contentHash, shiftedRemote),
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteEchoAt: NOW,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const result = compute([localEvent], [mapping], [shiftedRemote]);
+
+    expect(countReplacements(result.operations)).toBe(0);
+    expect(result.staleReasonCounts.remoteTimeChanged).toBe(0);
+  });
+
+  it("repairs a destination whose time moved away from the echo", () => {
+    const localEvent = createLocalEvent();
+    const contentHash = createEditableEventContentHash(localEvent);
+    const shiftedRemote = createRemoteEvent({
+      editableContentHash: contentHash,
+      endTime: new Date("2026-03-08T15:00:30.000Z"),
+      startTime: new Date("2026-03-08T14:00:30.000Z"),
+    });
+    const mapping = createEventMapping({
+      remoteContentHash: recordedEcho(contentHash, shiftedRemote),
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteEchoAt: NOW,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const result = compute([localEvent], [mapping], [createRemoteEvent({
+      editableContentHash: contentHash,
+      endTime: new Date("2026-03-08T16:00:00.000Z"),
+      startTime: new Date("2026-03-08T15:00:00.000Z"),
+    })]);
+
+    expect(countReplacements(result.operations)).toBe(1);
+    expect(result.staleReasonCounts.remoteTimeChanged).toBe(1);
+  });
+
+  it("settles a destination that coerced availability the echo reported", () => {
+    const localEvent = createLocalEvent({ availability: "free" });
+    const contentHash = createEditableEventContentHash(localEvent);
+    const coercedRemote = createRemoteEvent({
+      editableAvailability: "busy",
+      editableContentHash: contentHash,
+    });
+    const mapping = createEventMapping({
+      remoteContentHash: recordedEcho(contentHash, coercedRemote),
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteEchoAt: NOW,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const result = compute([localEvent], [mapping], [coercedRemote]);
+
+    expect(countReplacements(result.operations)).toBe(0);
+    expect(result.staleReasonCounts.remoteAvailabilityChanged).toBe(0);
+  });
+
+  /*
+   * Rows recorded before the times and the availability were observed hold a bare content
+   * hash, which keeps its meaning and is re-recorded in full the next time it is seen.
+   */
+  it("upgrades an echo recorded as content alone", () => {
+    const localEvent = createLocalEvent();
+    const rewrittenHash = rewriteContent(localEvent);
+    const mapping = createEventMapping({
+      remoteContentHash: rewrittenHash,
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteEchoAt: NOW,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const result = compute(
+      [localEvent],
+      [mapping],
+      [createRemoteEvent({ editableContentHash: rewrittenHash })],
+    );
+
+    expect(countReplacements(result.operations)).toBe(0);
+    expect(result.adoptionIntents).toEqual([
+      { contentHash: recordedEcho(rewrittenHash), mappingId: "mapping-id-1" },
+    ]);
   });
 
   it("keeps an occurrence reassignment remote when the echo matches but the source does not", () => {

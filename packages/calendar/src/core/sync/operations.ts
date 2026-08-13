@@ -9,6 +9,15 @@ import {
   createSyncEventContentHash,
   EDITABLE_CONTENT_ECHO_ALGORITHM,
 } from "../events/content-hash";
+import {
+  echoAccountsForAvailability,
+  echoAccountsForContent,
+  echoAccountsForTime,
+  parseRemoteStateEcho,
+  readRemoteStateObservation,
+  serializeRemoteStateEcho,
+} from "../events/remote-echo";
+import type { RemoteStateEcho, RemoteStateObservation } from "../events/remote-echo";
 import { overlapsTimeWindow } from "../events/time-range";
 import type { SyncWindow } from "./sync-range";
 
@@ -47,6 +56,7 @@ interface StaleMappingResult {
   adoptionIntents: EchoAdoption[];
   echoCounts: EchoCounts;
   rejectedContentHashes: Map<string, string>;
+  retiredRejectedEchoes: Map<string, string>;
   staleReasonCounts: StaleReasonCounts;
   staleMappingIds: string[];
   staleMappedEventIds: Set<string>;
@@ -80,6 +90,7 @@ interface RemoteStateChanges {
 interface MappingUpdate {
   deleteIdentifier: string;
   id: string;
+  remoteEcho?: { contentHash: string };
   syncEventHash: string;
   syncEventId: string;
 }
@@ -339,39 +350,28 @@ const getRemoteStateChanges = (
   };
 };
 
-const hasRemoteStateChanged = (
-  mapping: EventMapping,
-  localEvent: MaterializedSyncableEvent,
-  remoteEvent: RemoteEvent,
-): boolean => {
-  const changes = getRemoteStateChanges(mapping, localEvent, remoteEvent);
-  return changes.availability || changes.content || changes.time;
+const hasRemoteStateChanged = (changes: RemoteStateChanges): boolean =>
+  changes.availability || changes.content || changes.time;
+
+const resolveEffectiveChanges = (
+  mode: EchoComparisonMode,
+  echo: RemoteStateChanges,
+  legacy: RemoteStateChanges,
+): RemoteStateChanges => {
+  if (mode === "on") {
+    return echo;
+  }
+  return legacy;
 };
 
-interface ContentDecision {
+interface RemoteDecision {
+  echo: RemoteStateChanges;
   echoState: EchoState;
-  echoStale: boolean;
-  legacyStale: boolean;
-  observedHash: string | null;
+  effective: RemoteStateChanges;
+  legacy: RemoteStateChanges;
+  observedEcho: string | null;
   recordingNeeded: boolean;
 }
-
-const readObservedContentHash = (remoteEvent: RemoteEvent): string | null => {
-  if (typeof remoteEvent.editableContentHash === "string") {
-    return remoteEvent.editableContentHash;
-  }
-  return null;
-};
-
-const isContentStale = (
-  mode: EchoComparisonMode,
-  decision: ContentDecision,
-): boolean => {
-  if (mode === "on") {
-    return decision.echoStale;
-  }
-  return decision.legacyStale;
-};
 
 /*
  * Records what this run observed about one eligible mapping and proposes the
@@ -382,7 +382,7 @@ const isContentStale = (
 const recordEchoObservation = (
   counts: EchoCounts,
   mappingId: string,
-  decision: ContentDecision,
+  decision: RemoteDecision,
   contentChanged: boolean,
 ): EchoAdoption | null => {
   counts.eligibleCount += 1;
@@ -391,62 +391,97 @@ const recordEchoObservation = (
   } else if (decision.echoState === "unconfirmed") {
     counts.unconfirmedCount += 1;
   }
-  if (decision.echoStale) {
+  if (decision.echo.content) {
     counts.contentChangedCount += 1;
-  } else if (decision.legacyStale) {
+  } else if (decision.legacy.content) {
     counts.avoidedContentChangedCount += 1;
   }
 
-  if (contentChanged || decision.observedHash === null || !decision.recordingNeeded) {
+  if (contentChanged || decision.observedEcho === null || !decision.recordingNeeded) {
     return null;
   }
-  if (decision.legacyStale) {
+  if (decision.legacy.content) {
     counts.adoptionLocalDivergenceCount += 1;
   }
-  return { contentHash: decision.observedHash, mappingId };
+  return { contentHash: decision.observedEcho, mappingId };
 };
 
 /*
- * Decides the content dimension for one mapping. The echo verdict accepts a read-back
- * the destination has already accounted for -- the content it reported storing when we
- * pushed, or the read-back its predecessor was replaced for and that survived a fresh
- * push -- so a lossy but deterministic provider rewrite settles instead of being
- * replaced forever, while a read-back nothing accounts for is still a divergence to
- * repair. The legacy verdict compares against the local event and is always computed,
- * because it is the standing measure of how far a mirror sits from its source.
+ * Decides every dimension reconciliation can find a mirror stale in. The echo verdict
+ * accepts a read-back the destination has already accounted for -- the state it reported
+ * storing when we pushed, or the read-back its predecessor was replaced for and that
+ * survived a fresh push -- so a lossy but deterministic provider rewrite of the content,
+ * the times, or the availability settles instead of being replaced forever, while a
+ * read-back nothing accounts for is still a divergence to repair. A dimension the
+ * destination never reported is unknown rather than equal, so it keeps comparing against
+ * the local event. The legacy verdict is always computed, because it is the standing
+ * measure of how far a mirror sits from its source.
  */
-const resolveContentDecision = (
+const resolveRemoteDecision = (
   mapping: EventMapping,
   localEvent: MaterializedSyncableEvent,
   remoteEvent: RemoteEvent,
-): ContentDecision => {
-  const observedHash = readObservedContentHash(remoteEvent);
+  mode: EchoComparisonMode,
+): RemoteDecision => {
+  const legacy = getRemoteStateChanges(mapping, localEvent, remoteEvent);
   const echoState = resolveEchoState(mapping);
-  if (observedHash === null) {
+  const observation = readRemoteStateObservation(remoteEvent);
+  if (observation === null) {
     return {
+      echo: legacy,
       echoState,
-      echoStale: false,
-      legacyStale: false,
-      observedHash,
+      effective: legacy,
+      legacy,
+      observedEcho: null,
       recordingNeeded: false,
     };
   }
 
   const recordedEcho = readRecordedEcho(mapping);
-  const legacyStale = observedHash !== createEditableEventContentHash(localEvent);
-  const accountedFor = observedHash === recordedEcho
-    || observedHash === readRejectedEcho(mapping);
-  const settled = echoState === "confirmed"
-    && observedHash === recordedEcho
-    && mapping.remoteRejectedContentHash === null;
+  const echoes = [
+    parseRemoteStateEcho(recordedEcho),
+    parseRemoteStateEcho(readRejectedEcho(mapping)),
+  ];
+  const accountsFor = (
+    accounts: (echo: RemoteStateEcho | null, observed: RemoteStateObservation) => boolean,
+  ): boolean => echoes.some((echo) => accounts(echo, observation));
+
+  const observedEcho = serializeRemoteStateEcho(observation);
+  const echo: RemoteStateChanges = {
+    availability: legacy.availability && !accountsFor(echoAccountsForAvailability),
+    content: legacy.content && !accountsFor(echoAccountsForContent),
+    time: legacy.time && !accountsFor(echoAccountsForTime),
+  };
 
   return {
+    echo,
     echoState,
-    echoStale: legacyStale && !accountedFor,
-    legacyStale,
-    observedHash,
-    recordingNeeded: !settled,
+    effective: resolveEffectiveChanges(mode, echo, legacy),
+    legacy,
+    observedEcho,
+    recordingNeeded: !(echoState === "confirmed"
+      && observedEcho === recordedEcho
+      && mapping.remoteRejectedContentHash === null),
   };
+};
+
+const countStaleReasons = (
+  counts: StaleReasonCounts,
+  localHashChanged: boolean,
+  changes: RemoteStateChanges,
+): void => {
+  if (localHashChanged) {
+    counts.localHashChanged += 1;
+  }
+  if (changes.availability) {
+    counts.remoteAvailabilityChanged += 1;
+  }
+  if (changes.content) {
+    counts.remoteContentChanged += 1;
+  }
+  if (changes.time) {
+    counts.remoteTimeChanged += 1;
+  }
 };
 
 const identifyStaleMappings = (
@@ -463,6 +498,7 @@ const identifyStaleMappings = (
   const echoCounts = createEchoCounts();
   const candidateAdoptions: EchoAdoption[] = [];
   const rejectedContentHashes = new Map<string, string>();
+  const retiredRejectedEchoes = new Map<string, string>();
 
   for (const mapping of mappings) {
     const syncEventId = getMappingSyncEventId(mapping);
@@ -487,52 +523,58 @@ const identifyStaleMappings = (
 
     const localEventHash = createSyncEventContentHash(localEvent);
     const localHashChanged = mapping.syncEventHash !== localEventHash;
-    const remoteChanges = getRemoteStateChanges(mapping, localEvent, remoteEvent);
-    const content = resolveContentDecision(mapping, localEvent, remoteEvent);
-    const contentChanged = isContentStale(echoOptions.mode, content);
+    const decision = resolveRemoteDecision(
+      mapping,
+      localEvent,
+      remoteEvent,
+      echoOptions.mode,
+    );
+    const remoteChanges = decision.effective;
     const otherReasonStale = localHashChanged
       || remoteChanges.availability
       || remoteChanges.time;
 
-    if (content.legacyStale) {
+    if (decision.legacy.content) {
       echoCounts.legacyContentChangedCount += 1;
     }
 
-    if (content.observedHash !== null && !otherReasonStale) {
+    if (decision.observedEcho !== null && !otherReasonStale) {
       const adoption = recordEchoObservation(
         echoCounts,
         mapping.id,
-        content,
-        contentChanged,
+        decision,
+        remoteChanges.content,
       );
       if (adoption) {
         candidateAdoptions.push(adoption);
       }
     }
 
-    if (otherReasonStale || contentChanged) {
-      if (localHashChanged) {
-        staleReasonCounts.localHashChanged += 1;
-      }
-      if (remoteChanges.availability) {
-        staleReasonCounts.remoteAvailabilityChanged += 1;
-      }
-      if (contentChanged) {
-        staleReasonCounts.remoteContentChanged += 1;
-        if (content.observedHash !== null) {
-          rejectedContentHashes.set(mapping.id, content.observedHash);
-        }
-      }
-      if (remoteChanges.time) {
-        staleReasonCounts.remoteTimeChanged += 1;
+    if (otherReasonStale || remoteChanges.content) {
+      countStaleReasons(staleReasonCounts, localHashChanged, remoteChanges);
+      if (remoteChanges.content && decision.observedEcho !== null) {
+        rejectedContentHashes.set(mapping.id, decision.observedEcho);
       }
       staleMappingIds.push(mapping.id);
       staleMappedEventIds.add(syncEventId);
       staleRemoteMappings.push(mapping);
+      continue;
+    }
+
+    /*
+     * The one-shot allowance a replacement carries for the read-back it rejected is
+     * retired here, through the same flush that carries the run's other mapping
+     * writes: the observation channel is best-effort by design, and an allowance that
+     * outlives the read-back it was granted for accepts a destination-side edit that
+     * reproduces it as truth.
+     */
+    if (mapping.remoteRejectedContentHash !== null && decision.observedEcho !== null) {
+      retiredRejectedEchoes.set(mapping.id, decision.observedEcho);
     }
   }
 
   const adoptionIntents = candidateAdoptions
+    .filter((adoption) => !retiredRejectedEchoes.has(adoption.mappingId))
     .toSorted((first, second) => first.mappingId.localeCompare(second.mappingId))
     .slice(0, echoOptions.maxAdoptionsPerRun);
 
@@ -540,6 +582,7 @@ const identifyStaleMappings = (
     adoptionIntents,
     echoCounts: { ...echoCounts, adoptedCount: adoptionIntents.length },
     rejectedContentHashes,
+    retiredRejectedEchoes,
     staleMappedEventIds,
     staleMappingIds,
     staleReasonCounts,
@@ -730,6 +773,86 @@ const buildRemoveOperations = (
   return operations;
 };
 
+const hasStaleDeleteIdentifier = (
+  mapping: EventMapping,
+  remoteEvent: RemoteEvent,
+): boolean => mapping.deleteIdentifier === mapping.destinationEventUid
+  && remoteEvent.deleteId !== mapping.deleteIdentifier;
+
+const resolveUpdatedDeleteIdentifier = (
+  mapping: EventMapping,
+  remoteEvent: RemoteEvent,
+): string => {
+  if (hasStaleDeleteIdentifier(mapping, remoteEvent)) {
+    return remoteEvent.deleteId;
+  }
+  return mapping.deleteIdentifier;
+};
+
+const buildStandardMappingUpdate = (
+  mapping: EventMapping,
+  localEvent: MaterializedSyncableEvent | undefined,
+  remoteEvent: RemoteEvent | undefined,
+  retiredEcho: string | null,
+): MappingUpdate | null => {
+  if (!localEvent || !remoteEvent) {
+    return null;
+  }
+  const deleteIdentifierStale = hasStaleDeleteIdentifier(mapping, remoteEvent);
+  if (!deleteIdentifierStale && retiredEcho === null) {
+    return null;
+  }
+  return {
+    deleteIdentifier: resolveUpdatedDeleteIdentifier(mapping, remoteEvent),
+    id: mapping.id,
+    syncEventHash: createSyncEventContentHash(localEvent),
+    syncEventId: localEvent.id,
+    ...(retiredEcho !== null && { remoteEcho: { contentHash: retiredEcho } }),
+  };
+};
+
+/*
+ * Judged by the same echo-aware verdict reconciliation uses, so a read-back the
+ * destination already accounted for still buys the free database remap an occurrence id
+ * re-materialization deserves rather than a delete and a re-create.
+ */
+const resolveReassignmentDecision = (
+  { event, mapping }: OccurrenceReassignment,
+  remoteEvent: RemoteEvent | undefined,
+  mode: EchoComparisonMode,
+): RemoteDecision | null => {
+  const remoteStateIsVerifiable = typeof remoteEvent?.editableAvailability === "string"
+    && typeof remoteEvent.editableContentHash === "string";
+  if (!remoteEvent || !remoteStateIsVerifiable) {
+    return null;
+  }
+  return resolveRemoteDecision(mapping, event, remoteEvent, mode);
+};
+
+/*
+ * A read-back the echo accounts for says nothing about the source, so it only earns the
+ * free remap when the occurrence carries the content the mapping was written for; a
+ * read-back that matches the source itself needs no such corroboration.
+ */
+const canRemapReassignmentInDatabase = (
+  { event, mapping }: OccurrenceReassignment,
+  decision: RemoteDecision | null,
+): boolean => {
+  if (decision === null) {
+    return false;
+  }
+  const mappingMatchesOccurrence = isSameSerializedSecond(mapping.startTime, event.startTime)
+    && isSameSerializedSecond(mapping.endTime, event.endTime);
+  if (!mappingMatchesOccurrence) {
+    return false;
+  }
+  if (!hasRemoteStateChanged(decision.legacy)) {
+    return true;
+  }
+  return !hasRemoteStateChanged(decision.effective)
+    && mapping.syncEventHash === createSyncEventContentHash(event);
+};
+
 const computeSyncOperations = (
   localEvents: MaterializedSyncableEvent[],
   existingMappings: EventMapping[],
@@ -752,23 +875,22 @@ const computeSyncOperations = (
   );
   const databaseOnlyReassignments: OccurrenceReassignment[] = [];
   const remoteReassignments: OccurrenceReassignment[] = [];
+  const reassignmentRejectedEchoes = new Map<string, string>();
   for (const reassignment of occurrenceReassignments) {
-    const { event, mapping } = reassignment;
-    const remoteEvent = remoteEventsByMappingId.get(mapping.id);
-    const mappingMatchesOccurrence = isSameSerializedSecond(mapping.startTime, event.startTime)
-      && isSameSerializedSecond(mapping.endTime, event.endTime);
-    const remoteStateIsVerifiable = typeof remoteEvent?.editableAvailability === "string"
-      && typeof remoteEvent.editableContentHash === "string";
-    if (
-      remoteEvent
-      && remoteStateIsVerifiable
-      && mappingMatchesOccurrence
-      && !hasRemoteStateChanged(mapping, event, remoteEvent)
-    ) {
+    const { mapping } = reassignment;
+    const decision = resolveReassignmentDecision(
+      reassignment,
+      remoteEventsByMappingId.get(mapping.id),
+      echoOptions.mode,
+    );
+    if (canRemapReassignmentInDatabase(reassignment, decision)) {
       databaseOnlyReassignments.push(reassignment);
-    } else {
-      remoteReassignments.push(reassignment);
+      continue;
     }
+    if (decision?.effective.content && decision.observedEcho !== null) {
+      reassignmentRejectedEchoes.set(mapping.id, decision.observedEcho);
+    }
+    remoteReassignments.push(reassignment);
   }
   const reassignedMappingIds = new Set(
     occurrenceReassignments.map(({ mapping }) => mapping.id),
@@ -788,6 +910,7 @@ const computeSyncOperations = (
     adoptionIntents,
     echoCounts,
     rejectedContentHashes,
+    retiredRejectedEchoes,
     staleMappingIds,
     staleMappedEventIds,
     staleReasonCounts,
@@ -802,21 +925,17 @@ const computeSyncOperations = (
   const staleMappingIdSet = new Set(staleMappingIds);
   const mappingUpdatesById = new Map<string, MappingUpdate>();
   for (const mapping of standardMappings) {
-    const remoteEvent = remoteEventsByMappingId.get(mapping.id);
-    const localEvent = localEventsById.get(getMappingSyncEventId(mapping));
-    if (
-      !staleMappingIdSet.has(mapping.id)
-      && localEvent
-      && remoteEvent
-      && mapping.deleteIdentifier === mapping.destinationEventUid
-      && remoteEvent.deleteId !== mapping.deleteIdentifier
-    ) {
-      mappingUpdatesById.set(mapping.id, {
-        deleteIdentifier: remoteEvent.deleteId,
-        id: mapping.id,
-        syncEventHash: createSyncEventContentHash(localEvent),
-        syncEventId: localEvent.id,
-      });
+    if (staleMappingIdSet.has(mapping.id)) {
+      continue;
+    }
+    const update = buildStandardMappingUpdate(
+      mapping,
+      localEventsById.get(getMappingSyncEventId(mapping)),
+      remoteEventsByMappingId.get(mapping.id),
+      retiredRejectedEchoes.get(mapping.id) ?? null,
+    );
+    if (update) {
+      mappingUpdatesById.set(mapping.id, update);
     }
   }
   for (const { event, mapping } of databaseOnlyReassignments) {
@@ -858,13 +977,17 @@ const computeSyncOperations = (
   const reassignmentOperations: SyncOperation[] = remoteReassignments.map(({
     event,
     mapping,
-  }) => ({
-    deleteId: resolveMappingDeleteId(mapping, remoteEventsByMappingId),
-    event,
-    staleMappingId: mapping.id,
-    type: "replace",
-    uid: mapping.destinationEventUid,
-  }));
+  }) => {
+    const rejectedContentHash = reassignmentRejectedEchoes.get(mapping.id);
+    return {
+      deleteId: resolveMappingDeleteId(mapping, remoteEventsByMappingId),
+      event,
+      staleMappingId: mapping.id,
+      type: "replace",
+      uid: mapping.destinationEventUid,
+      ...(rejectedContentHash && { rejectedContentHash }),
+    };
+  });
 
   const removeOperations = buildRemoveOperations(
     existingMappings.filter((mapping) => !reassignedMappingIds.has(mapping.id)),

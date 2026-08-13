@@ -80,8 +80,11 @@ interface PushResult {
   success: boolean;
   remoteId?: string;
   deleteId?: string;
-  // The destination's own account of the content it stored, hashed the way a read-back is.
+  // The destination's own account of what it stored, read the way a read-back is.
   editableContentHash?: string;
+  storedAvailability?: EventAvailability;
+  storedEndTime?: Date;
+  storedStartTime?: Date;
   error?: string;
   errorType?: string;
   statusCode?: number;

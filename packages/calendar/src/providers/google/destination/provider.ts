@@ -4,6 +4,7 @@ import type { TokenState, TokenRefresher } from "../../../core/oauth/ensure-vali
 import type { RedisRateLimiter } from "../../../core/utils/redis-rate-limiter";
 import type {
   DeleteResult,
+  EventAvailability,
   ListRemoteEventsOptions,
   MaterializedSyncableEvent,
   PushResult,
@@ -22,6 +23,7 @@ import { parseEventTime } from "../shared/date-time";
 import { normalizeGoogleEvent } from "./normalize-event";
 import { serializeGoogleEvent } from "./serialize-event";
 import { createEditableEventContentHash } from "../../../core/events/content-hash";
+import type { StoredRemoteState } from "../../../core/events/remote-echo";
 
 interface GoogleSyncProviderConfig {
   accessToken: string;
@@ -66,9 +68,7 @@ const getImportedEventId = (body: unknown): string | null => {
   return body.id;
 };
 
-const resolveGoogleAvailability = (
-  transparency?: string,
-): MaterializedSyncableEvent["availability"] => {
+const resolveGoogleAvailability = (transparency?: string): EventAvailability => {
   if (transparency === "transparent") {
     return "free";
   }
@@ -76,45 +76,57 @@ const resolveGoogleAvailability = (
 };
 
 /*
- * The single place a Google event resource becomes an editable-content hash, shared by
- * the read-back and the import response so the two are comparable by construction.
+ * The single place a Google event resource becomes the state reconciliation compares,
+ * shared by the read-back and the import response so the two are comparable by
+ * construction.
  */
-const readGoogleEditableContentHash = (event: GoogleEvent): string | null => {
+const readGoogleRemoteState = (event: GoogleEvent): StoredRemoteState | null => {
   const startTime = parseEventTime(event.start);
   const endTime = parseEventTime(event.end);
   if (!startTime || !endTime) {
     return null;
   }
-  return createEditableEventContentHash({
-    availability: resolveGoogleAvailability(event.transparency),
-    description: event.description,
+  const availability = resolveGoogleAvailability(event.transparency);
+  return {
+    availability,
+    contentHash: createEditableEventContentHash({
+      availability,
+      description: event.description,
+      endTime,
+      isAllDay: Boolean(event.start?.date),
+      location: event.location,
+      startTime,
+      summary: event.summary ?? "",
+    }),
     endTime,
-    isAllDay: Boolean(event.start?.date),
-    location: event.location,
     startTime,
-    summary: event.summary ?? "",
-  });
+  };
 };
 
-const readImportedEditableContentHash = (body: unknown): string | null => {
+const readImportedRemoteState = (body: unknown): StoredRemoteState | null => {
   if (!googleEventSchema.allows(body)) {
     return null;
   }
-  return readGoogleEditableContentHash(googleEventSchema.assert(body));
+  return readGoogleRemoteState(googleEventSchema.assert(body));
 };
 
 const createImportResult = (
   deleteId: string | null,
   remoteId: string,
   statusCode: number,
-  editableContentHash: string | null,
+  storedState: StoredRemoteState | null,
 ): PushResult => {
   if (deleteId) {
     return {
       deleteId,
       remoteId,
       success: true,
-      ...(editableContentHash !== null && { editableContentHash }),
+      ...(storedState !== null && {
+        editableContentHash: storedState.contentHash,
+        storedAvailability: storedState.availability,
+        storedEndTime: storedState.endTime,
+        storedStartTime: storedState.startTime,
+      }),
     };
   }
   return {
@@ -269,7 +281,7 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
           deleteId,
           entry.uid,
           response.statusCode,
-          readImportedEditableContentHash(response.body),
+          readImportedRemoteState(response.body),
         );
       } else {
         results[entry.index] = {
@@ -449,11 +461,11 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
       if (!startTime || !endTime) {
         continue;
       }
-      const editableContentHash = readGoogleEditableContentHash(event);
+      const storedState = readGoogleRemoteState(event);
       items.push({
         deleteId: event.id ?? event.iCalUID,
         editableAvailability: resolveGoogleAvailability(event.transparency),
-        ...(editableContentHash !== null && { editableContentHash }),
+        ...(storedState !== null && { editableContentHash: storedState.contentHash }),
         endTime,
         isKeeperEvent: true,
         supportedAvailabilities: ["busy", "free"],

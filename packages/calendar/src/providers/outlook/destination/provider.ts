@@ -7,6 +7,7 @@ import {
 import type { OutlookEvent } from "@keeper.sh/data-schemas";
 import type {
   DeleteResult,
+  EventAvailability,
   ListRemoteEventsOptions,
   MaterializedSyncableEvent,
   ProviderThrottleMetrics,
@@ -32,6 +33,7 @@ import { parseEventTime } from "../shared/date-time";
 import { normalizeOutlookEvent } from "./normalize-event";
 import { serializeOutlookEvent } from "./serialize-event";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
+import type { StoredRemoteState } from "../../../core/events/remote-echo";
 import { createEditableEventContentHash } from "../../../core/events/content-hash";
 
 interface OutlookSyncProviderConfig {
@@ -77,9 +79,7 @@ const readGraphErrorMessage = async (response: Response): Promise<string> => {
 
 const TEXT_BODY_PREFERENCE = 'outlook.body-content-type="text"';
 
-const parseRemoteAvailability = (
-  showAs: string | undefined,
-): MaterializedSyncableEvent["availability"] => {
+const parseRemoteAvailability = (showAs: string | undefined): EventAvailability => {
   if (showAs === "free" || showAs === "oof" || showAs === "workingElsewhere") {
     return showAs;
   }
@@ -87,26 +87,32 @@ const parseRemoteAvailability = (
 };
 
 /*
- * The single place a Graph event resource becomes an editable-content hash, shared by
- * the read-back and the create response so the two are comparable by construction. Both
+ * The single place a Graph event resource becomes the state reconciliation compares,
+ * shared by the read-back and the create response so the two are comparable by construction. Both
  * requests ask for a plain-text body, because Graph otherwise renders the same stored
  * note as HTML on one endpoint and text on the other.
  */
-const readOutlookEditableContentHash = (event: OutlookEvent): string | null => {
+const readOutlookRemoteState = (event: OutlookEvent): StoredRemoteState | null => {
   const startTime = parseEventTime(event.start, event.isAllDay);
   const endTime = parseEventTime(event.end, event.isAllDay);
   if (!startTime || !endTime) {
     return null;
   }
-  return createEditableEventContentHash({
-    availability: parseRemoteAvailability(event.showAs),
-    description: event.body?.content,
+  const availability = parseRemoteAvailability(event.showAs);
+  return {
+    availability,
+    contentHash: createEditableEventContentHash({
+      availability,
+      description: event.body?.content,
+      endTime,
+      isAllDay: event.isAllDay,
+      location: event.location?.displayName,
+      startTime,
+      summary: event.subject ?? "",
+    }),
     endTime,
-    isAllDay: event.isAllDay,
-    location: event.location?.displayName,
     startTime,
-    summary: event.subject ?? "",
-  });
+  };
 };
 
 const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
@@ -197,12 +203,17 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
 
         const body = await response.json();
         const created = outlookEventSchema.assert(body);
-        const editableContentHash = readOutlookEditableContentHash(created);
+        const storedState = readOutlookRemoteState(created);
         results.push({
           deleteId: created.id,
           remoteId: created.iCalUId ?? created.id,
           success: true,
-          ...(editableContentHash !== null && { editableContentHash }),
+          ...(storedState !== null && {
+            editableContentHash: storedState.contentHash,
+            storedAvailability: storedState.availability,
+            storedEndTime: storedState.endTime,
+            storedStartTime: storedState.startTime,
+          }),
         });
       } catch (error) {
         if (config.signal?.aborted) {
@@ -303,11 +314,11 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
           continue;
         }
 
-        const editableContentHash = readOutlookEditableContentHash(event);
+        const storedState = readOutlookRemoteState(event);
         remoteEvents.push({
           deleteId: event.id,
           editableAvailability: parseRemoteAvailability(event.showAs),
-          ...(editableContentHash !== null && { editableContentHash }),
+          ...(storedState !== null && { editableContentHash: storedState.contentHash }),
           endTime,
           isKeeperEvent: event.categories?.includes(KEEPER_CATEGORY) ?? false,
           supportedAvailabilities: ["busy", "free", "oof", "workingElsewhere"],
