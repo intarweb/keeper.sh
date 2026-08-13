@@ -128,6 +128,13 @@ interface SyncResult {
   removeFailed: number;
 }
 
+interface RemoteEditableFields {
+  description?: string;
+  isAllDay: boolean;
+  location?: string;
+  summary: string;
+}
+
 interface RemoteEvent {
   uid: string;
   deleteId: string;
@@ -137,7 +144,20 @@ interface RemoteEvent {
   editableContent?: EditableEventContentSnapshot;
   editableContentHash?: string;
   editableAvailability?: EventAvailability;
+  editableFields?: RemoteEditableFields;
   supportedAvailabilities?: EventAvailability[];
+}
+
+interface RemoteEventListing {
+  items: RemoteEvent[];
+  rawItemCount: number;
+}
+
+type RemoteEventPresence = "absent" | "present";
+
+interface RemoteEventReference {
+  deleteId: string;
+  uid: string;
 }
 
 type SyncOperation =
@@ -224,7 +244,11 @@ export type {
   PushResult,
   DeleteResult,
   SyncResult,
+  RemoteEditableFields,
   RemoteEvent,
+  RemoteEventListing,
+  RemoteEventPresence,
+  RemoteEventReference,
   SyncOperation,
   ListRemoteEventsOptions,
   BroadcastSyncStatus,

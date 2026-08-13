@@ -1,4 +1,4 @@
-import { use, useEffect, useMemo } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import useSWR, { preload, useSWRConfig } from "swr";
 import CheckIcon from "lucide-react/dist/esm/icons/check";
@@ -56,10 +56,24 @@ import {
   treatFullDayTimedEventsAsAllDayAtom,
 } from "@/state/calendar-detail";
 import type { ExcludeField } from "@/state/calendar-detail";
+import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 import {
   destinationIdsAtom,
+  selectSiblingDestinationCount,
+  selectWriteBackMode,
+  selectWriteBackState,
+  writeBackModesAtom,
+  writeBackStatesAtom,
   selectDestinationInclusion,
 } from "@/state/destination-ids";
+import {
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalFooter,
+  ModalTitle,
+} from "@/components/ui/primitives/modal";
+import { Button } from "@/components/ui/primitives/button";
 import {
   getSyncRangeLabel,
   SYNC_RANGE_OPTIONS,
@@ -385,13 +399,17 @@ function RenameItemValue() {
 }
 
 function DestinationsSeed({ calendarId }: { calendarId: string }) {
-  const { data } = useSWR<{ destinationIds: string[] }>(
-    `/api/sources/${calendarId}/destinations`,
-  );
+  const { data } = useSWR<{
+    destinationIds: string[];
+    writeBackModes?: Record<string, WriteBackMode>;
+    writeBackStates?: Record<string, WriteBackStatus>;
+  }>(`/api/sources/${calendarId}/destinations`);
   const store = useStore();
 
   useEffect(() => {
     store.set(destinationIdsAtom, new Set(data?.destinationIds));
+    store.set(writeBackModesAtom, data?.writeBackModes ?? {});
+    store.set(writeBackStatesAtom, data?.writeBackStates ?? {});
   }, [calendarId, data, store]);
 
   return null;
@@ -516,9 +534,307 @@ function DestinationCheckboxItem({
           <DestinationCheckboxIndicator destinationId={destinationId} />
         </button>
       </ItemDisabledContext>
+      {checked && (
+        <WriteBackModeControl
+          calendarId={calendarId}
+          destinationId={destinationId}
+          destinationName={name}
+        />
+      )}
     </li>
   );
 }
+
+const WRITE_BACK_OPTIONS: { description: string; label: string; mode: WriteBackMode }[] = [
+  {
+    description: "Changes flow from this calendar to the copy only.",
+    label: "One-way",
+    mode: "off",
+  },
+  {
+    description: "Editing the copy changes the original event here.",
+    label: "Two-way",
+    mode: "edits",
+  },
+  {
+    description:
+      "Editing the copy changes the original, and deleting the copy permanently deletes "
+      + "the original here and removes it from every other calendar it is copied to. "
+      + "Keeper.sh keeps a record of deleted events for 30 days.",
+    label: "Two-way, including deletions",
+    mode: "edits_and_deletes",
+  },
+];
+
+function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
+  const excludeName = useAtomValue(excludeEventNameAtom);
+  const excludeDescription = useAtomValue(excludeFieldAtoms.excludeEventDescription);
+  const excludeLocation = useAtomValue(excludeFieldAtoms.excludeEventLocation);
+  const hidden = [
+    excludeName && "title",
+    excludeDescription && "description",
+    excludeLocation && "location",
+  ].filter((field): field is string => typeof field === "string");
+
+  return (
+    <Text size="xs" className="text-muted-foreground">
+      {`Date, time and all-day changes are written back to ${sourceName}. `}
+      {hidden.length > 0
+        ? `${hidden.join(", ")} are hidden on copies from ${sourceName}, so they are not written back. `
+        : ""}
+      Only the fields you actually change are written back. Repeating events stay one-way.
+      An edit made in the first minute after Keeper.sh updates a copy may be replaced.
+    </Text>
+  );
+}
+
+function WriteBackModeControl({
+  calendarId,
+  destinationId,
+  destinationName,
+}: {
+  calendarId: string;
+  destinationId: string;
+  destinationName: string;
+}) {
+  const store = useStore();
+  const { mutate } = useSWRConfig();
+  const { data: entitlements } = useEntitlements();
+  const modeAtom = useMemo(() => selectWriteBackMode(destinationId), [destinationId]);
+  const mode = useAtomValue(modeAtom);
+  const sourceName = useAtomValue(calendarNameAtom);
+  const stateAtom = useMemo(() => selectWriteBackState(destinationId), [destinationId]);
+  const status = useAtomValue(stateAtom);
+  const siblingCountAtom = useMemo(
+    () => selectSiblingDestinationCount(destinationId),
+    [destinationId],
+  );
+  const siblingCount = useAtomValue(siblingCountAtom);
+  const [pendingDeletionConsent, setPendingDeletionConsent] = useState(false);
+  const locked = Boolean(entitlements && !entitlements.canUseTwoWaySync);
+
+  const applyMode = (nextMode: WriteBackMode) => {
+    if (nextMode === mode || (locked && nextMode !== "off")) {
+      return;
+    }
+    if (nextMode === "edits_and_deletes") {
+      setPendingDeletionConsent(true);
+      return;
+    }
+    commitMode(nextMode);
+  };
+
+  /*
+   * The pass asked a question and paused rather than deleting anything. Answering it is
+   * the only way through: re-picking the mode the pair already carries is a no-op, so the
+   * held deletions would otherwise be unreachable.
+   */
+  const resolveDeleteConfirmation = (decision: "apply" | "decline") => {
+    track(ANALYTICS_EVENTS.write_back_mode_changed, {
+      deletions: decision === "apply",
+      mode,
+    });
+    const swrKey = `/api/sources/${calendarId}/destinations`;
+    serializedCall(swrKey, () =>
+      apiFetch(`${swrKey}/${destinationId}/delete-confirmation`, {
+        body: JSON.stringify({ decision }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      }).finally(() => {
+        void mutate(swrKey);
+      }));
+  };
+
+  const commitMode = (nextMode: WriteBackMode) => {
+    track(ANALYTICS_EVENTS.write_back_mode_changed, {
+      deletions: nextMode === "edits_and_deletes",
+      mode: nextMode,
+    });
+
+    const previousModes = store.get(writeBackModesAtom);
+    store.set(writeBackModesAtom, { ...previousModes, [destinationId]: nextMode });
+
+    const swrKey = `/api/sources/${calendarId}/destinations`;
+    serializedCall(swrKey, () =>
+      apiFetch(`${swrKey}/${destinationId}`, {
+        body: JSON.stringify({ writeBackMode: nextMode }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      }).catch(() => {
+        store.set(writeBackModesAtom, previousModes);
+      }).finally(() => {
+        void mutate(swrKey);
+      }));
+  };
+
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex flex-wrap gap-2">
+        {WRITE_BACK_OPTIONS.map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            disabled={locked && option.mode !== "off"}
+            onClick={() => { applyMode(option.mode); }}
+            className={writeBackOptionStyle(option.mode === mode)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <Text size="xs" className="text-muted-foreground">
+        {WRITE_BACK_OPTIONS.find((option) => option.mode === mode)?.description}
+      </Text>
+      {mode !== "off" && (
+        <WriteBackFieldSummary sourceName={sourceName || "this calendar"} />
+      )}
+      {locked && <UpgradeHint>Two-way sync is a Pro feature.</UpgradeHint>}
+      <WriteBackStatusLine
+        destinationName={destinationName}
+        onResolveDeleteConfirmation={resolveDeleteConfirmation}
+        sourceName={sourceName || "this calendar"}
+        status={status}
+      />
+      <Text size="xs" className="text-muted-foreground">
+        {`Copies live on ${destinationName}.`}
+      </Text>
+      {pendingDeletionConsent && (
+        <DeletionConsentModal
+          destinationName={destinationName}
+          onCancel={() => { setPendingDeletionConsent(false); }}
+          onConfirm={() => {
+            setPendingDeletionConsent(false);
+            commitMode("edits_and_deletes");
+          }}
+          siblingCount={siblingCount}
+          sourceName={sourceName || "this calendar"}
+        />
+      )}
+    </div>
+  );
+}
+
+const WRITE_BACK_STATE_COPY: Record<string, string> = {
+  all_copies_missing:
+    "Every copy on {destination} is gone. Keeper.sh has not deleted the originals on"
+    + " {source} and is waiting for you to say what happened.",
+  delete_breaker_tripped:
+    "A large number of copies on {destination} disappeared at once, so Keeper.sh did not"
+    + " delete the originals on {source} and is waiting for you to say what happened.",
+  delete_probe_blocked:
+    "Keeper.sh was asked to delete originals on {source}, but it can still see the copies"
+    + " on {destination}. Nothing was deleted.",
+  delete_daily_cap:
+    "Two-way sync to {destination} is paused: more originals on {source} were being"
+    + " deleted in a day than Keeper.sh will apply unattended.",
+  plan_downgraded: "Two-way sync to {destination} is paused because the plan changed.",
+  runaway_write_back:
+    "Two-way sync to {destination} is paused: the copies kept changing on their own, so"
+    + " Keeper.sh stopped writing to {source}.",
+  write_back_failing:
+    "Keeper.sh could not write recent changes back to {source}, so two-way sync to"
+    + " {destination} is paused.",
+};
+
+const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
+
+function WriteBackStatusLine({
+  destinationName,
+  onResolveDeleteConfirmation,
+  sourceName,
+  status,
+}: {
+  destinationName: string;
+  onResolveDeleteConfirmation: (decision: "apply" | "decline") => void;
+  sourceName: string;
+  status: WriteBackStatus | null;
+}) {
+  if (!status || status.state === "ok") {
+    return null;
+  }
+  const template = (status.reason && WRITE_BACK_STATE_COPY[status.reason])
+    ?? `Two-way sync to ${destinationName} is paused.`;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Text size="xs" className="text-destructive">
+        {template.split("{destination}").join(destinationName)
+          .split("{source}").join(sourceName)}
+      </Text>
+      {status.state === DELETE_CONFIRMATION_STATE && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={writeBackOptionStyle(false)}
+            onClick={() => { onResolveDeleteConfirmation("apply"); }}
+          >
+            {`Delete the originals on ${sourceName}`}
+          </button>
+          <button
+            type="button"
+            className={writeBackOptionStyle(false)}
+            onClick={() => { onResolveDeleteConfirmation("decline"); }}
+          >
+            Put the copies back
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeletionConsentModal({
+  destinationName,
+  onCancel,
+  onConfirm,
+  siblingCount,
+  sourceName,
+}: {
+  destinationName: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  siblingCount: number;
+  sourceName: string;
+}) {
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  return (
+    <Modal open onOpenChange={(next) => { if (!next) onCancel(); }}>
+      <ModalContent>
+        <ModalTitle>Propagate deletions?</ModalTitle>
+        <ModalDescription>
+          {`Deleting a copy on ${destinationName} will permanently delete the original on `}
+          {sourceName}
+          {siblingCount > 0
+            ? ` — and remove it from the ${siblingCount} other calendar${siblingCount === 1 ? "" : "s"} it is copied to.`
+            : "."}
+          {" Keeper.sh keeps a record of deleted events for 30 days."}
+        </ModalDescription>
+        <label className="flex items-start gap-2 text-xs">
+          <input
+            checked={acknowledged}
+            onChange={(event) => { setAcknowledged(event.target.checked); }}
+            type="checkbox"
+          />
+          <span>
+            {`I understand deleting a copy deletes the real event on ${sourceName}.`}
+          </span>
+        </label>
+        <ModalFooter>
+          <Button disabled={!acknowledged} onClick={onConfirm}>
+            Turn on deletion propagation
+          </Button>
+          <Button onClick={onCancel} variant="ghost">Cancel</Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+const writeBackOptionStyle = (selected: boolean): string =>
+  selected
+    ? "rounded-md border border-foreground/30 bg-foreground/10 px-2 py-1 text-xs"
+    : "rounded-md border border-transparent px-2 py-1 text-xs text-muted-foreground";
 
 function DestinationCheckboxIndicator({ destinationId }: { destinationId: string }) {
   const checkedAtom = useMemo(() => selectDestinationInclusion(destinationId), [destinationId]);

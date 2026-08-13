@@ -37,6 +37,7 @@ const basePlans: Omit<PlanConfig, "monthlyProductId" | "yearlyProductId">[] = [
       "Unlimited linked accounts",
       "Unlimited sync mappings",
       "Unlimited iCal feeds with per-feed filters and customization",
+      "Two-way sync — edits on a copy write back to the original",
       "Unlimited API & MCP access",
       "Priority support",
     ],

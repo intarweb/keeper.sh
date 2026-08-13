@@ -259,7 +259,7 @@ describe("createOutlookSyncProvider", () => {
       }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const remoteEvents = await createProvider().listRemoteEvents({ timeMin });
+    const { items: remoteEvents } = await createProvider().listRemoteEvents({ timeMin });
 
     expect(remoteEvents.map((event) => ({
       deleteId: event.deleteId,
@@ -291,7 +291,7 @@ describe("createOutlookSyncProvider", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const [event] = await createProvider().listRemoteEvents({
+    const { items: [event] } = await createProvider().listRemoteEvents({
       timeMin: new Date("2026-03-01T00:00:00.000Z"),
     });
 
@@ -324,11 +324,11 @@ describe("createOutlookSyncProvider", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const events = await createProvider().listRemoteEvents({
+    const { items } = await createProvider().listRemoteEvents({
       timeMin: new Date("2026-03-01T00:00:00.000Z"),
     });
 
-    expect(events.map((event) => event.uid)).toEqual(["titled-uid", "untitled-uid"]);
+    expect(items.map((event) => event.uid)).toEqual(["titled-uid", "untitled-uid"]);
   });
 
   it("retries a throttled event creation after the Retry-After delay and reports success", async () => {

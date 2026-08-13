@@ -5,3 +5,32 @@ export const destinationIdsAtom = atom<Set<string>>(new Set<string>());
 
 export const selectDestinationInclusion = (destinationId: string) =>
   selectAtom(destinationIdsAtom, (ids) => ids.has(destinationId));
+
+export type WriteBackMode = "edits" | "edits_and_deletes" | "off";
+
+export const writeBackModesAtom = atom<Record<string, WriteBackMode>>({});
+
+export const selectWriteBackMode = (destinationId: string) =>
+  selectAtom(
+    writeBackModesAtom,
+    (modes): WriteBackMode => modes[destinationId] ?? "off",
+  );
+
+export interface WriteBackStatus {
+  reason: string | null;
+  state: string;
+}
+
+export const writeBackStatesAtom = atom<Record<string, WriteBackStatus>>({});
+
+export const selectWriteBackState = (destinationId: string) =>
+  selectAtom(
+    writeBackStatesAtom,
+    (states): WriteBackStatus | null => states[destinationId] ?? null,
+  );
+
+export const selectSiblingDestinationCount = (destinationId: string) =>
+  selectAtom(
+    destinationIdsAtom,
+    (ids) => [...ids].filter((id) => id !== destinationId).length,
+  );

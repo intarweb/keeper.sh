@@ -11,7 +11,11 @@ import type {
   ProviderThrottleMetrics,
   PushEchoComparison,
   PushResult,
+  RemoteEditableFields,
   RemoteEvent,
+  RemoteEventListing,
+  RemoteEventPresence,
+  RemoteEventReference,
 } from "../../../core/types";
 import type { OutlookEvent } from "@keeper.sh/data-schemas";
 import { comparePushEchoObservations } from "../../../core/events/push-echo";
@@ -129,6 +133,18 @@ const compareOutlookCreateEcho = (
     divergence: comparePushEchoObservations(sentObservation, echoObservation),
   };
 };
+
+const createEditableFields = (event: {
+  body?: { content?: string } | null;
+  isAllDay?: boolean | null;
+  location?: { displayName?: string } | null;
+  subject?: string | null;
+}): RemoteEditableFields => ({
+  isAllDay: event.isAllDay ?? false,
+  summary: event.subject ?? "",
+  ...(event.body?.content && { description: event.body.content }),
+  ...(event.location?.displayName && { location: event.location.displayName }),
+});
 
 const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
   const tokenState: TokenState = {
@@ -295,9 +311,10 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
 
   const listRemoteEvents = async (
     options: ListRemoteEventsOptions,
-  ): Promise<RemoteEvent[]> => {
+  ): Promise<RemoteEventListing> => {
     await refreshIfNeeded();
     const remoteEvents: RemoteEvent[] = [];
+    let rawItemCount = 0;
     let nextLink: string | null = null;
     do {
       const url = buildOutlookEventsUrl(options.timeMin, nextLink);
@@ -317,7 +334,9 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
       const body = await response.json();
       const data = outlookEventListSchema.assert(body);
 
-      for (const event of data.value ?? []) {
+      const rawItems = data.value ?? [];
+      rawItemCount += rawItems.length;
+      for (const event of rawItems) {
         const startTime = parseEventTime(event.start, event.isAllDay);
         const endTime = parseEventTime(event.end, event.isAllDay);
 
@@ -340,6 +359,7 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
           editableAvailability: availability,
           editableContent,
           editableContentHash: hashEditableEventContentSnapshot(editableContent),
+          editableFields: createEditableFields(event),
           endTime,
           isKeeperEvent: event.categories?.includes(KEEPER_CATEGORY) ?? false,
           supportedAvailabilities: ["busy", "free", "oof", "workingElsewhere"],
@@ -351,16 +371,49 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
       nextLink = data["@odata.nextLink"] ?? null;
     } while (nextLink);
 
-    return remoteEvents;
+    return { items: remoteEvents, rawItemCount };
   };
 
   const getThrottleMetrics = (): ProviderThrottleMetrics => ({ ...throttleMetrics });
+
+  /*
+   * Graph pages the list read and a user can strip the Keeper.sh category from a copy,
+   * so a mapping missing from the listing is only a candidate. The original on the
+   * source is destroyed only once Graph answers not-found for the copy itself.
+   */
+  const probeRemoteEvent = async (
+    reference: RemoteEventReference,
+  ): Promise<RemoteEventPresence> => {
+    await refreshIfNeeded();
+    const url = new URL(
+      `${MICROSOFT_GRAPH_API}/me/events/${encodeURIComponent(reference.deleteId)}`,
+    );
+    url.searchParams.set("$select", "id");
+
+    const response = await fetchWithTimeout(url, {
+      headers: { Authorization: `Bearer ${tokenState.accessToken}` },
+      method: "GET",
+    }, PROVIDER_PUSH_REQUEST_TIMEOUT_MS, config.signal);
+
+    if (response.status === HTTP_STATUS.NOT_FOUND) {
+      await response.body?.cancel?.();
+      return "absent";
+    }
+    if (!response.ok) {
+      const body = await response.json();
+      const { error } = microsoftApiErrorSchema.assert(body);
+      throw new Error(error?.message ?? response.statusText);
+    }
+    await response.body?.cancel?.();
+    return "present";
+  };
 
   return {
     deleteEvents,
     getThrottleMetrics,
     listRemoteEvents,
     normalizeEvent: normalizeOutlookEvent,
+    probeRemoteEvent,
     pushEvents,
   };
 };

@@ -9,6 +9,9 @@ import type {
   PushEchoComparison,
   PushResult,
   RemoteEvent,
+  RemoteEventListing,
+  RemoteEventPresence,
+  RemoteEventReference,
 } from "../../../core/types";
 import {
   googleApiErrorSchema,
@@ -55,6 +58,8 @@ class GoogleCalendarApiError extends Error {
     this.apiError = parseGoogleApiError(body);
   }
 }
+
+const EMPTY_PROBE_RESULT = 0;
 
 const isDirectEventId = (identifier: string): boolean => !identifier.includes("@");
 
@@ -430,6 +435,7 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
   ): Promise<{
     items: RemoteEvent[];
     nextPageToken: string | null;
+    rawItemCount: number;
   }> => {
     if (config.rateLimiter) {
       await config.rateLimiter.acquire(1, config.signal);
@@ -464,7 +470,8 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
     const data = googleEventListSchema.assert(body);
 
     const items: RemoteEvent[] = [];
-    for (const event of data.items ?? []) {
+    const rawItems = data.items ?? [];
+    for (const event of rawItems) {
       if (!event.iCalUID || !isKeeperEvent(event.iCalUID)) {
         continue;
       }
@@ -472,11 +479,18 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
       if (!observation) {
         continue;
       }
+      const isAllDay = Boolean(event.start?.date);
       items.push({
         deleteId: event.id ?? event.iCalUID,
         editableAvailability: parseGoogleAvailability(event),
         editableContent: observation.content,
         editableContentHash: hashEditableEventContentSnapshot(observation.content),
+        editableFields: {
+          isAllDay,
+          summary: event.summary ?? "",
+          ...(event.description && { description: event.description }),
+          ...(event.location && { location: event.location }),
+        },
         endTime: observation.endTime,
         isKeeperEvent: true,
         supportedAvailabilities: ["busy", "free"],
@@ -485,19 +499,24 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
       });
     }
 
-    return { items, nextPageToken: data.nextPageToken ?? null };
+    return { items, nextPageToken: data.nextPageToken ?? null, rawItemCount: rawItems.length };
   };
 
   const listRemoteEvents = async (
     options: ListRemoteEventsOptions,
-  ): Promise<RemoteEvent[]> => {
+  ): Promise<RemoteEventListing> => {
     await refreshIfNeeded();
     const remoteEvents: RemoteEvent[] = [];
+    let rawItemCount = 0;
     let pageToken: string | null = null;
 
     do {
       const currentPageToken: string | null = pageToken;
-      const page: { items: RemoteEvent[]; nextPageToken: string | null } = await withBackoff(
+      const page: {
+        items: RemoteEvent[];
+        nextPageToken: string | null;
+        rawItemCount: number;
+      } = await withBackoff(
         () => fetchRemoteEventsPage(options, currentPageToken),
         {
           signal: config.signal,
@@ -506,13 +525,59 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
         },
       );
       remoteEvents.push(...page.items);
+      rawItemCount += page.rawItemCount;
       pageToken = page.nextPageToken;
     } while (pageToken);
 
-    return remoteEvents;
+    return { items: remoteEvents, rawItemCount };
   };
 
-  return { deleteEvents, listRemoteEvents, normalizeEvent: normalizeGoogleEvent, pushEvents };
+  /*
+   * A copy missing from a page of the list read is a candidate, never evidence. Only a
+   * targeted lookup that comes back with nothing — or with nothing but cancelled
+   * occurrences — justifies destroying the original on the source.
+   *
+   * A missing event is an OK answer holding no items. The 404 and 410 this URL can return
+   * are the collection's, not the event's, and a calendar that has been deleted or whose
+   * access was revoked answers them for every copy in it at once.
+   */
+  const probeRemoteEvent = async (
+    reference: RemoteEventReference,
+  ): Promise<RemoteEventPresence> => {
+    await refreshIfNeeded();
+    const url = new URL(
+      `calendars/${encodeURIComponent(config.externalCalendarId)}/events`,
+      GOOGLE_CALENDAR_API,
+    );
+    url.searchParams.set("iCalUID", reference.uid);
+    url.searchParams.set("showDeleted", "false");
+
+    const response = await fetchWithTimeout(
+      url,
+      { headers: { Authorization: `Bearer ${tokenState.accessToken}` }, method: "GET" },
+      PROVIDER_PUSH_REQUEST_TIMEOUT_MS,
+      config.signal,
+    );
+
+    if (!response.ok) {
+      throw new GoogleCalendarApiError(response.status, await response.text());
+    }
+
+    const { items } = googleEventListSchema.assert(await response.json());
+    const live = (items ?? []).filter((item) => item.status !== "cancelled");
+    if (live.length === EMPTY_PROBE_RESULT) {
+      return "absent";
+    }
+    return "present";
+  };
+
+  return {
+    deleteEvents,
+    listRemoteEvents,
+    normalizeEvent: normalizeGoogleEvent,
+    probeRemoteEvent,
+    pushEvents,
+  };
 };
 
 export { createGoogleSyncProvider };

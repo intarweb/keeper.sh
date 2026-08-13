@@ -1,5 +1,9 @@
 export { syncDestinationsForUser } from "./sync-user";
 export {
+  listPushDestinationCalendarIds,
+  recordUserSyncRequest,
+} from "./push-sync-requests";
+export {
   createSyncLock,
   createMappingMutationLockId,
   SyncLockRenewalError,

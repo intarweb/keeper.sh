@@ -192,7 +192,7 @@ describe("createGoogleSyncProvider", () => {
       }],
     }, { status: 200 }))));
 
-    const remoteEvents = await provider.listRemoteEvents({
+    const { items: remoteEvents } = await provider.listRemoteEvents({
       timeMin: new Date("2026-03-01T00:00:00.000Z"),
     });
     const mapping = {
@@ -301,7 +301,7 @@ describe("createGoogleSyncProvider", () => {
     const acquire = vi.fn(() => Promise.resolve());
     vi.stubGlobal("fetch", fetchMock);
 
-    const remoteEvents = await createProvider({ rateLimiter: { acquire } })
+    const { items: remoteEvents } = await createProvider({ rateLimiter: { acquire } })
       .listRemoteEvents({ timeMin });
 
     expect(remoteEvents.map((event) => event.deleteId)).toEqual([

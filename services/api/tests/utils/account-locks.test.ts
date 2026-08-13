@@ -8,6 +8,8 @@ import type {
   importOAuthAccountCalendars as importOAuthAccountCalendarsFn,
 } from "../../src/utils/oauth-sources";
 
+const COLD_IMPORT_TIMEOUT_MS = 30_000;
+
 let createCalDAVDestination: typeof createCalDAVDestinationFn = () =>
   Promise.reject(new Error("Module not loaded"));
 let createCalDAVSource: typeof createCalDAVSourceFn = () =>
@@ -282,7 +284,7 @@ beforeAll(async () => {
   ({
     createCalDAVSource,
   } = await import("../../src/utils/caldav-sources"));
-});
+}, COLD_IMPORT_TIMEOUT_MS);
 
 afterAll(() => {
   vi.restoreAllMocks();

@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -20,6 +21,8 @@ import {
 import { user } from "./auth-schema";
 
 const DEFAULT_EVENT_COUNT = 0;
+const WRITE_BACK_MODE_OFF = "off";
+const WRITE_BACK_STATE_OK = "ok";
 
 const SYNC_RANGE_SQL_VALUES = SYNC_RANGE_DEFINITIONS
   .map(({ value }) => `'${value}'`)
@@ -343,19 +346,39 @@ const eventMappingsTable = pgTable(
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
     createdAt: timestamp().notNull().defaultNow(),
     deleteIdentifier: text(),
+    /*
+     * Nullable for rolling compatibility with writers from before these columns
+     * existed. A null destinationContentHash reads as "unverified", so the next
+     * observation records what the destination reported instead of acting on it.
+     * The witness columns are always written together.
+     */
+    destinationAvailability: text(),
+    destinationContentHash: text(),
+    destinationDescription: text(),
+    destinationEndTime: timestamp(),
     destinationEventUid: text().notNull(),
+    destinationIsAllDay: boolean(),
+    destinationLocation: text(),
+    destinationStartTime: timestamp(),
+    destinationSummary: text(),
     endTime: timestamp().notNull(),
     // Kept as the legacy cascade in Drizzle metadata so 0077 remains additive.
     // The migration runner upgrades the live FK to SET NULL before applying 0077.
     eventStateId: uuid()
       .references(() => eventStatesTable.id, { onDelete: "set null" }),
     id: uuid().notNull().primaryKey().defaultRandom(),
+    missingFirstObservedAt: timestamp(),
+    missingObservationCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     syncEventId: text(),
     syncEventHash: text(),
     // Nullable for rolling compatibility with writers from before this column existed.
     // The migration runner backfills it and installs its validated index/checks.
     sourceCalendarId: uuid(),
     startTime: timestamp().notNull(),
+    writeBackDailyCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
+    writeBackDailyWindowStart: timestamp(),
+    writeBackEpoch: integer().notNull().default(DEFAULT_EVENT_COUNT),
+    writeBackEpochWindowStart: timestamp(),
   },
   (table) => [
     uniqueIndex("event_mappings_sync_event_cal_idx")
@@ -372,6 +395,9 @@ const eventMappingsTable = pgTable(
       .on(table.id)
       .where(isNull(table.syncEventId)),
     index("event_mappings_sync_hash_idx").on(table.syncEventHash),
+    index("event_mappings_pending_delete_idx")
+      .on(table.calendarId, table.missingFirstObservedAt)
+      .where(isNotNull(table.missingFirstObservedAt)),
   ],
 );
 
@@ -379,6 +405,12 @@ const sourceDestinationMappingsTable = pgTable(
   "source_destination_mappings",
   {
     createdAt: timestamp().notNull().defaultNow(),
+    /*
+     * The consent that lets deletions past the bulk breaker. Time bounded rather than a
+     * flag some later pass has to clear, so a crash between the answer and the deletions
+     * cannot leave the breaker disarmed.
+     */
+    deleteConfirmationApprovedAt: timestamp(),
     destinationCalendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
@@ -386,6 +418,10 @@ const sourceDestinationMappingsTable = pgTable(
     sourceCalendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
+    writeBackEnabledAt: timestamp(),
+    writeBackMode: text().notNull().default(WRITE_BACK_MODE_OFF),
+    writeBackState: text().notNull().default(WRITE_BACK_STATE_OK),
+    writeBackStateReason: text(),
   },
   (table) => [
     uniqueIndex("source_destination_mapping_idx").on(
@@ -394,6 +430,38 @@ const sourceDestinationMappingsTable = pgTable(
     ),
     index("source_destination_mappings_source_idx").on(table.sourceCalendarId),
     index("source_destination_mappings_destination_idx").on(table.destinationCalendarId),
+    index("source_destination_mappings_write_back_idx")
+      .on(table.writeBackMode)
+      .where(sql`${table.writeBackMode} <> 'off'`),
+  ],
+);
+
+const eventWriteBackTombstonesTable = pgTable(
+  "event_write_back_tombstones",
+  {
+    appliedAt: timestamp().notNull().defaultNow(),
+    /*
+     * Deliberately unreferenced: a tombstone has to outlive the mapping, the
+     * event state and the calendar whose deletion it records.
+     */
+    destinationCalendarId: uuid().notNull(),
+    eventMappingId: uuid().notNull(),
+    eventStateId: uuid(),
+    expiresAt: timestamp().notNull(),
+    id: uuid().notNull().primaryKey().defaultRandom(),
+    observedAt: timestamp(),
+    snapshot: jsonb().notNull(),
+    sourceCalendarId: uuid().notNull(),
+    sourceEventUid: text().notNull(),
+    state: text().notNull(),
+  },
+  (table) => [
+    index("event_write_back_tombstones_source_idx").on(
+      table.sourceCalendarId,
+      table.appliedAt,
+    ),
+    index("event_write_back_tombstones_expiry_idx").on(table.expiresAt),
+    uniqueIndex("event_write_back_tombstones_mapping_idx").on(table.eventMappingId),
   ],
 );
 
@@ -513,6 +581,7 @@ export {
   calendarsTable,
   eventMappingsTable,
   eventStatesTable,
+  eventWriteBackTombstonesTable,
   feedbackTable,
   icalFeedCalendarsTable,
   icalFeedSettingsTable,
