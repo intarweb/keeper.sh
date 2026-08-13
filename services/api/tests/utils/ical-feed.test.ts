@@ -155,7 +155,12 @@ describe("generateCalendarFeed", () => {
 
     expect(feed?.split("BEGIN:VEVENT").length ?? 0).toBe(ICAL_FEED_EVENT_LIMIT + 1);
     expect(feed).not.toContain(`event-${overflow - 1}`);
-  });
+    /*
+     * Serialising the cap's worth of events is real work — around half a second
+     * locally and ten times that on a loaded runner — so this needs more than the
+     * five second default rather than failing as a timeout.
+     */
+  }, 30_000);
 
   it("renders an empty calendar when no calendars opt into the feed", async () => {
     const feed = await generateCalendarFeed("feed-token", {
