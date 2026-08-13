@@ -51,6 +51,8 @@ const selectCredentialRows = () =>
     .map((row) => ({ ...row, sourceAccountId: ACCOUNT_IDS[0] ?? null }));
 
 const databaseStub = {
+  execute: () => Promise.resolve(),
+  transaction: (callback: (tx: unknown) => Promise<unknown>) => callback(databaseStub),
   select: () => ({
     from: () => ({
       leftJoin: () => ({
