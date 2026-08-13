@@ -41,8 +41,14 @@ const createReader = (events: StoredFeedEvent[]) =>
     const withinWindow = events.filter((event) =>
       event.startTime <= query.windowEnd
       && (event.endTime >= query.windowStart || event.recurrenceRule !== null));
+    const relevance = (event: StoredFeedEvent): number => {
+      if (event.recurrenceRule !== null) {
+        return -1;
+      }
+      return Math.abs(event.startTime.getTime() - query.now.getTime());
+    };
     const ordered = withinWindow.toSorted((first, second) =>
-      first.startTime.getTime() - second.startTime.getTime());
+      relevance(first) - relevance(second));
     return Promise.resolve(ordered.slice(0, query.limit));
   };
 
@@ -160,6 +166,25 @@ describe("generateCalendarFeed", () => {
      * locally and ten times that on a loaded runner — so this needs more than the
      * five second default rather than failing as a timeout.
      */
+  }, 30_000);
+
+  /*
+   * The window reaches as far back as the widest configured range, so a busy
+   * calendar can hold more past events than the cap. Truncating in start order
+   * would spend the whole budget on history and publish a feed that stops before
+   * today, which is the opposite of what a subscriber needs.
+   */
+  it("keeps upcoming events when history alone exceeds the cap", async () => {
+    const past = Array.from({ length: ICAL_FEED_EVENT_LIMIT }, (_value, index) =>
+      createStoredEvent(`past-${index}`, new Date(NOW.getTime() - (index + 1) * 60_000)));
+    const upcoming = Array.from({ length: 5 }, (_value, index) =>
+      createStoredEvent(`upcoming-${index}`, new Date(NOW.getTime() + (index + 1) * 60_000)));
+
+    const feed = await feedFor([...past, ...upcoming]);
+
+    for (const index of [0, 1, 2, 3, 4]) {
+      expect(feed).toContain(`upcoming-${index}`);
+    }
   }, 30_000);
 
   it("renders an empty calendar when no calendars opt into the feed", async () => {

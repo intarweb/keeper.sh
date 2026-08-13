@@ -1,5 +1,5 @@
 import { calendarsTable, eventStatesTable, icalFeedSettingsTable } from "@keeper.sh/database/schema";
-import { and, asc, eq, gte, inArray, isNotNull, lte, ne, or, isNull } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lte, ne, or, isNull, sql } from "drizzle-orm";
 import { resolveUserIdentifier } from "./user";
 import { database } from "@/context";
 import { generateCalendarFeed } from "./ical-feed";
@@ -77,7 +77,16 @@ const readFeedEvents = (
       ),
     ),
   )
-  .orderBy(asc(eventStatesTable.startTime))
+  /*
+   * The cap decides what a subscriber loses, so order by what they would miss
+   * most. Recurring rows come first because one master carries a whole series,
+   * then events nearest to now, so a calendar with more history than the cap
+   * still publishes what is coming rather than spending the budget on the past.
+   */
+  .orderBy(
+    sql`(${eventStatesTable.recurrenceRule} is not null) desc`,
+    sql`abs(extract(epoch from (${eventStatesTable.startTime} - ${query.now}::timestamp)))`,
+  )
   .limit(query.limit);
 
 const generateUserCalendar = (identifier: string): Promise<string | null> =>

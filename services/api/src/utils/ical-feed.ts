@@ -29,6 +29,7 @@ interface FeedCalendar {
 
 interface IcalFeedQuery {
   limit: number;
+  now: Date;
   windowEnd: Date;
   windowStart: Date;
 }
@@ -60,6 +61,7 @@ const createIcalFeedQuery = (
 
   return {
     limit: ICAL_FEED_EVENT_LIMIT,
+    now,
     windowEnd: window.timeMax,
     windowStart: window.timeMin,
   };
