@@ -1,6 +1,7 @@
 import { oauthCredentialsTable } from "@keeper.sh/database/schema";
 import { and, eq } from "drizzle-orm";
 import { database } from "@/context";
+import { clearSourceReauthentication } from "./source-reauthentication";
 
 const FIRST_RESULT_LIMIT = 1;
 
@@ -38,6 +39,8 @@ const createOAuthSourceCredential = async (
         refreshToken: data.refreshToken,
       })
       .where(eq(oauthCredentialsTable.id, existing.id));
+
+    await clearSourceReauthentication(database, existing.id);
 
     return existing.id;
   }

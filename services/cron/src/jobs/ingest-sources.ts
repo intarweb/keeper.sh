@@ -46,6 +46,8 @@ import { database, refreshLockRedis, refreshLockStore } from "@/context";
 import env from "@/env";
 import { safeFetchOptions } from "@/utils/safe-fetch-options";
 import { resolveMissingCalendarFailure } from "@/utils/provider-ingest-failure";
+import { runSourceIngest as runSourceIngestWithDependencies } from "@/utils/run-source-ingest";
+import type { SourceIngestDependencies } from "@/utils/run-source-ingest";
 import { resolveOAuthIngestionState } from "@/utils/oauth-ingestion-state";
 import { withAbortTimeout } from "@/utils/with-abort-timeout";
 import { createSyncLock } from "@keeper.sh/sync";
@@ -92,21 +94,22 @@ const logIngestBackoff = (state: CalendarBackoffState): void => {
   }
 };
 
-const runSourceIngest = async <TResult>(
-  calendarId: string,
-  signal: AbortSignal,
-  work: (isCurrent: () => Promise<boolean>) => Promise<TResult>,
-  shouldApplyBackoff: (error: unknown) => boolean,
-): Promise<TResult | null> => {
-  const lockResult = await sourceIngestLock.acquire(
-    `${SOURCE_INGEST_LOCK_KEY_PREFIX}${calendarId}`,
-    signal,
-  );
-  if (!lockResult.acquired) {
-    signal.throwIfAborted();
-    return null;
-  }
-  try {
+const sourceIngestDependencies: SourceIngestDependencies = {
+  acquireLease: async (calendarId, signal) => {
+    const lockResult = await sourceIngestLock.acquire(
+      `${SOURCE_INGEST_LOCK_KEY_PREFIX}${calendarId}`,
+      signal,
+    );
+    if (!lockResult.acquired) {
+      return null;
+    }
+    return {
+      isCurrent: lockResult.handle.isCurrent,
+      release: lockResult.handle.release,
+    };
+  },
+  applyBackoff: applyIngestBackoff,
+  readAttempt: async (calendarId) => {
     const [attempt] = await database
       .select({
         failureCount: calendarsTable.ingestFailureCount,
@@ -115,33 +118,18 @@ const runSourceIngest = async <TResult>(
       .from(calendarsTable)
       .where(eq(calendarsTable.id, calendarId))
       .limit(1);
-    if (!attempt || attempt.nextAttemptAt && attempt.nextAttemptAt > new Date()) {
-      return null;
-    }
-    try {
-      const result = await work(lockResult.handle.isCurrent);
-      if (attempt.failureCount > 0 && await lockResult.handle.isCurrent()) {
-        await resetIngestBackoff(calendarId);
-      }
-      return result;
-    } catch (error) {
-      if (shouldApplyBackoff(error)) {
-        logIngestBackoff(await applyIngestBackoff(calendarId, attempt.failureCount));
-      }
-      throw error;
-    }
-  } finally {
-    await lockResult.handle.release();
-  }
+    return attempt ?? null;
+  },
+  recordBackoff: logIngestBackoff,
+  resetBackoff: resetIngestBackoff,
 };
 
-const hasErrorFlag = (error: unknown, key: string): boolean =>
-  error instanceof Error
-  && key in error
-  && (error as Error & Record<string, unknown>)[key] === true;
-
-const shouldApplyOAuthIngestBackoff = (error: unknown): boolean =>
-  !hasErrorFlag(error, "authRequired") && !hasErrorFlag(error, "oauthReauthRequired");
+const runSourceIngest = <TResult>(
+  calendarId: string,
+  signal: AbortSignal,
+  work: (isCurrent: () => Promise<boolean>) => Promise<TResult>,
+): Promise<TResult | null> =>
+  runSourceIngestWithDependencies(sourceIngestDependencies, calendarId, signal, work);
 
 const recordSkippedResources = (skippedResourceCount: number, reasons: string[]): void => {
   if (skippedResourceCount === 0) {
@@ -551,7 +539,7 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
                     || ingestionResult.eventsRemoved > 0,
                   userId: currentSource.userId,
                 };
-              }, shouldApplyOAuthIngestBackoff),
+              }),
             );
             if (!result) {
               widelog.set("outcome", "skipped");
@@ -750,7 +738,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                     || ingestionResult.eventsRemoved > 0,
                   userId: currentSource.userId,
                 };
-              }, (error) => !isCalDAVAuthenticationError(error)),
+              }),
             );
             if (!result) {
               widelog.set("outcome", "skipped");
@@ -914,7 +902,7 @@ const ingestIcsSources = async (): Promise<IngestionBatchResult> => {
                     || ingestionResult.eventsRemoved > 0,
                   userId: currentSource.userId,
                 };
-              }, () => true),
+              }),
             );
             if (!result) {
               widelog.set("outcome", "skipped");

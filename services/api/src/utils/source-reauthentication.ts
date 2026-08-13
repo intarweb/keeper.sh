@@ -1,0 +1,29 @@
+import { calendarAccountsTable, calendarsTable } from "@keeper.sh/database/schema";
+import { eq, inArray } from "drizzle-orm";
+import type { database } from "@/context";
+import { RECONNECTED_SOURCE_INGEST_STATE } from "./calendar-state";
+
+type SourceReauthenticationDatabase = Pick<typeof database, "update">;
+
+const clearSourceReauthentication = async (
+  databaseClient: SourceReauthenticationDatabase,
+  oauthCredentialId: string,
+): Promise<void> => {
+  const accounts = await databaseClient
+    .update(calendarAccountsTable)
+    .set({ needsReauthentication: false })
+    .where(eq(calendarAccountsTable.oauthCredentialId, oauthCredentialId))
+    .returning({ id: calendarAccountsTable.id });
+
+  if (accounts.length === 0) {
+    return;
+  }
+
+  await databaseClient
+    .update(calendarsTable)
+    .set(RECONNECTED_SOURCE_INGEST_STATE)
+    .where(inArray(calendarsTable.accountId, accounts.map(({ id }) => id)));
+};
+
+export { clearSourceReauthentication };
+export type { SourceReauthenticationDatabase };
