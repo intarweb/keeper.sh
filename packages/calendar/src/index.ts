@@ -145,7 +145,9 @@ export {
   mergeAbortSignals,
 } from "./core/utils/fetch-with-timeout";
 export {
+  DEFAULT_EVENT_NAME,
   getEventsForCalendars,
+  getWriteBackPoliciesForDestination,
   getEventsForCalendarsWithDiagnostics,
   getEventsForDestination,
   getMappedSourceCalendarIds,
@@ -302,7 +304,11 @@ export type {
   PushResult,
   DeleteResult,
   SyncResult,
+  RemoteEditableFields,
   RemoteEvent,
+  RemoteEventListing,
+  RemoteEventPresence,
+  RemoteEventReference,
   EventAvailability,
   ProviderConfig,
   OAuthProviderConfig,
@@ -363,3 +369,35 @@ export type {
   IngestWideEventFields,
   FetchEventsResult as IngestionFetchEventsResult,
 } from "./core/sync-engine/ingest";
+
+export { createGoogleSourceWriter } from "./providers/google/source/mutations";
+export { createOutlookSourceWriter } from "./providers/outlook/source/mutations";
+export { createCalDAVSourceWriter } from "./providers/caldav/source/mutations";
+export {
+  classifyInboundChanges,
+  getDestinationDrift,
+  TWO_WAY_EPOCH_QUARANTINE_LIMIT,
+  TWO_WAY_EPOCH_WINDOW_MS,
+} from "./core/sync/write-back";
+export type {
+  DeleteConfirmationRequest,
+  ExpectedSourceFields,
+  InboundClassification,
+  InboundClassificationResult,
+} from "./core/sync/write-back";
+export { normalizeText } from "./core/events/content-hash";
+export {
+  isWriteBackMode,
+  WRITE_BACK_MODES,
+  WRITE_BACK_WITNESS_RESET,
+} from "./core/sync/write-back-policy";
+export type {
+  WriteBackMode,
+  WriteBackPolicy,
+  WriteBackUpdates,
+} from "./core/sync/write-back-policy";
+export type {
+  CalendarSourceWriter,
+  SourceEventUpdate,
+  SourceWriteResult,
+} from "./core/source/writer";

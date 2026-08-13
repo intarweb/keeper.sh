@@ -1,7 +1,16 @@
 import { ErrorResponse } from "@/utils/responses";
-import { calendarIdsBodySchema } from "@/utils/request-body";
+import {
+  calendarIdsBodySchema,
+  deleteConfirmationBodySchema,
+  writeBackModeBodySchema,
+} from "@/utils/request-body";
 import { idParamSchema } from "@/utils/request-query";
 import { MAPPING_LIMIT_ERROR_MESSAGE } from "@/utils/source-destination-mappings";
+
+const TWO_WAY_PRO_ERROR_MESSAGE = "Two-way sync requires a Pro plan.";
+const MAPPING_NOT_FOUND_ERROR_MESSAGE = "Mapping not found";
+const UNWRITABLE_SOURCE_ERROR_MESSAGE =
+  "This source calendar cannot receive edits, so two-way sync is unavailable.";
 
 interface MappingRouteContext {
   params: Record<string, string>;
@@ -15,6 +24,14 @@ interface MappingPutRouteContext extends MappingRouteContext {
 interface GetSourceDestinationsDependencies {
   sourceExists: (userId: string, sourceCalendarId: string) => Promise<boolean>;
   getDestinationsForSource: (userId: string, sourceCalendarId: string) => Promise<string[]>;
+  getWriteBackModesForSource?: (
+    userId: string,
+    sourceCalendarId: string,
+  ) => Promise<Record<string, string>>;
+  getWriteBackStatesForSource?: (
+    userId: string,
+    sourceCalendarId: string,
+  ) => Promise<Record<string, { reason: string | null; state: string }>>;
 }
 
 interface PutSourceDestinationsDependencies {
@@ -87,7 +104,15 @@ const handleGetSourceDestinationsRoute = async (
   }
 
   const destinationIds = await dependencies.getDestinationsForSource(context.userId, resolved.id);
-  return Response.json({ destinationIds });
+  const writeBackModes = await dependencies.getWriteBackModesForSource?.(
+    context.userId,
+    resolved.id,
+  ) ?? {};
+  const writeBackStates = await dependencies.getWriteBackStatesForSource?.(
+    context.userId,
+    resolved.id,
+  ) ?? {};
+  return Response.json({ destinationIds, writeBackModes, writeBackStates });
 };
 
 const handlePutSourceDestinationsRoute = async (
@@ -176,8 +201,125 @@ const handlePutSourcesForDestinationRoute = async (
   return Response.json({ success: true });
 };
 
+interface PatchMappingWriteBackModeDependencies {
+  canUseTwoWaySync: (userId: string) => Promise<boolean>;
+  setWriteBackMode: (
+    userId: string,
+    sourceCalendarId: string,
+    destinationCalendarId: string,
+    writeBackMode: string,
+  ) => Promise<void>;
+  sourceSupportsWriteBack: (userId: string, sourceCalendarId: string) => Promise<boolean>;
+}
+
+const handlePatchMappingWriteBackModeRoute = async (
+  context: MappingPutRouteContext,
+  dependencies: PatchMappingWriteBackModeDependencies,
+): Promise<Response> => {
+  const sourceCalendarId = context.params.id;
+  const destinationCalendarId = context.params.destinationId;
+  if (!sourceCalendarId || !destinationCalendarId) {
+    return ErrorResponse.badRequest(
+      "Source ID and destination ID are required",
+    ).toResponse();
+  }
+
+  if (!writeBackModeBodySchema.allows(context.body)) {
+    return ErrorResponse.badRequest(
+      "writeBackMode must be off, edits or edits_and_deletes",
+    ).toResponse();
+  }
+  const { writeBackMode } = writeBackModeBodySchema.assert(context.body);
+
+  if (writeBackMode !== "off") {
+    const allowed = await dependencies.canUseTwoWaySync(context.userId);
+    if (!allowed) {
+      return ErrorResponse.forbidden(TWO_WAY_PRO_ERROR_MESSAGE).toResponse();
+    }
+    const writable = await dependencies.sourceSupportsWriteBack(
+      context.userId,
+      sourceCalendarId,
+    );
+    if (!writable) {
+      return ErrorResponse.badRequest(UNWRITABLE_SOURCE_ERROR_MESSAGE).toResponse();
+    }
+  }
+
+  try {
+    await dependencies.setWriteBackMode(
+      context.userId,
+      sourceCalendarId,
+      destinationCalendarId,
+      writeBackMode,
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === MAPPING_NOT_FOUND_ERROR_MESSAGE) {
+      return ErrorResponse.notFound().toResponse();
+    }
+    throw error;
+  }
+
+  return Response.json({ success: true });
+};
+
+interface PatchDeleteConfirmationDependencies {
+  canUseTwoWaySync: (userId: string) => Promise<boolean>;
+  resolveDeleteConfirmation: (
+    userId: string,
+    sourceCalendarId: string,
+    destinationCalendarId: string,
+    decision: string,
+  ) => Promise<void>;
+}
+
+/*
+ * The answer to a question the sync pass asked. Approving is a write to the user's real
+ * calendar, so it carries the same plan gate the toggle does; declining only puts copies
+ * back and is always allowed.
+ */
+const handlePatchDeleteConfirmationRoute = async (
+  context: MappingPutRouteContext,
+  dependencies: PatchDeleteConfirmationDependencies,
+): Promise<Response> => {
+  const sourceCalendarId = context.params.id;
+  const destinationCalendarId = context.params.destinationId;
+  if (!sourceCalendarId || !destinationCalendarId) {
+    return ErrorResponse.badRequest(
+      "Source ID and destination ID are required",
+    ).toResponse();
+  }
+
+  if (!deleteConfirmationBodySchema.allows(context.body)) {
+    return ErrorResponse.badRequest("decision must be apply or decline").toResponse();
+  }
+  const { decision } = deleteConfirmationBodySchema.assert(context.body);
+
+  if (decision === "apply" && !await dependencies.canUseTwoWaySync(context.userId)) {
+    return ErrorResponse.forbidden(TWO_WAY_PRO_ERROR_MESSAGE).toResponse();
+  }
+
+  try {
+    await dependencies.resolveDeleteConfirmation(
+      context.userId,
+      sourceCalendarId,
+      destinationCalendarId,
+      decision,
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === MAPPING_NOT_FOUND_ERROR_MESSAGE) {
+      return ErrorResponse.notFound().toResponse();
+    }
+    throw error;
+  }
+
+  return Response.json({ success: true });
+};
+
 export {
   handleGetSourceDestinationsRoute,
+  handlePatchDeleteConfirmationRoute,
+  handlePatchMappingWriteBackModeRoute,
+  MAPPING_NOT_FOUND_ERROR_MESSAGE,
   handlePutSourceDestinationsRoute,
   handleGetSourcesForDestinationRoute,
   handlePutSourcesForDestinationRoute,

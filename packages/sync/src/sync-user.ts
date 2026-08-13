@@ -11,6 +11,7 @@ import {
   getMappedSourceCalendarIds,
   withSourceIngestLocks,
   getConfigurableSyncWindow,
+  getWriteBackPoliciesForDestination,
   intersectSyncWindows,
 } from "@keeper.sh/calendar";
 import { OUTLOOK_REQUESTS_PER_MINUTE } from "@keeper.sh/constants";
@@ -18,22 +19,27 @@ import { syncRangeSchema } from "@keeper.sh/data-schemas";
 import type { Plan } from "@keeper.sh/data-schemas";
 import type { RedisRateLimiter } from "@keeper.sh/calendar";
 import type {
+  CalendarSyncProvider,
+  DeleteConfirmationRequest,
   EventMapping,
+  WriteBackPolicy,
   DestinationEventReadDiagnostics,
   MaterializedSyncableEvent,
   ReconciliationScope,
   RefreshLockStore,
   RemoteEvent,
+  RemoteEventListing,
   SyncProgressUpdate,
   SyncWindow,
 } from "@keeper.sh/calendar";
 import {
   calendarAccountsTable,
   calendarsTable,
+  sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
 import { withDatabasePoolWindow } from "@keeper.sh/database";
 import type { DatabasePoolWindow } from "@keeper.sh/database";
-import { and, arrayContains, eq, inArray, isNull } from "drizzle-orm";
+import { and, arrayContains, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import type Redis from "ioredis";
 import {
@@ -43,6 +49,7 @@ import {
 } from "./destination-errors";
 import type { DestinationAttemptVerdict } from "./destination-errors";
 import { resolveSyncProvider } from "./resolve-provider";
+import { clearDestinationWitnesses, createInboundWriteBackApplier } from "./write-back";
 import type { OAuthConfig } from "./resolve-provider";
 import {
   createMappingMutationLockId,
@@ -129,6 +136,8 @@ interface SyncConfig {
   refreshLockStore?: RefreshLockStore | null;
   deadlineMs?: number;
   abortSignal?: AbortSignal;
+  /* Wakes the user's other destinations after a write-back has changed a source. */
+  notifySourceChanged?: (userId: string) => Promise<void>;
 }
 
 interface SyncDestinationsResult {
@@ -349,6 +358,7 @@ interface DestinationReconciliationScopeContext {
   eventReadDiagnostics: DestinationEventReadDiagnostics;
   requestedWindow: SyncWindow;
   sourceCalendarIdsAtLocalRead: string[];
+  writeBackPolicies: ReconciliationScope["writeBackPolicies"];
 }
 
 /*
@@ -367,6 +377,7 @@ const createDestinationReconciliationScope = (
   withheldSourceEventStateIds: new Set(
     context.eventReadDiagnostics.overBudgetSourceEventStateIds,
   ),
+  writeBackPolicies: context.writeBackPolicies,
 });
 
 const createDestinationReconciliationWideEventFields = (
@@ -430,12 +441,18 @@ const createDestinationAttemptWideEventFields = (
 };
 
 const readDestinationReconciliationState = async (
-  readRemoteEvents: () => Promise<RemoteEvent[]>,
+  readRemoteEvents: () => Promise<RemoteEventListing>,
   readLocalState: () => Promise<DestinationLocalState>,
-): Promise<DestinationLocalState & { remoteEvents: RemoteEvent[] }> => {
-  const remoteEvents = await readRemoteEvents();
+): Promise<
+  DestinationLocalState & { remoteEvents: RemoteEvent[]; remoteRawItemCount: number }
+> => {
+  const listing = await readRemoteEvents();
   const localState = await readLocalState();
-  return { ...localState, remoteEvents };
+  return {
+    ...localState,
+    remoteEvents: listing.items,
+    remoteRawItemCount: listing.rawItemCount,
+  };
 };
 
 interface CalendarSyncCompletion {
@@ -619,6 +636,90 @@ const recordDestinationAttemptFailure = async (
   return [getErrorMessage(error)];
 };
 
+/*
+ * Unlike the sync window, the plan is re-checked at consumption: a lapsed plan must stop
+ * Keeper.sh writing to a real source calendar, and failing closed costs a delayed edit
+ * rather than an unauthorized write.
+ */
+const createWriteBackApplier = (
+  config: SyncConfig,
+  userId: string,
+  errors: string[],
+  probeDestinationEvent: CalendarSyncProvider["probeRemoteEvent"],
+) => createInboundWriteBackApplier({
+  abortSignal: config.abortSignal,
+  database: config.database,
+  ...(config.encryptionKey && { encryptionKey: config.encryptionKey }),
+  oauthConfig: config.oauthConfig,
+  onError: (error) => {
+    errors.push(getErrorMessage(error));
+  },
+  refreshLockStore: config.refreshLockStore,
+  userId,
+  /*
+   * Absent in deployments that have no queue to wake: write-back still applies, the
+   * other mirrors of the source just converge on their next scheduled pass.
+   */
+  ...(config.notifySourceChanged && { notifySourceChanged: config.notifySourceChanged }),
+  /*
+   * A destination that cannot say whether a copy is still there cannot delete anything
+   * on a source: the applier refuses without a confirmed not-found.
+   */
+  ...(probeDestinationEvent && { probeDestinationEvent }),
+});
+
+/*
+ * A blocked deletion that nobody can see is a support ticket. The mapping reverts to
+ * one-way until the user says whether the copies really are gone.
+ */
+const createDeleteConfirmationRecorder = (
+  database: BunSQLDatabase,
+  destinationCalendarId: string,
+) => async (request: DeleteConfirmationRequest): Promise<void> => {
+  if (request.sourceCalendarIds.length === 0) {
+    return;
+  }
+  await database
+    .update(sourceDestinationMappingsTable)
+    .set({
+      writeBackState: "delete_confirmation_required",
+      writeBackStateReason: request.reason,
+    })
+    .where(and(
+      eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      inArray(sourceDestinationMappingsTable.sourceCalendarId, request.sourceCalendarIds),
+    ));
+};
+
+/*
+ * A plan check that prevents a write fails closed, unlike the window clamp above: the
+ * cost is a delayed edit, where failing open is an unauthorised write to a real calendar.
+ */
+const resolveWriteBackPolicies = async (
+  database: BunSQLDatabase,
+  destinationCalendarId: string,
+  plan: Plan,
+): Promise<Map<string, WriteBackPolicy>> => {
+  if (plan !== "pro") {
+    const downgraded = await database
+      .update(sourceDestinationMappingsTable)
+      .set({ writeBackState: "quarantined", writeBackStateReason: "plan_downgraded" })
+      .where(and(
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+        ne(sourceDestinationMappingsTable.writeBackMode, "off"),
+        eq(sourceDestinationMappingsTable.writeBackState, "ok"),
+      ))
+      .returning({ sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId });
+    await clearDestinationWitnesses(
+      database,
+      destinationCalendarId,
+      downgraded.map((pair) => pair.sourceCalendarId),
+    );
+    return new Map<string, WriteBackPolicy>();
+  }
+  return getWriteBackPoliciesForDestination(database, destinationCalendarId);
+};
+
 const syncDestinationsForUser = async (
   userId: string,
   config: SyncConfig,
@@ -712,6 +813,11 @@ const syncDestinationsForUser = async (
         const sourceCalendarIds = await getMappedSourceCalendarIds(
           database,
           destination.calendarId,
+        );
+        const writeBackPolicies = await resolveWriteBackPolicies(
+          database,
+          destination.calendarId,
+          config.plan,
         );
         /*
          * The stored ranges are the window, with no plan clamp applied here. Only a Pro
@@ -855,6 +961,16 @@ const syncDestinationsForUser = async (
           readState: () => Promise.resolve(reconciliationState),
           isCurrent: isAttemptCurrent,
           flush: createDatabaseFlush(database),
+          applyInboundChanges: createWriteBackApplier(
+            config,
+            destination.userId,
+            errors,
+            providerRef.probeRemoteEvent,
+          ),
+          requestDeleteConfirmation: createDeleteConfirmationRecorder(
+            database,
+            destination.calendarId,
+          ),
           onProgress: callbacks?.onProgress,
           onSyncEvent: (event) => {
             const enrichedEvent = {
@@ -885,6 +1001,7 @@ const syncDestinationsForUser = async (
             eventReadDiagnostics,
             requestedWindow,
             sourceCalendarIdsAtLocalRead,
+            writeBackPolicies,
           }),
         });
 
@@ -959,6 +1076,7 @@ export {
   readDestinationReconciliationState,
   resolveSourceAuthority,
   resolveStoredSourceCoverage,
+  resolveWriteBackPolicies,
   syncDestinationsForUser,
 };
 export type { CalendarSyncCompletion, CalendarSyncFailure, SyncConfig, SyncDestinationsResult };

@@ -1,10 +1,12 @@
 import {
   calendarsTable,
+  eventMappingsTable,
   sourceDestinationMappingsTable,
   syncStatusTable,
   userSyncRequestsTable,
 } from "@keeper.sh/database/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { WRITE_BACK_WITNESS_RESET } from "@keeper.sh/calendar";
 import { createMappingMutationLockId, createSyncLock } from "@keeper.sh/sync";
 import type { SyncLockHandle } from "@keeper.sh/sync";
 import type { database as databaseInstance } from "@/context";
@@ -12,8 +14,12 @@ import { enqueuePushSync } from "./enqueue-push-sync";
 import { spawnBackgroundJob } from "./background-task";
 import { assertAllIdsOwned } from "./owned-ids";
 const EMPTY_LIST_COUNT = 0;
+const NO_PENDING_DELETES = 0;
 const USER_MAPPING_LOCK_NAMESPACE = 9001;
 const MAPPING_LIMIT_ERROR_MESSAGE = "Mapping limit reached. Upgrade to Pro for unlimited sync mappings.";
+const MAPPING_NOT_FOUND_ERROR_MESSAGE = "Mapping not found";
+const WRITE_BACK_MODE_OFF = "off";
+const UNWRITABLE_SOURCE_CALENDAR_TYPE = "ical";
 
 type DatabaseClient = typeof databaseInstance;
 type DatabaseTransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
@@ -36,7 +42,12 @@ interface SetDestinationsTransaction {
     userId: string,
     destinationCalendarIds: string[],
   ) => Promise<string[]>;
-  replaceSourceMappings: (
+  findExistingDestinationIds: (sourceCalendarId: string) => Promise<string[]>;
+  deleteSourceMappings: (
+    sourceCalendarId: string,
+    destinationCalendarIds: string[],
+  ) => Promise<void>;
+  insertSourceMappings: (
     sourceCalendarId: string,
     destinationCalendarIds: string[],
   ) => Promise<void>;
@@ -59,11 +70,16 @@ interface SetSourcesTransaction {
   countUserMappings?: (userId: string) => Promise<number>;
   countMappingsForDestination?: (destinationCalendarId: string) => Promise<number>;
   findOwnedSourceIds: (userId: string, sourceCalendarIds: string[]) => Promise<string[]>;
-  replaceDestinationMappings: (
+  findExistingSourceIds: (destinationCalendarId: string) => Promise<string[]>;
+  deleteDestinationMappings: (
     destinationCalendarId: string,
     sourceCalendarIds: string[],
   ) => Promise<void>;
-  ensureDestinationSyncStatus: (destinationCalendarId: string) => Promise<void>;
+  insertDestinationMappings: (
+    destinationCalendarId: string,
+    sourceCalendarIds: string[],
+  ) => Promise<void>;
+  ensureDestinationSyncStatuses: (destinationCalendarIds: string[]) => Promise<void>;
   requestUserSync?: (userId: string) => Promise<void>;
 }
 
@@ -88,6 +104,18 @@ interface SetSourcesDependencies {
   ) => Promise<TResult>;
   resolveMappingLimit?: ResolveMappingLimit;
 }
+
+const diffCalendarIdSet = (
+  existingIds: string[],
+  desiredIds: string[],
+): { added: string[]; removed: string[] } => {
+  const existing = new Set(existingIds);
+  const desired = new Set(desiredIds);
+  return {
+    added: desiredIds.filter((id) => !existing.has(id)),
+    removed: existingIds.filter((id) => !desired.has(id)),
+  };
+};
 
 const createSetDestinationsTransaction = (
   transactionClient: DatabaseTransactionClient,
@@ -148,11 +176,32 @@ const createSetDestinationsTransaction = (
 
     return ownedDestinations.map(({ id }) => id);
   },
-  replaceSourceMappings: async (sourceCalendarId, destinationCalendarIds) => {
-    await transactionClient
-      .delete(sourceDestinationMappingsTable)
+  findExistingDestinationIds: async (sourceCalendarId) => {
+    const existing = await transactionClient
+      .select({
+        destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
+      })
+      .from(sourceDestinationMappingsTable)
       .where(eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId));
 
+    return existing.map(({ destinationCalendarId }) => destinationCalendarId);
+  },
+  deleteSourceMappings: async (sourceCalendarId, destinationCalendarIds) => {
+    if (destinationCalendarIds.length === EMPTY_LIST_COUNT) {
+      return;
+    }
+
+    await transactionClient
+      .delete(sourceDestinationMappingsTable)
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        inArray(
+          sourceDestinationMappingsTable.destinationCalendarId,
+          destinationCalendarIds,
+        ),
+      ));
+  },
+  insertSourceMappings: async (sourceCalendarId, destinationCalendarIds) => {
     if (destinationCalendarIds.length === EMPTY_LIST_COUNT) {
       return;
     }
@@ -239,13 +288,29 @@ const createSetSourcesTransaction = (
 
     return ownedSources.map(({ id }) => id);
   },
-  replaceDestinationMappings: async (destinationCalendarId, sourceCalendarIds) => {
-    await transactionClient
-      .delete(sourceDestinationMappingsTable)
+  findExistingSourceIds: async (destinationCalendarId) => {
+    const existing = await transactionClient
+      .select({ sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId })
+      .from(sourceDestinationMappingsTable)
       .where(
         eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
       );
 
+    return existing.map(({ sourceCalendarId }) => sourceCalendarId);
+  },
+  deleteDestinationMappings: async (destinationCalendarId, sourceCalendarIds) => {
+    if (sourceCalendarIds.length === EMPTY_LIST_COUNT) {
+      return;
+    }
+
+    await transactionClient
+      .delete(sourceDestinationMappingsTable)
+      .where(and(
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+        inArray(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarIds),
+      ));
+  },
+  insertDestinationMappings: async (destinationCalendarId, sourceCalendarIds) => {
     if (sourceCalendarIds.length === EMPTY_LIST_COUNT) {
       return;
     }
@@ -260,11 +325,13 @@ const createSetSourcesTransaction = (
       )
       .onConflictDoNothing();
   },
-  ensureDestinationSyncStatus: async (destinationCalendarId) => {
-    await transactionClient
-      .insert(syncStatusTable)
-      .values({ calendarId: destinationCalendarId })
-      .onConflictDoNothing();
+  ensureDestinationSyncStatuses: async (destinationCalendarIds) => {
+    for (const destinationCalendarId of destinationCalendarIds) {
+      await transactionClient
+        .insert(syncStatusTable)
+        .values({ calendarId: destinationCalendarId })
+        .onConflictDoNothing();
+    }
   },
   requestUserSync: (userId) => requestUserSync(transactionClient, userId),
 });
@@ -355,7 +422,14 @@ const runSetDestinationsForSource = async (
       }
     }
 
-    await transaction.replaceSourceMappings(sourceCalendarId, uniqueDestinationCalendarIds);
+    const existingDestinationIds = await transaction.findExistingDestinationIds(sourceCalendarId);
+    const { added, removed } = diffCalendarIdSet(
+      existingDestinationIds,
+      uniqueDestinationCalendarIds,
+    );
+
+    await transaction.deleteSourceMappings(sourceCalendarId, removed);
+    await transaction.insertSourceMappings(sourceCalendarId, added);
 
     if (uniqueDestinationCalendarIds.length > EMPTY_LIST_COUNT) {
       await transaction.ensureDestinationSyncStatuses(uniqueDestinationCalendarIds);
@@ -408,10 +482,14 @@ const runSetSourcesForDestination = async (
       }
     }
 
-    await transaction.replaceDestinationMappings(destinationCalendarId, uniqueSourceCalendarIds);
+    const existingSourceIds = await transaction.findExistingSourceIds(destinationCalendarId);
+    const { added, removed } = diffCalendarIdSet(existingSourceIds, uniqueSourceCalendarIds);
+
+    await transaction.deleteDestinationMappings(destinationCalendarId, removed);
+    await transaction.insertDestinationMappings(destinationCalendarId, added);
 
     if (uniqueSourceCalendarIds.length > EMPTY_LIST_COUNT) {
-      await transaction.ensureDestinationSyncStatus(destinationCalendarId);
+      await transaction.ensureDestinationSyncStatuses([destinationCalendarId]);
     }
     await transaction.requestUserSync?.(userId);
   });
@@ -473,6 +551,61 @@ const getDestinationsForSource = async (userId: string, sourceCalendarId: string
     );
 
   return mappings.map((mapping) => mapping.destinationCalendarId);
+};
+
+const getWriteBackModesForSource = async (
+  userId: string,
+  sourceCalendarId: string,
+): Promise<Record<string, string>> => {
+  const { database } = await import("@/context");
+
+  const mappings = await database
+    .select({
+      destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
+      writeBackMode: sourceDestinationMappingsTable.writeBackMode,
+    })
+    .from(sourceDestinationMappingsTable)
+    .innerJoin(
+      calendarsTable,
+      eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
+    )
+    .where(and(
+      eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+      eq(calendarsTable.userId, userId),
+    ));
+
+  return Object.fromEntries(
+    mappings.map(({ destinationCalendarId, writeBackMode }) =>
+      [destinationCalendarId, writeBackMode]),
+  );
+};
+
+const getWriteBackStatesForSource = async (
+  userId: string,
+  sourceCalendarId: string,
+): Promise<Record<string, { reason: string | null; state: string }>> => {
+  const { database } = await import("@/context");
+
+  const mappings = await database
+    .select({
+      destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
+      writeBackState: sourceDestinationMappingsTable.writeBackState,
+      writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
+    })
+    .from(sourceDestinationMappingsTable)
+    .innerJoin(
+      calendarsTable,
+      eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
+    )
+    .where(and(
+      eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+      eq(calendarsTable.userId, userId),
+    ));
+
+  return Object.fromEntries(
+    mappings.map(({ destinationCalendarId, writeBackState, writeBackStateReason }) =>
+      [destinationCalendarId, { reason: writeBackStateReason, state: writeBackState }]),
+  );
 };
 
 const getSourcesForDestination = async (userId: string, destinationCalendarId: string): Promise<string[]> => {
@@ -655,6 +788,184 @@ const scheduleMappingReplacementSync = (userId: string): void => {
   );
 };
 
+const resolveWriteBackEnabledAt = (writeBackMode: string): Date | null => {
+  if (writeBackMode === WRITE_BACK_MODE_OFF) {
+    return null;
+  }
+  return new Date();
+};
+
+const sourceSupportsWriteBack = async (
+  userId: string,
+  sourceCalendarId: string,
+): Promise<boolean> => {
+  const { database } = await import("@/context");
+  const [source] = await database
+    .select({
+      calendarType: calendarsTable.calendarType,
+      capabilities: calendarsTable.capabilities,
+    })
+    .from(calendarsTable)
+    .where(and(
+      eq(calendarsTable.id, sourceCalendarId),
+      eq(calendarsTable.userId, userId),
+    ))
+    .limit(1);
+
+  if (!source) {
+    return false;
+  }
+  return source.calendarType !== UNWRITABLE_SOURCE_CALENDAR_TYPE
+    && source.capabilities.includes("pull");
+};
+
+const clearDestinationWitness = async (
+  transactionClient: DatabaseTransactionClient,
+  sourceCalendarId: string,
+  destinationCalendarId: string,
+): Promise<void> => {
+  await transactionClient
+    .update(eventMappingsTable)
+    .set({ ...WRITE_BACK_WITNESS_RESET })
+    .where(and(
+      eq(eventMappingsTable.calendarId, destinationCalendarId),
+      eq(eventMappingsTable.sourceCalendarId, sourceCalendarId),
+    ));
+};
+
+const setWriteBackMode = async (
+  userId: string,
+  sourceCalendarId: string,
+  destinationCalendarId: string,
+  writeBackMode: string,
+): Promise<void> => {
+  const { database } = await import("@/context");
+  const ownedCalendarIds = await getOwnedCalendarIds(
+    userId,
+    [sourceCalendarId, destinationCalendarId],
+  );
+  assertAllIdsOwned(
+    [sourceCalendarId, destinationCalendarId],
+    ownedCalendarIds,
+    MAPPING_NOT_FOUND_ERROR_MESSAGE,
+  );
+
+  await database.transaction(async (transactionClient) => {
+    const updated = await transactionClient
+      .update(sourceDestinationMappingsTable)
+      .set({
+        deleteConfirmationApprovedAt: null,
+        writeBackEnabledAt: resolveWriteBackEnabledAt(writeBackMode),
+        writeBackMode,
+        writeBackState: "ok",
+        writeBackStateReason: null,
+      })
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ))
+      .returning({ id: sourceDestinationMappingsTable.id });
+
+    if (updated.length === EMPTY_LIST_COUNT) {
+      throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
+    }
+
+    /*
+     * The recorded observation belongs to the policy it was taken under. Clearing it
+     * with the transition means the first pass after a change adopts what the
+     * destination reports instead of acting on a witness from a different regime.
+     */
+    await clearDestinationWitness(
+      transactionClient,
+      sourceCalendarId,
+      destinationCalendarId,
+    );
+    await requestUserSync(transactionClient, userId);
+  });
+  scheduleMappingReplacementSync(userId);
+};
+
+/*
+ * Declining puts the copies back: the pending counters are what a later pass would have
+ * deleted the originals from, so clearing them both cancels the deletions and releases
+ * the mirrors to be re-created. Approving leaves them exactly where they are — they name
+ * the deletions the answer is about — and stamps the consent the breaker reads.
+ */
+const clearPendingDeleteState = async (
+  transactionClient: DatabaseTransactionClient,
+  sourceCalendarId: string,
+  destinationCalendarId: string,
+): Promise<void> => {
+  await transactionClient
+    .update(eventMappingsTable)
+    .set({ missingFirstObservedAt: null, missingObservationCount: NO_PENDING_DELETES })
+    .where(and(
+      eq(eventMappingsTable.calendarId, destinationCalendarId),
+      eq(eventMappingsTable.sourceCalendarId, sourceCalendarId),
+    ));
+};
+
+const resolveDeleteApprovedAt = (approved: boolean): Date | null => {
+  if (!approved) {
+    return null;
+  }
+  return new Date();
+};
+
+const resolveDeleteConfirmation = async (
+  userId: string,
+  sourceCalendarId: string,
+  destinationCalendarId: string,
+  decision: string,
+): Promise<void> => {
+  const { database } = await import("@/context");
+  const ownedCalendarIds = await getOwnedCalendarIds(
+    userId,
+    [sourceCalendarId, destinationCalendarId],
+  );
+  assertAllIdsOwned(
+    [sourceCalendarId, destinationCalendarId],
+    ownedCalendarIds,
+    MAPPING_NOT_FOUND_ERROR_MESSAGE,
+  );
+
+  const approved = decision === "apply";
+
+  await database.transaction(async (transactionClient) => {
+    const updated = await transactionClient
+      .update(sourceDestinationMappingsTable)
+      .set({
+        deleteConfirmationApprovedAt: resolveDeleteApprovedAt(approved),
+        writeBackState: "ok",
+        writeBackStateReason: null,
+      })
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ))
+      .returning({ id: sourceDestinationMappingsTable.id });
+
+    if (updated.length === EMPTY_LIST_COUNT) {
+      throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
+    }
+
+    if (!approved) {
+      await clearPendingDeleteState(
+        transactionClient,
+        sourceCalendarId,
+        destinationCalendarId,
+      );
+      await clearDestinationWitness(
+        transactionClient,
+        sourceCalendarId,
+        destinationCalendarId,
+      );
+    }
+    await requestUserSync(transactionClient, userId);
+  });
+  scheduleMappingReplacementSync(userId);
+};
+
 const setDestinationsForSource = async (
   userId: string,
   sourceCalendarId: string,
@@ -722,8 +1033,14 @@ export {
   getUserMappings,
   getDestinationsForSource,
   getSourcesForDestination,
+  getWriteBackModesForSource,
+  getWriteBackStatesForSource,
   MAPPING_LIMIT_ERROR_MESSAGE,
+  MAPPING_NOT_FOUND_ERROR_MESSAGE,
+  resolveDeleteConfirmation,
   setDestinationsForSource,
+  setWriteBackMode,
+  sourceSupportsWriteBack,
   setSourcesForDestination,
   runSetDestinationsForSource,
   runSetSourcesForDestination,

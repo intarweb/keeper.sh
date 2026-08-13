@@ -37,6 +37,7 @@ const basePlans: Omit<PlanConfig, "monthlyProductId" | "yearlyProductId">[] = [
       "Unlimited calendar accounts",
       "Unlimited connections",
       "Unlimited shareable links, each with its own filters",
+      "Two-way sync, so edits on a copy write back to the original",
       "Unlimited API and AI agent access",
       "Priority support",
     ],

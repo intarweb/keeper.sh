@@ -11,9 +11,11 @@ import {
 } from "../events/content-hash";
 import { overlapsTimeWindow } from "../events/time-range";
 import type { SyncWindow } from "./sync-range";
+import type { WriteBackPolicy } from "./write-back-policy";
 
 interface ReconciliationScope {
   authoritativeWindow: SyncWindow | null;
+  writeBackPolicies?: ReadonlyMap<string, WriteBackPolicy>;
   authoritativeSourceWindows?: ReadonlyMap<string, SyncWindow>;
   configuredSourceCalendarIds?: ReadonlySet<string>;
   requestedWindow: SyncWindow;
@@ -621,6 +623,7 @@ const computeSyncOperations = (
   existingMappings: EventMapping[],
   remoteEvents: RemoteEvent[],
   scope: ReconciliationScope,
+  suppressedMappingIds?: ReadonlySet<string>,
 ): ComputeSyncOperationsResult => {
   const authoritativeLocalEvents: MaterializedSyncableEvent[] = [];
   const activeMappings: EventMapping[] = [];
@@ -662,7 +665,8 @@ const computeSyncOperations = (
     occurrenceReassignments.map(({ event }) => event.id),
   );
   const standardMappings = activeMappings.filter(
-    (mapping) => !reassignedMappingIds.has(mapping.id),
+    (mapping) => !reassignedMappingIds.has(mapping.id)
+      && !suppressedMappingIds?.has(mapping.id),
   );
   const mappedRemoteIdentities = new Set(
     [...remoteEventsByMappingId.values()].map((remoteEvent) =>
@@ -772,6 +776,8 @@ const computeSyncOperations = (
 
 export {
   buildAddOperations,
+  isInsideSourceAuthoritativeWindow,
+  isSameSerializedSecond,
   buildRemoveOperations,
   buildRemoveOperationsForMappings,
   buildReplacementOperations,

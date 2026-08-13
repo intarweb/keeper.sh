@@ -6,12 +6,15 @@ import {
 import { and, asc, eq, gte, inArray, isNotNull, or } from "drizzle-orm";
 import type { BunSQLClient } from "../database-client";
 import type {
-  EventAvailability,
   MaterializedSyncableEvent,
   SourceEventType,
   SyncableEvent,
 } from "../types";
 import type { SyncWindow } from "../sync/sync-range";
+import { TWO_WAY_DELETE_APPROVAL_TTL_MS } from "@keeper.sh/constants";
+import { parseAvailability } from "./availability";
+import { isWriteBackMode, resolveWriteBackPolicyState } from "../sync/write-back-policy";
+import type { WriteBackPolicy } from "../sync/write-back-policy";
 import { parseStoredRecurrenceForMaterialization } from "./stored-recurrence";
 import { materializeRecurrenceEvents } from "./recurrence-materializer";
 import { isEmptyTimeRange, isInvertedTimeRange, resolveTimeRangeEnd } from "./time-range";
@@ -75,19 +78,6 @@ const orAbsentBoolean = (value: boolean | null): boolean | undefined => {
   return value;
 };
 
-const isEventAvailability = (value: string | null): value is EventAvailability =>
-  value === "busy"
-  || value === "free"
-  || value === "oof"
-  || value === "workingElsewhere";
-
-const parseAvailability = (value: string | null): EventAvailability | undefined => {
-  if (!isEventAvailability(value)) {
-    return;
-  }
-
-  return value;
-};
 const parseSourceEventType = (
   value: string | null,
   availability: string | null,
@@ -157,6 +147,52 @@ const getMappedSourceCalendarIds = async (
     .where(eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId));
 
   return mappings.map((mapping) => mapping.sourceCalendarId);
+};
+
+const getWriteBackPoliciesForDestination = async (
+  database: BunSQLClient,
+  destinationCalendarId: string,
+  now: Date = new Date(),
+): Promise<Map<string, WriteBackPolicy>> => {
+  const rows = await database
+    .select({
+      deleteConfirmationApprovedAt:
+        sourceDestinationMappingsTable.deleteConfirmationApprovedAt,
+      excludeEventDescription: calendarsTable.excludeEventDescription,
+      excludeEventLocation: calendarsTable.excludeEventLocation,
+      excludeEventName: calendarsTable.excludeEventName,
+      sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId,
+      writeBackMode: sourceDestinationMappingsTable.writeBackMode,
+      writeBackState: sourceDestinationMappingsTable.writeBackState,
+    })
+    .from(sourceDestinationMappingsTable)
+    .innerJoin(
+      calendarsTable,
+      eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
+    )
+    .where(eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId));
+
+  const policies = new Map<string, WriteBackPolicy>();
+  for (const row of rows) {
+    if (!isWriteBackMode(row.writeBackMode)) {
+      throw new Error(
+        `Source-destination mapping for ${row.sourceCalendarId} has an unknown write-back mode`,
+      );
+    }
+    policies.set(row.sourceCalendarId, {
+      destinationCalendarId,
+      excludeEventDescription: row.excludeEventDescription,
+      excludeEventLocation: row.excludeEventLocation,
+      excludeEventName: row.excludeEventName,
+      sourceCalendarId: row.sourceCalendarId,
+      ...resolveWriteBackPolicyState(row.writeBackMode, row.writeBackState, {
+        approvedAt: row.deleteConfirmationApprovedAt,
+        now,
+        ttlMs: TWO_WAY_DELETE_APPROVAL_TTL_MS,
+      }),
+    });
+  }
+  return policies;
 };
 
 const getEventsForCalendarsWithDiagnostics = async (
@@ -337,7 +373,9 @@ const getEventsForDestination = async (
 };
 
 export {
+  DEFAULT_EVENT_NAME,
   getEventsForCalendars,
+  getWriteBackPoliciesForDestination,
   getEventsForCalendarsWithDiagnostics,
   getEventsForDestination,
   getMappedSourceCalendarIds,
