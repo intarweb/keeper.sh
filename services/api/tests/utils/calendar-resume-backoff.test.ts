@@ -48,7 +48,7 @@ describe("resuming a source that was paused while its ingest backoff was armed",
   });
 });
 
-describe("the re-enable path the destination reconnect already uses", () => {
+describe("the re-enable path the unpause route uses", () => {
   it("clears the ingest backoff in the same write that re-enables the calendar", () => {
     expect(RECONNECTED_CALENDAR_STATE).toMatchObject({
       disabled: false,

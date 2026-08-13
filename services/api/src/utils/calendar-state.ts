@@ -12,13 +12,13 @@ const RECONNECTED_CALENDAR_STATE = {
   ...RECONNECTED_BACKOFF_STATE,
 } as const;
 
-const buildReconnectedCalendarState = (calendarUrl: string) => ({
+const buildReconnectedCalDAVState = (calendarUrl: string) => ({
   calendarUrl,
-  ...RECONNECTED_CALENDAR_STATE,
+  ...RECONNECTED_BACKOFF_STATE,
 });
 
 export {
-  buildReconnectedCalendarState,
+  buildReconnectedCalDAVState,
   RECONNECTED_BACKOFF_STATE,
   RECONNECTED_CALENDAR_STATE,
 };

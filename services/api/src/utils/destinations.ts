@@ -21,8 +21,7 @@ import {
   withMappingMutationLocks,
 } from "./source-destination-mappings";
 import {
-  buildReconnectedCalendarState,
-  RECONNECTED_CALENDAR_STATE,
+  buildReconnectedCalDAVState,
   RECONNECTED_BACKOFF_STATE,
 } from "@/utils/calendar-state";
 
@@ -270,12 +269,6 @@ const saveCalendarDestinationWithDatabase = async (
     const existingCalendar = await findMappedDestinationCalendar(databaseClient, existingAccount.id);
 
     if (existingCalendar) {
-      if (!needsReauthentication) {
-        await databaseClient
-          .update(calendarsTable)
-          .set(RECONNECTED_CALENDAR_STATE)
-          .where(eq(calendarsTable.id, existingCalendar.id));
-      }
       await initializeSyncStatusWithDatabase(databaseClient, existingCalendar.id);
     }
     return;
@@ -440,7 +433,7 @@ const saveCalDAVDestinationWithDatabase = async (
     if (existingCalendar) {
       await databaseClient
         .update(calendarsTable)
-        .set(buildReconnectedCalendarState(calendarUrl))
+        .set(buildReconnectedCalDAVState(calendarUrl))
         .where(eq(calendarsTable.id, existingCalendar.id));
       await initializeSyncStatusWithDatabase(databaseClient, existingCalendar.id);
     }
