@@ -18,7 +18,11 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { BunSQLClient } from "../../../core/database-client";
 import { CalDAVClient } from "../shared/client";
 import { resolveAuthMethod } from "../shared/digest-fetch";
-import { assertAllResourcesRead, parseICalCalendarsToRemoteEvents } from "../shared/ics";
+import {
+  assertAllEventsSupported,
+  assertAllResourcesRead,
+  parseICalCalendarsToRemoteEvents,
+} from "../shared/ics";
 import { isCalDAVAuthenticationError } from "./auth-error-classification";
 import { createCalDAVSourceService } from "./sync";
 import {
@@ -95,6 +99,7 @@ const createCalDAVSourceProvider = (
      * subset. The cron ingest path (source/fetch-adapter) reports the count.
      */
     assertAllResourcesRead(resources);
+    assertAllEventsSupported(resources);
 
     for (const parsed of resources.events) {
       if (isKeeperEvent(parsed.uid)) {

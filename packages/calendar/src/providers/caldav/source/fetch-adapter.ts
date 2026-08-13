@@ -52,20 +52,22 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
     });
 
     const events: SourceEvent[] = [];
-    const resources = parseICalCalendarsToRemoteEvents(
-      objects.flatMap(({ data }) => {
-        if (!data) {
-          return [];
-        }
-        return [data];
-      }),
-    );
+    /*
+     * An empty body is an unread resource, not an absent one; it must reach the
+     * parser to be counted as skipped.
+     */
+    const resources = parseICalCalendarsToRemoteEvents(objects.map(({ data }) => data ?? ""));
+
+    let selfAuthoredEventCount = 0;
+    let outsideSyncWindowCount = 0;
 
     for (const parsed of resources.events) {
       if (isKeeperEvent(parsed.uid)) {
+        selfAuthoredEventCount += 1;
         continue;
       }
       if (!isCalDAVEventInSyncWindow(parsed, syncWindow)) {
+        outsideSyncWindowCount += 1;
         continue;
       }
 
@@ -88,6 +90,11 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
 
     return {
       events,
+      discardedEventCounts: {
+        outsideSyncWindow: outsideSyncWindowCount,
+        unrepresentable: resources.unrepresentableEventCount,
+      },
+      selfAuthoredEventCount,
       syncWindow,
       coverage: {
         futureRange,
@@ -96,6 +103,9 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
       },
       skippedResourceCount: resources.skippedResourceCount,
       skippedResourceReasons: resources.skippedResourceReasons,
+      ...resources.unsupportedEvents.length > 0 && {
+        unsupportedEventUids: resources.unsupportedEvents.map(({ uid }) => uid),
+      },
     };
   };
 
