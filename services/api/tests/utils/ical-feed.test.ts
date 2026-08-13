@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createIcalFeedQuery, generateCalendarFeed } from "../../src/utils/ical-feed";
-import type { IcalFeedQuery, StoredFeedEvent } from "../../src/utils/ical-feed";
+import type { FeedResponse, IcalFeedQuery, StoredFeedEvent } from "../../src/utils/ical-feed";
 
 const NOW = new Date("2026-08-12T12:00:00.000Z");
 const MS_PER_DAY = 86_400_000;
@@ -42,7 +42,16 @@ const createReader = (events: StoredFeedEvent[]) =>
     return Promise.resolve(ordered);
   };
 
-const feedFor = (events: StoredFeedEvent[]): Promise<string | null> =>
+/* Stands in for the digest Postgres computes over the rows the feed would render. */
+const createRevisionReader = (events: StoredFeedEvent[]) =>
+  (_calendarIds: string[], query: IcalFeedQuery): Promise<string> =>
+    createReader(events)(_calendarIds, query).then((rows) =>
+      rows.map((row) => `${row.id}:${row.startTime.toISOString()}:${row.title ?? ""}`).join("|"));
+
+const responseFor = (
+  events: StoredFeedEvent[],
+  ifNoneMatch: string | null = null,
+): Promise<FeedResponse | null> =>
   generateCalendarFeed("feed-token", {
     now: NOW,
     readFeedCalendars: () => Promise.resolve([{
@@ -51,9 +60,15 @@ const feedFor = (events: StoredFeedEvent[]): Promise<string | null> =>
       syncHistoricRange: "1_month",
     }]),
     readFeedEvents: createReader(events),
+    readFeedRevision: createRevisionReader(events),
     readFeedSettings: () => Promise.resolve(null),
     resolveUserIdentifier: () => Promise.resolve("user-1"),
-  });
+  }, ifNoneMatch);
+
+const feedFor = async (events: StoredFeedEvent[]): Promise<string | null> => {
+  const response = await responseFor(events);
+  return response?.body ?? null;
+};
 
 describe("createIcalFeedQuery", () => {
   it("falls back to the default horizon when no calendar configures a wider one", () => {
@@ -106,6 +121,7 @@ describe("generateCalendarFeed", () => {
       now: NOW,
       readFeedCalendars: () => Promise.reject(new Error("must not be called")),
       readFeedEvents: () => Promise.reject(new Error("must not be called")),
+      readFeedRevision: () => Promise.reject(new Error("must not be called")),
       readFeedSettings: () => Promise.reject(new Error("must not be called")),
       resolveUserIdentifier: () => Promise.resolve(null),
     });
@@ -162,16 +178,45 @@ describe("generateCalendarFeed", () => {
     }
   }, 30_000);
 
+  it("skips reading events when the caller's validator still matches", async () => {
+    const events = [createStoredEvent("event-1", shiftDays(1))];
+    const { etag } = await responseFor(events) ?? {};
+
+    const unchanged = await generateCalendarFeed("feed-token", {
+      now: NOW,
+      readFeedCalendars: () => Promise.resolve([{
+        id: "calendar-1",
+        syncFutureRange: "2_years",
+        syncHistoricRange: "1_month",
+      }]),
+      readFeedEvents: () => Promise.reject(new Error("must not read events on a match")),
+      readFeedRevision: createRevisionReader(events),
+      readFeedSettings: () => Promise.resolve(null),
+      resolveUserIdentifier: () => Promise.resolve("user-1"),
+    }, etag ?? null);
+
+    expect(unchanged?.body).toBeNull();
+    expect(unchanged?.etag).toBe(etag);
+  });
+
+  it("changes the validator when an event changes", async () => {
+    const before = await responseFor([createStoredEvent("event-1", shiftDays(1))]);
+    const after = await responseFor([createStoredEvent("event-1", shiftDays(2))]);
+
+    expect(after?.etag).not.toBe(before?.etag);
+  });
+
   it("renders an empty calendar when no calendars opt into the feed", async () => {
     const feed = await generateCalendarFeed("feed-token", {
       now: NOW,
       readFeedCalendars: () => Promise.resolve([]),
       readFeedEvents: () => Promise.reject(new Error("must not be called")),
+      readFeedRevision: () => Promise.reject(new Error("must not be called")),
       readFeedSettings: () => Promise.resolve(null),
       resolveUserIdentifier: () => Promise.resolve("user-1"),
     });
 
-    expect(feed).toContain("BEGIN:VCALENDAR");
-    expect(feed).not.toContain("BEGIN:VEVENT");
+    expect(feed?.body).toContain("BEGIN:VCALENDAR");
+    expect(feed?.body).not.toContain("BEGIN:VEVENT");
   });
 });

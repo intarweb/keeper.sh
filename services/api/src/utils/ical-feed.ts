@@ -94,7 +94,40 @@ interface FeedDependencies {
     calendarIds: string[],
     query: IcalFeedQuery,
   ) => Promise<StoredFeedEvent[]>;
+  readFeedRevision: (
+    calendarIds: string[],
+    query: IcalFeedQuery,
+  ) => Promise<string>;
 }
+
+/* A null body means the caller's validator still matches and nothing was read. */
+interface FeedResponse {
+  body: string | null;
+  etag: string;
+  eventCount: number;
+}
+
+/*
+ * Settings decide what each event renders as, so two feeds over identical rows
+ * are not interchangeable. Only the fields that reach the output are folded in,
+ * keeping the validator stable when an unrelated column on the settings row
+ * changes. The field separator cannot appear in a name, so no combination of
+ * values can produce another combination's digest.
+ */
+const describeFeedSettings = (settings: FeedSettings): string => [
+  settings.includeEventName,
+  settings.includeEventDescription,
+  settings.includeEventLocation,
+  settings.excludeAllDayEvents,
+  settings.customEventName,
+].join("\u001F");
+
+const buildFeedEtag = (revision: string, settings: FeedSettings): string => {
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(revision);
+  hasher.update(describeFeedSettings(settings));
+  return `"${hasher.digest("hex")}"`;
+};
 
 const toCalendarEvent = (row: StoredFeedEvent): CalendarEvent => {
   const recurrence = parseStoredIcsRecurrence(row.recurrenceRule, row.id);
@@ -109,7 +142,8 @@ const toCalendarEvent = (row: StoredFeedEvent): CalendarEvent => {
 const generateCalendarFeed = async (
   identifier: string,
   dependencies: FeedDependencies,
-): Promise<string | null> => {
+  ifNoneMatch: string | null = null,
+): Promise<FeedResponse | null> => {
   const userId = await dependencies.resolveUserIdentifier(identifier);
 
   if (!userId) {
@@ -124,15 +158,28 @@ const generateCalendarFeed = async (
   const feedSettings = settings ?? DEFAULT_FEED_SETTINGS;
 
   if (calendars.length === 0) {
-    return formatEventsAsIcal([], feedSettings);
+    const body = formatEventsAsIcal([], feedSettings);
+    return { body, etag: buildFeedEtag("", feedSettings), eventCount: 0 };
   }
 
-  const rows = await dependencies.readFeedEvents(
-    calendars.map(({ id }) => id),
-    createIcalFeedQuery(calendars, dependencies.now),
+  const calendarIds = calendars.map(({ id }) => id);
+  const query = createIcalFeedQuery(calendars, dependencies.now);
+  const etag = buildFeedEtag(
+    await dependencies.readFeedRevision(calendarIds, query),
+    feedSettings,
   );
 
-  return formatEventsAsIcal(rows.map((row) => toCalendarEvent(row)), feedSettings);
+  if (ifNoneMatch === etag) {
+    return { body: null, etag, eventCount: 0 };
+  }
+
+  const rows = await dependencies.readFeedEvents(calendarIds, query);
+
+  return {
+    body: formatEventsAsIcal(rows.map((row) => toCalendarEvent(row)), feedSettings),
+    etag,
+    eventCount: rows.length,
+  };
 };
 
 export {
@@ -140,4 +187,4 @@ export {
   createIcalFeedQuery,
   generateCalendarFeed,
 };
-export type { FeedDependencies, IcalFeedQuery, StoredFeedEvent };
+export type { FeedDependencies, FeedResponse, IcalFeedQuery, StoredFeedEvent };
