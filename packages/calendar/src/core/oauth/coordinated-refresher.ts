@@ -2,6 +2,10 @@ import type { RefreshLockStore } from "./refresh-coordinator";
 import { runWithCredentialRefreshLock } from "./refresh-coordinator";
 import { isOAuthReauthRequiredError } from "./error-classification";
 import {
+  readPriorReauthenticationState,
+  recordReauthenticationDemand,
+} from "../reauthentication/demand-telemetry";
+import {
   calendarAccountsTable,
   oauthCredentialsTable,
 } from "@keeper.sh/database/schema";
@@ -30,6 +34,7 @@ const flagAccountReauthentication = async (
   calendarAccountId: string,
   refreshToken: string,
 ): Promise<void> => {
+  const prior = await readPriorReauthenticationState(database, calendarAccountId);
   await database
     .update(calendarAccountsTable)
     .set({
@@ -44,6 +49,14 @@ const flagAccountReauthentication = async (
           and ${oauthCredentialsTable.refreshToken} = ${refreshToken}
       )`,
     ));
+  recordReauthenticationDemand({
+    accountId: calendarAccountId,
+    action: "raise",
+    previous: prior?.needsReauthentication ?? null,
+    provenance: REAUTHENTICATION_TOKEN_REFRESH,
+    recordedProvenance: prior?.reauthenticationSource,
+    signal: "oauth-refresh-rejected",
+  });
 };
 
 const createCoordinatedRefresher = (options: CoordinatedRefresherOptions) => {

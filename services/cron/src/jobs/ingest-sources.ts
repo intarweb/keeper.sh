@@ -14,6 +14,9 @@ import {
   isOAuthRefreshInProgressError,
   isOAuthRefreshLockUnavailableError,
   buildCalendarBackoffState,
+  buildReauthenticationDemandFields,
+  readPriorReauthenticationState,
+  resolveReauthenticationDemandAction,
   SOURCE_INGEST_LOCK_NAMESPACE,
   createRequiredSourceRanges,
   createSourceIngestionPlan,
@@ -573,6 +576,74 @@ const buildDemandPredicate = (
   );
 };
 
+const REAUTHENTICATION_VOTE_FIELDS: [ReauthenticationDemand, string][] = [
+  ["credential-rejected", "reauth.votes.credential_rejected"],
+  ["authenticated", "reauth.votes.authenticated"],
+  ["request-rejected", "reauth.votes.request_rejected"],
+  ["abstain", "reauth.votes.abstain"],
+];
+
+const recordReauthenticationDemandVotes = (
+  cast: ReauthenticationDemand[],
+): ReauthenticationDemand | undefined => {
+  for (const [demand, field] of REAUTHENTICATION_VOTE_FIELDS) {
+    widelog.set(field, cast.filter((vote) => vote === demand).length);
+  }
+  const decidingVote = REAUTHENTICATION_DEMAND_PRECEDENCE.find(
+    (demand) => cast.includes(demand),
+  );
+  if (decidingVote) {
+    widelog.set("reauth.deciding_vote", decidingVote);
+  }
+  return decidingVote;
+};
+
+const recordReauthenticationDemandFields = (
+  fields: Record<string, string | number | boolean>,
+): void => {
+  for (const [key, value] of Object.entries(fields)) {
+    widelog.set(key, value);
+  }
+};
+
+const resolvePreviousFlag = (
+  transitioned: boolean,
+  needsReauthentication: boolean,
+): boolean => {
+  if (transitioned) {
+    return !needsReauthentication;
+  }
+  return needsReauthentication;
+};
+
+const resolveRaiseSignal = (
+  needsReauthentication: boolean,
+  decidingVote: ReauthenticationDemand | undefined,
+): string | undefined => {
+  if (!needsReauthentication || !decidingVote) {
+    return;
+  }
+  return decidingVote;
+};
+
+/**
+ * A raise that wrote nothing is ambiguous: the flag may already be standing,
+ * or the credential the verdict was judged on may have been replaced by a
+ * reconnect mid-batch. Only the live flag distinguishes the two; when it
+ * cannot be read the raise is reported as a re-raise rather than guessed
+ * to be suppressed.
+ */
+const demandGuardRejectedWrite = async (
+  accountId: string,
+  verdict: ReauthenticationVerdict,
+): Promise<boolean> => {
+  if (!resolveDemandGuard(verdict)) {
+    return false;
+  }
+  const prior = await readPriorReauthenticationState(database, accountId);
+  return prior?.needsReauthentication === false;
+};
+
 const applyReauthenticationDemands = async (
   demands: ReauthenticationDemandRecord[],
   recordedDemandSources: Map<string, string | null>,
@@ -580,23 +651,67 @@ const applyReauthenticationDemands = async (
   for (const [accountId, verdict] of resolveReauthenticationDemands(demands)) {
     const { needsReauthentication } = verdict;
     const recordedDemandSource = recordedDemandSources.get(accountId) ?? null;
-    if (!needsReauthentication && !isIngestAdjudicableDemand(recordedDemandSource)) {
-      continue;
-    }
-    try {
-      await database
-        .update(calendarAccountsTable)
-        .set({
-          needsReauthentication,
-          reauthenticationSource: resolveRecordedDemandSource(needsReauthentication),
-        })
-        .where(buildDemandPredicate(accountId, verdict));
-    } catch (error) {
-      widelog.errorFields(error, {
-        retriable: true,
-        slug: resolveDatabaseIngestErrorSlug(error) ?? "reauthentication-demand-write-failed",
-      });
-    }
+    const cast = demands
+      .filter((record) => record.accountId === accountId)
+      .map(({ demand }) => demand);
+    await context(async () => {
+      widelog.set("operation.name", "reauthentication-demand");
+      widelog.set("operation.type", "job");
+      const decidingVote = recordReauthenticationDemandVotes(cast);
+      try {
+        if (!needsReauthentication && !isIngestAdjudicableDemand(recordedDemandSource)) {
+          recordReauthenticationDemandFields(buildReauthenticationDemandFields({
+            accountId,
+            action: "clear",
+            previous: null,
+            provenance: REAUTHENTICATION_SOURCE_INGEST,
+            recordedProvenance: recordedDemandSource,
+          }));
+          widelog.set("reauth.suppressed", true);
+          widelog.set("outcome", "skipped");
+          return;
+        }
+        const written = await database
+          .update(calendarAccountsTable)
+          .set({
+            needsReauthentication,
+            reauthenticationSource: resolveRecordedDemandSource(needsReauthentication),
+          })
+          .where(buildDemandPredicate(accountId, verdict))
+          .returning({ id: calendarAccountsTable.id });
+        const transitioned = written.length > 0;
+        if (!transitioned && await demandGuardRejectedWrite(accountId, verdict)) {
+          recordReauthenticationDemandFields(buildReauthenticationDemandFields({
+            accountId,
+            action: "raise",
+            previous: null,
+            provenance: REAUTHENTICATION_SOURCE_INGEST,
+            recordedProvenance: recordedDemandSource,
+            signal: resolveRaiseSignal(needsReauthentication, decidingVote),
+          }));
+          widelog.set("reauth.suppressed", true);
+          widelog.set("outcome", "skipped");
+          return;
+        }
+        recordReauthenticationDemandFields(buildReauthenticationDemandFields({
+          accountId,
+          action: resolveReauthenticationDemandAction(needsReauthentication),
+          previous: resolvePreviousFlag(transitioned, needsReauthentication),
+          provenance: REAUTHENTICATION_SOURCE_INGEST,
+          recordedProvenance: recordedDemandSource,
+          signal: resolveRaiseSignal(needsReauthentication, decidingVote),
+        }));
+        widelog.set("outcome", "success");
+      } catch (error) {
+        widelog.set("outcome", "error");
+        widelog.errorFields(error, {
+          retriable: true,
+          slug: resolveDatabaseIngestErrorSlug(error) ?? "reauthentication-demand-write-failed",
+        });
+      } finally {
+        widelog.flush();
+      }
+    });
   }
 };
 
