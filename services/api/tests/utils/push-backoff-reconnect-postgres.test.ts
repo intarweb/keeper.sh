@@ -42,8 +42,8 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 const createCalDAVAccount = async (label: string): Promise<string> => {
   const [credential] = await database
@@ -218,7 +218,8 @@ describe.skipIf(!administrativeUrl)(
       await clearAccountReauthentication(database as unknown as KeeperDatabase, accountId);
       await clearAccountReauthentication(database as unknown as KeeperDatabase, accountId);
 
-      expect((await readCalendar(calendarId))?.nextAttemptAt).toBeNull();
+      const resumed = await readCalendar(calendarId);
+      expect(resumed?.nextAttemptAt).toBeNull();
     });
 
     it("is unparked by the resume path, proving the state is reachable from elsewhere", async () => {
@@ -293,11 +294,11 @@ describe.skipIf(!administrativeUrl)(
 
 describe("the state a source reconnect and a manual Sync now write", () => {
   it("reaches the destination backoff columns the resume path already clears", () => {
-    expect(Object.keys(RECONNECTED_BACKOFF_STATE).sort())
+    expect(Object.keys(RECONNECTED_BACKOFF_STATE).toSorted())
       .toEqual(
         Object.keys(RECONNECTED_CALENDAR_STATE)
           .filter((key) => key !== "disabled")
-          .sort(),
+          .toSorted(),
       );
   });
 });

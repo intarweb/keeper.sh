@@ -142,6 +142,13 @@ const unstartedGate = (): never => {
   throw new Error("The gated ingest was never started");
 };
 
+const ingestOutcome = (shouldFail: boolean): (() => Promise<string>) => {
+  if (shouldFail) {
+    return () => Promise.reject(credentialError());
+  }
+  return () => Promise.resolve("ingested");
+};
+
 describe("runSourceIngest under contention", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -233,13 +240,7 @@ describe("runSourceIngest under contention", () => {
     for (let index = 0; index < 40; index += 1) {
       const before = Date.now();
       const shouldFail = index % 2 === 0;
-      await tick(
-        fleet,
-        CALENDAR_A,
-        shouldFail
-          ? () => Promise.reject(credentialError())
-          : () => Promise.resolve("ingested"),
-      );
+      await tick(fleet, CALENDAR_A, ingestOutcome(shouldFail));
       const row = fleet.rows.get(CALENDAR_A) as CalendarRow;
       counts.push(row.ingestFailureCount);
       if (row.ingestNextAttemptAt) {

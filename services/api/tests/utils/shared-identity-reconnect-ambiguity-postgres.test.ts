@@ -36,8 +36,8 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 vi.mock("@/context", () => ({
   get database() {
@@ -45,7 +45,7 @@ vi.mock("@/context", () => ({
   },
   encryptionKey: "0".repeat(64),
   oauthProviders: {
-    getProvider: () => undefined,
+    getProvider: () => null,
     hasRequiredScopes: () => true,
     isOAuthProvider: () => true,
     validateState: () => Promise.resolve(null),

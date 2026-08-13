@@ -46,7 +46,7 @@ const buildSelectChain = (rows: unknown[]) => {
 };
 
 const createTransactionClient = () => ({
-  execute: () => Promise.resolve(undefined),
+  execute: () => Promise.resolve(),
   select: (columns: Record<string, unknown>) => {
     if ("caldavCredentialId" in columns) {
       return buildSelectChain([{ caldavCredentialId: CREDENTIAL_ID, id: ACCOUNT_ID }]);
@@ -89,9 +89,9 @@ vi.mock("@/utils/middleware", () => ({
 
 vi.mock("@/utils/logging", () => ({
   widelog: {
-    error: () => undefined,
-    errorFields: () => undefined,
-    set: () => undefined,
+    error: () => null,
+    errorFields: () => null,
+    set: () => null,
   },
 }));
 
@@ -107,9 +107,11 @@ const reconnectBody = {
   username: USERNAME,
 };
 
-const postReconnect = (): Promise<Response> => (POST as unknown as (
+const postHandler = POST as unknown as (
   input: { request: Request; userId: string },
-) => Promise<Response>)({
+) => Promise<Response>;
+
+const postReconnect = (): Promise<Response> => postHandler({
   request: new Request("https://api.keeper.sh/api/sources/caldav", {
     body: JSON.stringify(reconnectBody),
     headers: { "Content-Type": "application/json" },

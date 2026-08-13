@@ -34,8 +34,8 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 const createAccount = async (provider: string): Promise<string> => {
   const [credential] = await database
@@ -113,6 +113,11 @@ const readAccountFlag = async (accountId: string): Promise<boolean | undefined> 
   return row?.needsReauthentication;
 };
 
+const readCalendarDisabled = async (calendarId: string): Promise<boolean | undefined> => {
+  const row = await readCalendar(calendarId);
+  return row?.disabled;
+};
+
 beforeAll(async () => {
   if (!administrativeUrl) {
     return;
@@ -171,7 +176,7 @@ describe.skipIf(!administrativeUrl)("clearing an account's reauthentication stat
 
     await clearAccountReauthentication(database as unknown as KeeperDatabase, accountId);
 
-    expect((await readCalendar(calendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(calendarId)).toBe(true);
   });
 
   it("does not touch a calendar belonging to another account", async () => {

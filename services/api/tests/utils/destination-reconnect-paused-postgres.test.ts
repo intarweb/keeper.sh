@@ -33,15 +33,15 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 vi.mock("@/context", () => ({
   get database() {
     return database;
   },
   oauthProviders: {
-    getProvider: () => undefined,
+    getProvider: () => null,
     hasRequiredScopes: () => true,
     isOAuthProvider: () => true,
     validateState: () => Promise.resolve(null),
@@ -262,6 +262,11 @@ const rotateCalDAVPassword = (externalAccountId: string): Promise<void> =>
     "basic",
   );
 
+const readCalendarDisabled = async (calendarId: string): Promise<boolean | undefined> => {
+  const row = await readCalendar(calendarId);
+  return row?.disabled;
+};
+
 beforeAll(async () => {
   if (!administrativeUrl) {
     return;
@@ -318,7 +323,7 @@ describe.skipIf(!administrativeUrl)("reconnecting an OAuth destination account",
 
     await reconnectOAuthDestination("oauth-paused");
 
-    expect((await readCalendar(seeded.destinationCalendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(seeded.destinationCalendarId)).toBe(true);
   });
 
   it("clears the paused destination's backoff without resuming it", async () => {
@@ -344,7 +349,7 @@ describe.skipIf(!administrativeUrl)("reconnecting an OAuth destination account",
 
     await reconnectOAuthDestination("oauth-paused-source");
 
-    expect((await readCalendar(seeded.sourceCalendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(seeded.sourceCalendarId)).toBe(true);
   });
 
   it("keeps the pause across a replayed reconnect", async () => {
@@ -353,7 +358,7 @@ describe.skipIf(!administrativeUrl)("reconnecting an OAuth destination account",
     await reconnectOAuthDestination("oauth-paused-twice");
     await reconnectOAuthDestination("oauth-paused-twice");
 
-    expect((await readCalendar(seeded.destinationCalendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(seeded.destinationCalendarId)).toBe(true);
   });
 
   it("leaves a paused destination alone when the callback lacked the required scopes", async () => {
@@ -388,7 +393,7 @@ describe.skipIf(!administrativeUrl)("rotating the password of a CalDAV destinati
 
     await rotateCalDAVPassword("caldav-paused");
 
-    expect((await readCalendar(seeded.destinationCalendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(seeded.destinationCalendarId)).toBe(true);
   });
 
   it("keeps the pause across a replayed rotation", async () => {
@@ -397,7 +402,7 @@ describe.skipIf(!administrativeUrl)("rotating the password of a CalDAV destinati
     await rotateCalDAVPassword("caldav-paused-twice");
     await rotateCalDAVPassword("caldav-paused-twice");
 
-    expect((await readCalendar(seeded.destinationCalendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(seeded.destinationCalendarId)).toBe(true);
   });
 
   it("leaves a paused source calendar on the same account paused", async () => {
@@ -409,6 +414,6 @@ describe.skipIf(!administrativeUrl)("rotating the password of a CalDAV destinati
 
     await rotateCalDAVPassword("caldav-paused-source");
 
-    expect((await readCalendar(seeded.sourceCalendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(seeded.sourceCalendarId)).toBe(true);
   });
 });

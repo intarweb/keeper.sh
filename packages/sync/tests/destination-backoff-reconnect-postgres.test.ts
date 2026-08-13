@@ -37,8 +37,8 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 /*
  * A single-holder stand-in for the sync lock's Lua scripts. Every script is
@@ -256,7 +256,8 @@ describe.skipIf(!administrativeUrl)("a destination push run that fails on revoke
       await runPushSync(calendarId);
 
       expect(server.requestCount()).toBe(0);
-      expect((await readCalendar(calendarId))?.failureCount).toBe(6);
+      const parked = await readCalendar(calendarId);
+      expect(parked?.failureCount).toBe(6);
     } finally {
       await server.stop();
     }
@@ -272,7 +273,7 @@ describe.skipIf(!administrativeUrl)("a password rotation that lands while the pu
     });
     try {
       const seeded = await seedParkedDestination(server.url);
-      accountId = seeded.accountId;
+      ({ accountId } = seeded);
 
       await runPushSync(seeded.calendarId);
 
@@ -295,7 +296,7 @@ describe.skipIf(!administrativeUrl)("a password rotation that lands while the pu
     });
     try {
       const seeded = await seedParkedDestination(server.url);
-      accountId = seeded.accountId;
+      ({ accountId } = seeded);
       const before = Date.now();
 
       await runPushSync(seeded.calendarId);
@@ -316,7 +317,7 @@ describe.skipIf(!administrativeUrl)("a password rotation that lands while the pu
     });
     try {
       const seeded = await seedParkedDestination(server.url);
-      accountId = seeded.accountId;
+      ({ accountId } = seeded);
 
       await runPushSync(seeded.calendarId);
       await database

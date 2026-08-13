@@ -82,13 +82,18 @@ const resolveSelectRows = (columns: Record<string, unknown>): unknown[] => {
     return [];
   }
   if ("url" in columns) {
-    return state.calendar.disabled ? [] : [icsSourceRow()];
+    if (state.calendar.disabled) {
+      return [];
+    }
+    return [icsSourceRow()];
   }
   return [];
 };
 
-const createChain = (rows: unknown[]): Record<string, unknown> => {
-  const chain: Record<string, unknown> = {};
+type QueryChain = Promise<unknown[]> & Record<string, unknown>;
+
+const createChain = (rows: unknown[]): QueryChain => {
+  const chain = Promise.resolve(rows) as QueryChain;
   const passthrough = () => chain;
   chain.from = passthrough;
   chain.innerJoin = passthrough;
@@ -97,10 +102,6 @@ const createChain = (rows: unknown[]): Record<string, unknown> => {
   chain.limit = passthrough;
   chain.orderBy = passthrough;
   chain.returning = passthrough;
-  chain.then = (
-    onFulfilled: (value: unknown[]) => unknown,
-    onRejected: (reason: unknown) => unknown,
-  ) => Promise.resolve(rows).then(onFulfilled, onRejected);
   return chain;
 };
 
@@ -117,7 +118,7 @@ const applyCalendarWrite = (values: Record<string, unknown>): void => {
 };
 
 const databaseStub = {
-  execute: () => Promise.resolve(undefined),
+  execute: () => Promise.resolve(),
   select: (columns: Record<string, unknown>) => createChain(resolveSelectRows(columns)),
   transaction: (callback: (tx: unknown) => Promise<unknown>) => callback(databaseStub),
   update: (table: unknown) => ({
@@ -179,10 +180,10 @@ vi.mock("@/utils/enqueue-destination-syncs", () => ({
 vi.mock("@/utils/logging", () => ({
   context: (callback: () => Promise<unknown>) => callback(),
   widelog: {
-    error: () => undefined,
-    errorFields: () => undefined,
-    flush: () => undefined,
-    set: () => undefined,
+    error: () => null,
+    errorFields: () => null,
+    flush: () => null,
+    set: () => null,
     time: {
       measure: (_name: string, callback: () => Promise<unknown>) => callback(),
     },
@@ -200,10 +201,11 @@ vi.mock("@keeper.sh/calendar", async (importOriginal) => {
   };
 });
 
-const ingestSourcesJob = (await import("../../src/jobs/ingest-sources")).default;
+const ingestSourcesModule = await import("../../src/jobs/ingest-sources");
+const ingestSourcesJob = ingestSourcesModule.default;
 
-const runTick = (): Promise<void> => (ingestSourcesJob.callback() as Promise<void>)
-  .catch(() => undefined);
+const runTick = (): Promise<unknown> => (ingestSourcesJob.callback() as Promise<void>)
+  .catch((error: unknown) => error);
 
 const feedGone = (): Error =>
   Object.assign(new Error("Request failed with status 503"), { status: 503 });
@@ -267,7 +269,7 @@ describe("ingesting a subscribed ICS feed that keeps failing", () => {
     expect(delays.length).toBe(state.calendar.ingestFailureCount);
     expect(delays.length).toBeLessThan(15);
     expect(state.ingestCalls).toBe(delays.length);
-    expect([...delays].sort((left, right) => left - right)).toEqual(delays);
+    expect(delays.toSorted((left, right) => left - right)).toEqual(delays);
     expect(Math.max(...delays)).toBeLessThanOrEqual(MAX_BACKOFF_MS);
   });
 

@@ -103,7 +103,7 @@ const advanceToDue = (calendar: Calendar): void => {
   if (!dueAt) {
     return;
   }
-  vi.setSystemTime(new Date(dueAt.getTime()));
+  vi.setSystemTime(new Date(dueAt));
 };
 
 describe("a source whose successful runs are always superseded", () => {

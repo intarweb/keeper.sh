@@ -133,7 +133,7 @@ const conditionMatches = (parsed: ParsedCondition, calendar: CalendarRow | null)
   return matchesEquality && matchesNull;
 };
 
-const matchingCalendars = (condition: SQL | undefined): CalendarRow[] => {
+const matchingCalendars = (condition: SQL | null): CalendarRow[] => {
   if (!condition) {
     return state.calendars;
   }
@@ -141,42 +141,40 @@ const matchingCalendars = (condition: SQL | undefined): CalendarRow[] => {
   return state.calendars.filter((calendar) => conditionMatches(parsed, calendar));
 };
 
-interface Chain {
+interface ChainBuilders {
   from: () => Chain;
   innerJoin: () => Chain;
   leftJoin: () => Chain;
   limit: () => Chain;
   orderBy: () => Chain;
   returning: () => Chain;
-  then: (
-    onFulfilled: (value: unknown[]) => unknown,
-    onRejected: (reason: unknown) => unknown,
-  ) => Promise<unknown>;
   where: (condition?: SQL) => Chain;
 }
 
-const createChain = (resolve: (condition: SQL | undefined) => unknown[]): Chain => {
-  let captured: SQL | undefined;
-  const chain: Chain = {
-    from: () => chain,
-    innerJoin: () => chain,
-    leftJoin: () => chain,
-    limit: () => chain,
-    orderBy: () => chain,
-    returning: () => chain,
-    then: (onFulfilled, onRejected) =>
-      Promise.resolve()
-        .then(() => resolve(captured))
-        .then(onFulfilled, onRejected),
-    where: (condition) => {
-      captured = condition;
-      return chain;
-    },
+type Chain = Promise<unknown[]> & ChainBuilders;
+
+const createChain = (resolveRows: (condition: SQL | null) => unknown[]): Chain => {
+  let captured: SQL | null = null;
+  const chain = new Promise<unknown[]>((resolve) => {
+    queueMicrotask(() => {
+      resolve(resolveRows(captured));
+    });
+  }) as Chain;
+  const passthrough = () => chain;
+  chain.from = passthrough;
+  chain.innerJoin = passthrough;
+  chain.leftJoin = passthrough;
+  chain.limit = passthrough;
+  chain.orderBy = passthrough;
+  chain.returning = passthrough;
+  chain.where = (condition) => {
+    captured = condition ?? null;
+    return chain;
   };
   return chain;
 };
 
-const resolveSelect = (columns: Record<string, unknown>, condition: SQL | undefined): unknown[] => {
+const resolveSelect = (columns: Record<string, unknown>, condition: SQL | null): unknown[] => {
   const keys = Object.keys(columns);
   if (keys.length === 1 && keys[0] === "refreshToken") {
     return [{ refreshToken: state.credential.refreshToken }];
@@ -198,29 +196,38 @@ const resolveSelect = (columns: Record<string, unknown>, condition: SQL | undefi
 
 const applyCalendarUpdate = (
   values: Record<string, unknown>,
-  condition: SQL | undefined,
+  condition: SQL | null,
 ): unknown[] => {
   const matched = matchingCalendars(condition);
   for (const calendar of matched) {
     state.calendarWrites.push({ id: calendar.id, values });
-    state.calendars = state.calendars.map((row) =>
-      row.id === calendar.id
-        ? {
-          id: row.id,
-          ingestFailureCount: (values.ingestFailureCount ?? row.ingestFailureCount) as number,
-          ingestLastFailureAt: (values.ingestLastFailureAt ?? null) as Date | null,
-          ingestNextAttemptAt: (values.ingestNextAttemptAt ?? null) as Date | null,
-        }
-        : row);
+    state.calendars = state.calendars.map((row) => {
+      if (row.id !== calendar.id) {
+        return row;
+      }
+      return {
+        id: row.id,
+        ingestFailureCount: (values.ingestFailureCount ?? row.ingestFailureCount) as number,
+        ingestLastFailureAt: (values.ingestLastFailureAt ?? null) as Date | null,
+        ingestNextAttemptAt: (values.ingestNextAttemptAt ?? null) as Date | null,
+      };
+    });
   }
   return matched.map(({ id }) => ({ id }));
 };
 
+const parseOptionalCondition = (condition: SQL | null): ParsedCondition | null => {
+  if (condition === null) {
+    return null;
+  }
+  return parseCondition(condition);
+};
+
 const applyAccountUpdate = (
   values: Record<string, unknown>,
-  condition: SQL | undefined,
+  condition: SQL | null,
 ): unknown[] => {
-  const parsed = condition ? parseCondition(condition) : null;
+  const parsed = parseOptionalCondition(condition);
   const refreshTokenComparison = parsed?.equalities
     .find(({ table, column }) => table === "oauth_credentials" && column === "refreshToken");
   const matches = parsed === null || conditionMatches(parsed, null);
@@ -251,7 +258,7 @@ const applyCredentialUpdate = (values: Record<string, unknown>): unknown[] => {
 };
 
 const databaseStub = {
-  execute: () => Promise.resolve(undefined),
+  execute: () => Promise.resolve(),
   select: (columns: Record<string, unknown>) =>
     createChain((condition) => resolveSelect(columns, condition)),
   transaction: (callback: (tx: unknown) => Promise<unknown>) => callback(databaseStub),
@@ -313,10 +320,10 @@ vi.mock("@/utils/enqueue-destination-syncs", () => ({
 vi.mock("@/utils/logging", () => ({
   context: (callback: () => Promise<unknown>) => callback(),
   widelog: {
-    error: () => undefined,
-    errorFields: () => undefined,
-    flush: () => undefined,
-    set: () => undefined,
+    error: () => null,
+    errorFields: () => null,
+    flush: () => null,
+    set: () => null,
     time: {
       measure: (_name: string, callback: () => Promise<unknown>) => callback(),
     },
@@ -339,7 +346,8 @@ vi.mock("@keeper.sh/calendar", async (importOriginal) => {
   };
 });
 
-const ingestSourcesJob = (await import("../../src/jobs/ingest-sources")).default;
+const ingestSourcesModule = await import("../../src/jobs/ingest-sources");
+const ingestSourcesJob = ingestSourcesModule.default;
 
 const runTick = (): Promise<void> => ingestSourcesJob.callback() as Promise<void>;
 
@@ -414,10 +422,10 @@ describe("two calendars sharing one dead OAuth credential in a single tick", () 
     vi.setSystemTime(new Date(START_AT.getTime() + 15 * MINUTE_MS));
     await runTick();
 
-    const writesPerCalendar = state.calendarWrites.reduce<Record<string, number>>(
-      (counts, { id }) => ({ ...counts, [id]: (counts[id] ?? 0) + 1 }),
-      {},
-    );
+    let writesPerCalendar: Record<string, number> = {};
+    for (const { id } of state.calendarWrites) {
+      writesPerCalendar = { ...writesPerCalendar, [id]: (writesPerCalendar[id] ?? 0) + 1 };
+    }
     expect(writesPerCalendar).toEqual({ [FIRST_CALENDAR_ID]: 3, [SECOND_CALENDAR_ID]: 3 });
     expect(state.calendars.map(({ ingestFailureCount }) => ingestFailureCount)).toEqual([3, 3]);
   });

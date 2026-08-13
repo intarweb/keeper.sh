@@ -54,11 +54,18 @@ const buildSelectChain = (rows: unknown[]) => {
   return chain;
 };
 
+const reusableAccountRows = (): unknown[] => {
+  if (!state.reusableAccount) {
+    return [];
+  }
+  return [state.reusableAccount];
+};
+
 const createTransactionClient = () => ({
-  execute: () => Promise.resolve(undefined),
+  execute: () => Promise.resolve(),
   select: (columns: Record<string, unknown>) => {
     if ("caldavCredentialId" in columns) {
-      return buildSelectChain(state.reusableAccount ? [state.reusableAccount] : []);
+      return buildSelectChain(reusableAccountRows());
     }
     if (state.existingSource && "id" in columns) {
       return buildSelectChain([{ accountId: ACCOUNT_ID, id: SOURCE_ID }]);
@@ -192,7 +199,7 @@ describe("re-adding a calendar already connected through a different account", (
   });
 
   it("writes nothing when it reports the duplicate", async () => {
-    await createCalDAVSource(USER_ID, reconnectPayload).catch(() => undefined);
+    await createCalDAVSource(USER_ID, reconnectPayload).catch(() => null);
 
     expect(state.updates).toEqual([]);
     expect(state.inserts).toEqual([]);

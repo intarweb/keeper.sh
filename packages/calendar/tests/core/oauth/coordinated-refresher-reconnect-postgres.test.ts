@@ -29,8 +29,8 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 const seedAccount = async (): Promise<{ accountId: string; credentialId: string }> => {
   const [credential] = await database
@@ -144,6 +144,80 @@ afterAll(async () => {
   }
   await client.end();
   await withAdministrativeClient([`drop database if exists "${scratchName}"`]);
+});
+
+const deadRefreshTokenError = (): Error =>
+  Object.assign(new Error("Token refresh failed (400): invalid_grant"), {
+    oauthReauthRequired: true,
+  });
+
+/*
+ * Delegates every statement to the live database, but lets the reconnect land
+ * between the moment the reauthentication flag is decided and the moment it is
+ * written, which is the window a check-then-act guard cannot see.
+ */
+const withReconnectBeforeAccountWrite = (credentialId: string): BunSQLDatabase => ({
+  update: (table: unknown) => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async (condition: unknown) => {
+        if (table === calendarAccountsTable) {
+          await applyReconnect(credentialId);
+        }
+        return (database.update(table as typeof calendarAccountsTable)
+          .set(values) as unknown as {
+            where: (value: unknown) => Promise<unknown>;
+          })
+          .where(condition);
+      },
+    }),
+  }),
+}) as unknown as BunSQLDatabase;
+
+describe.skipIf(!administrativeUrl)("a reconnect that lands while a dead refresh is being flagged", () => {
+  it("leaves the freshly reconnected account unflagged", async () => {
+    await truncate();
+    const { accountId, credentialId } = await seedAccount();
+    await database
+      .update(calendarAccountsTable)
+      .set({ needsReauthentication: false })
+      .where(eq(calendarAccountsTable.id, accountId));
+
+    const refresh = createCoordinatedRefresher({
+      calendarAccountId: accountId,
+      database: withReconnectBeforeAccountWrite(credentialId),
+      oauthCredentialId: credentialId,
+      refreshLockStore: null,
+      rawRefresh: () => Promise.reject(deadRefreshTokenError()),
+    });
+
+    await expect(refresh(OLD_REFRESH_TOKEN)).rejects.toThrow("invalid_grant");
+
+    expect(await readCredential(credentialId)).toMatchObject({
+      refreshToken: RECONNECTED_REFRESH_TOKEN,
+    });
+    expect(await readAccountFlag(accountId)).toBe(false);
+  });
+
+  it("still flags the account when no reconnect touched the credential", async () => {
+    await truncate();
+    const { accountId, credentialId } = await seedAccount();
+    await database
+      .update(calendarAccountsTable)
+      .set({ needsReauthentication: false })
+      .where(eq(calendarAccountsTable.id, accountId));
+
+    const refresh = createCoordinatedRefresher({
+      calendarAccountId: accountId,
+      database: database as unknown as BunSQLDatabase,
+      oauthCredentialId: credentialId,
+      refreshLockStore: null,
+      rawRefresh: () => Promise.reject(deadRefreshTokenError()),
+    });
+
+    await expect(refresh(OLD_REFRESH_TOKEN)).rejects.toThrow("invalid_grant");
+
+    expect(await readAccountFlag(accountId)).toBe(true);
+  });
 });
 
 describe.skipIf(!administrativeUrl)("a token refresh that finishes after the user reconnected", () => {

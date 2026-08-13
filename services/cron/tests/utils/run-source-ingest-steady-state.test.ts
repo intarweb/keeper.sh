@@ -162,7 +162,7 @@ describe("a source that keeps failing forever", () => {
     expect(delays.slice(0, 8)).toEqual([5, 10, 20, 40, 80, 160, 320, 360].map((minutes) =>
       minutes * MINUTE_MS));
     expect(delays.slice(8)).toEqual(delays.slice(8).map(() => MAX_BACKOFF_MS));
-    expect([...delays].sort((left, right) => left - right)).toEqual(delays);
+    expect(delays.toSorted((left, right) => left - right)).toEqual(delays);
   });
 });
 

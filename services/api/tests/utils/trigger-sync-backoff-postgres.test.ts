@@ -49,7 +49,7 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
 
 const database = (): ReturnType<typeof drizzle> => {
   if (!context.database) {

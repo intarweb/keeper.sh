@@ -101,6 +101,11 @@ const backedOffRow = (failureCount: number): CalendarRow => ({
   ingestNextAttemptAt: new Date(START_AT.getTime() - MINUTE_MS),
 });
 
+const rejectWith = (reason: unknown): Promise<never> =>
+  new Promise((_resolve, reject) => {
+    reject(reason);
+  });
+
 describe("a manual sync racing an in-flight ingest", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -166,7 +171,7 @@ describe("a manual sync racing an in-flight ingest", () => {
     }
 
     expect(calendar.row.ingestFailureCount).toBe(1);
-    expect([...delays].sort((left, right) => left - right)).toEqual(delays);
+    expect(delays.toSorted((left, right) => left - right)).toEqual(delays);
     expect(Math.min(...delays)).toBeGreaterThanOrEqual(INITIAL_BACKOFF_MS);
     expect(Math.max(...delays)).toBeLessThanOrEqual(MAX_BACKOFF_MS);
   });
@@ -186,7 +191,7 @@ describe("failures that are not plain provider errors", () => {
     const calendar = createCalendar(backedOffRow(0));
     calendar.row.ingestNextAttemptAt = null;
 
-    const thrown = await tick(calendar, () => Promise.reject("ECONNRESET"));
+    const thrown = await tick(calendar, () => rejectWith("ECONNRESET"));
 
     expect(thrown).toBe("ECONNRESET");
     expect(calendar.row.ingestFailureCount).toBe(1);

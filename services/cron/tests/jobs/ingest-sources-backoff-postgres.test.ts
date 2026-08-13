@@ -30,8 +30,8 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 const state: {
   fetchCalls: number;
@@ -61,19 +61,22 @@ vi.mock("@/env", () => ({
   },
 }));
 
+const acquireLock = (): Promise<Record<string, unknown>> => {
+  if (!state.lockAcquired) {
+    return Promise.resolve({ acquired: false });
+  }
+  return Promise.resolve({
+    acquired: true,
+    handle: {
+      isCurrent: () => state.isCurrent(),
+      release: () => Promise.resolve(),
+    },
+  });
+};
+
 vi.mock("@keeper.sh/sync", () => ({
   createSyncLock: () => ({
-    acquire: () => Promise.resolve(
-      state.lockAcquired
-        ? {
-          acquired: true,
-          handle: {
-            isCurrent: () => state.isCurrent(),
-            release: () => Promise.resolve(),
-          },
-        }
-        : { acquired: false },
-    ),
+    acquire: () => acquireLock(),
   }),
 }));
 
@@ -93,17 +96,18 @@ vi.mock("@/utils/enqueue-destination-syncs", () => ({
 vi.mock("@/utils/logging", () => ({
   context: (callback: () => Promise<unknown>) => callback(),
   widelog: {
-    error: () => undefined,
-    errorFields: () => undefined,
-    flush: () => undefined,
-    set: () => undefined,
+    error: () => null,
+    errorFields: () => null,
+    flush: () => null,
+    set: () => null,
     time: {
       measure: (_name: string, callback: () => Promise<unknown>) => callback(),
     },
   },
 }));
 
-const ingestSourcesJob = (await import("../../src/jobs/ingest-sources")).default;
+const ingestSourcesModule = await import("../../src/jobs/ingest-sources");
+const ingestSourcesJob = ingestSourcesModule.default;
 
 const runTick = (): Promise<void> => ingestSourcesJob.callback() as Promise<void>;
 
@@ -197,7 +201,9 @@ const waitForFetchCalls = async (expected: number): Promise<void> => {
     if (Date.now() > deadline) {
       throw new Error(`Only ${state.fetchCalls} of ${expected} fetches started`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
   }
 };
 
@@ -355,7 +361,8 @@ describe.skipIf(!administrativeUrl)("a dead OAuth credential against a real data
     await runTick();
 
     expect(await readAccountFlag(accountId)).toBe(false);
-    expect((await readCalendar(calendarId))?.ingestFailureCount).toBe(1);
+    const parked = await readCalendar(calendarId);
+    expect(parked?.ingestFailureCount).toBe(1);
   });
 
   it("leaves the attempt clock alone when a reconnect landed mid-run", async () => {
@@ -444,12 +451,9 @@ describe.skipIf(!administrativeUrl)("a dead OAuth credential against a real data
 
   it("counts a single failure when two ticks overlap on the same calendar", async () => {
     const { calendarId } = await seedSource("overlapping");
-    let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const gate = Promise.withResolvers<null>();
     state.fetchEvents = async () => {
-      await gate;
+      await gate.promise;
       throw deadCredentialError();
     };
     const start = Date.now();
@@ -458,7 +462,7 @@ describe.skipIf(!administrativeUrl)("a dead OAuth credential against a real data
     await waitForFetchCalls(1);
     const second = runTick();
     await waitForFetchCalls(2);
-    release();
+    gate.resolve(null);
     await Promise.all([first, second]);
 
     const row = await readCalendar(calendarId);

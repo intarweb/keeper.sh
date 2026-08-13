@@ -33,8 +33,8 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 vi.mock("@/context", () => ({
   get database() {
@@ -178,6 +178,11 @@ const countRows = async (table: typeof calendarsTable | typeof calendarAccountsT
   return row?.value ?? 0;
 };
 
+const readCalendarDisabled = async (calendarId: string): Promise<boolean | undefined> => {
+  const row = await readCalendar(calendarId);
+  return row?.disabled;
+};
+
 beforeAll(async () => {
   if (!administrativeUrl) {
     return;
@@ -283,7 +288,7 @@ describe.skipIf(!administrativeUrl)("re-adding a CalDAV source with a new passwo
 
     await createCalDAVSource(USER_ID, sourceData());
 
-    expect((await readCalendar(seeded.secondCalendarId))?.disabled).toBe(true);
+    expect(await readCalendarDisabled(seeded.secondCalendarId)).toBe(true);
   });
 
   it("adds a new calendar under the existing account without a second account", async () => {

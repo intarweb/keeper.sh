@@ -36,8 +36,8 @@ const withAdministrativeClient = async (
   }
 };
 
-let client: SQL;
-let database: ReturnType<typeof drizzle>;
+let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
+let database: ReturnType<typeof drizzle> = drizzle(client);
 
 beforeAll(async () => {
   if (!administrativeUrl) {

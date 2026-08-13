@@ -241,7 +241,9 @@ describe("a reconnect racing the backoff write", () => {
     const runs = calendars.map((calendar) =>
       tick(calendar, async () => {
         await Promise.resolve();
-        calendars.forEach(reconnect);
+        for (const entry of calendars) {
+          reconnect(entry);
+        }
         throw credentialError();
       }));
 
@@ -322,7 +324,7 @@ describe("long-run convergence", () => {
     expect(delays.length).toBeGreaterThan(5);
     expect(Math.min(...delays)).toBe(INITIAL_BACKOFF_MS);
     expect(Math.max(...delays)).toBe(MAX_BACKOFF_MS);
-    expect([...delays].sort((left, right) => left - right)).toEqual(delays);
+    expect(delays.toSorted((left, right) => left - right)).toEqual(delays);
     expect(calendar.row.ingestFailureCount).toBe(delays.length);
   });
 
