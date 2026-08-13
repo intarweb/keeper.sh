@@ -11,8 +11,8 @@ const USER_ID = "6c3e9a54-8f1b-4d40-a06e-4b0f5d2c7a93";
 const DEAD_REFRESH_TOKEN = "revoked-refresh-token";
 const RECONNECTED_REFRESH_TOKEN = "reconnected-refresh-token";
 const START_AT = new Date("2026-08-12T09:00:00.000Z");
-const CREDENTIAL_UPDATED_AT = new Date("2026-08-01T00:00:00.000Z");
-const RECONNECTED_UPDATED_AT = new Date("2026-08-12T08:59:30.000Z");
+const DEAD_ENCRYPTED_PASSWORD = "nonce-a:dead-app-password";
+const RECONNECTED_ENCRYPTED_PASSWORD = "nonce-b:reconnected-app-password";
 const MINUTE_MS = 60_000;
 
 const dialect = new PgDialect();
@@ -25,7 +25,7 @@ interface CalendarRow {
 
 const state: {
   account: { caldavCredentialId: string; needsReauthentication: boolean; oauthCredentialId: string };
-  caldavCredential: { updatedAt: Date };
+  caldavCredential: { encryptedPassword: string };
   calendar: CalendarRow;
   flagGuardParams: unknown[][];
   oauthCredential: { refreshToken: string };
@@ -37,7 +37,7 @@ const state: {
     needsReauthentication: false,
     oauthCredentialId: OAUTH_CREDENTIAL_ID,
   },
-  caldavCredential: { updatedAt: CREDENTIAL_UPDATED_AT },
+  caldavCredential: { encryptedPassword: DEAD_ENCRYPTED_PASSWORD },
   calendar: {
     ingestFailureCount: 0,
     ingestLastFailureAt: null,
@@ -70,8 +70,7 @@ const caldavSourceRow = () => ({
   accountId: ACCOUNT_ID,
   caldavCredentialId: CALDAV_CREDENTIAL_ID,
   calendarUrl: "https://caldav.example.com/calendars/user/home",
-  credentialUpdatedAt: state.caldavCredential.updatedAt,
-  encryptedPassword: "encrypted-password",
+  encryptedPassword: state.caldavCredential.encryptedPassword,
   ingestFutureRange: "3_months",
   ingestHistoricRange: "1_month",
   ingestWindowRecordedAt: null,
@@ -147,8 +146,8 @@ const liveRows = (): Record<string, Record<string, unknown>> => ({
     oauthCredentialId: state.account.oauthCredentialId,
   },
   caldav_credentials: {
+    encryptedPassword: state.caldavCredential.encryptedPassword,
     id: CALDAV_CREDENTIAL_ID,
-    updatedAt: state.caldavCredential.updatedAt,
   },
   oauth_credentials: {
     id: OAUTH_CREDENTIAL_ID,
@@ -310,7 +309,7 @@ const resetState = (sourceKind: "caldav" | "oauth"): void => {
     needsReauthentication: false,
     oauthCredentialId: OAUTH_CREDENTIAL_ID,
   };
-  state.caldavCredential = { updatedAt: CREDENTIAL_UPDATED_AT };
+  state.caldavCredential = { encryptedPassword: DEAD_ENCRYPTED_PASSWORD };
   state.calendar = {
     ingestFailureCount: 0,
     ingestLastFailureAt: null,
@@ -399,13 +398,13 @@ describe("a CalDAV source with no failure history whose password stopped working
       ACCOUNT_ID,
       CALDAV_CREDENTIAL_ID,
       CALDAV_CREDENTIAL_ID,
-      CREDENTIAL_UPDATED_AT,
+      DEAD_ENCRYPTED_PASSWORD,
     ]]);
   });
 
   it("does not re-raise the marker a mid-run reconnect just cleared", async () => {
     state.runIngest = () => {
-      state.caldavCredential = { updatedAt: RECONNECTED_UPDATED_AT };
+      state.caldavCredential = { encryptedPassword: RECONNECTED_ENCRYPTED_PASSWORD };
       state.account = { ...state.account, needsReauthentication: false };
       return Promise.reject(caldavAuthenticationError());
     };

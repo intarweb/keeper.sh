@@ -54,6 +54,10 @@ import type {
   SourceIngestHandlers,
 } from "@/utils/run-source-ingest";
 import { resolveOAuthIngestionState } from "@/utils/oauth-ingestion-state";
+import {
+  caldavCredentialIsUnchanged,
+  oauthCredentialIsUnchanged,
+} from "@/utils/reauthentication-guard";
 import { withAbortTimeout } from "@/utils/with-abort-timeout";
 import { createSyncLock } from "@keeper.sh/sync";
 import { enqueueDestinationSyncsForUsers } from "@/utils/enqueue-destination-syncs";
@@ -170,7 +174,7 @@ interface ObservedOAuthCredential {
 
 interface ObservedCalDAVCredential {
   caldavCredentialId: string;
-  credentialUpdatedAt: Date;
+  encryptedPassword: string;
 }
 
 const flagAccountReauthentication = async (
@@ -194,25 +198,17 @@ const flagOAuthAccountReauthentication = (
 ): Promise<void> =>
   flagAccountReauthentication(
     accountId,
-    sql`${eq(calendarAccountsTable.oauthCredentialId, credential.oauthCredentialId)} and exists (
-      select 1 from ${oauthCredentialsTable}
-      where ${oauthCredentialsTable.id} = ${credential.oauthCredentialId}
-        and ${oauthCredentialsTable.refreshToken} = ${credential.tokenState.refreshToken}
-    )`,
+    oauthCredentialIsUnchanged({
+      oauthCredentialId: credential.oauthCredentialId,
+      refreshToken: credential.tokenState.refreshToken,
+    }),
   );
 
 const flagCalDAVAccountReauthentication = (
   accountId: string,
   credential: ObservedCalDAVCredential,
 ): Promise<void> =>
-  flagAccountReauthentication(
-    accountId,
-    sql`${eq(calendarAccountsTable.caldavCredentialId, credential.caldavCredentialId)} and exists (
-      select 1 from ${caldavCredentialsTable}
-      where ${caldavCredentialsTable.id} = ${credential.caldavCredentialId}
-        and ${caldavCredentialsTable.updatedAt} = ${credential.credentialUpdatedAt}
-    )`,
-  );
+  flagAccountReauthentication(accountId, caldavCredentialIsUnchanged(credential));
 
 const recordSkippedResources = (skippedResourceCount: number, reasons: string[]): void => {
   if (skippedResourceCount === 0) {
@@ -761,7 +757,6 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                   .select({
                     caldavCredentialId: caldavCredentialsTable.id,
                     calendarUrl: calendarsTable.calendarUrl,
-                    credentialUpdatedAt: caldavCredentialsTable.updatedAt,
                     encryptedPassword: caldavCredentialsTable.encryptedPassword,
                     ingestFutureRange: calendarsTable.ingestFutureRange,
                     ingestHistoricRange: calendarsTable.ingestHistoricRange,
@@ -791,7 +786,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                 }
                 observedCredential = {
                   caldavCredentialId: currentSource.caldavCredentialId,
-                  credentialUpdatedAt: currentSource.credentialUpdatedAt,
+                  encryptedPassword: currentSource.encryptedPassword,
                 };
                 const ranges = await getRequiredSourceRanges(source.calendarId);
                 const fetcher = createCalDAVSourceFetcher({
