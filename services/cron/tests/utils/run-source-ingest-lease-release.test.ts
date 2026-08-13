@@ -282,7 +282,7 @@ describe("bookkeeping failures on a good run", () => {
     expect(recovered.row.ingestNextAttemptAt).toBeNull();
   });
 
-  it("does not reset the backoff of a run whose lease was superseded", async () => {
+  it("resets the backoff of a run whose lease was superseded", async () => {
     const calendar = createCalendar({
       ingestFailureCount: 3,
       ingestLastFailureAt: new Date(START_AT.getTime() - MINUTE_MS),
@@ -290,8 +290,8 @@ describe("bookkeeping failures on a good run", () => {
     }, { isCurrent: () => Promise.resolve(false) });
 
     expect(await tick(calendar, () => Promise.resolve("ingested"))).toBe("ingested");
-    expect(calendar.writes).toEqual([]);
-    expect(calendar.row.ingestFailureCount).toBe(3);
+    expect(calendar.writes).toEqual(["reset"]);
+    expect(calendar.row.ingestFailureCount).toBe(0);
   });
 });
 

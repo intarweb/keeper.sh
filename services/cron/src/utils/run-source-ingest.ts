@@ -19,7 +19,7 @@ interface SourceIngestDependencies {
   ) => Promise<CalendarBackoffState | null>;
   readAttempt: (calendarId: string) => Promise<SourceIngestAttempt | null>;
   recordBackoff: (state: CalendarBackoffState) => void;
-  resetBackoff: (calendarId: string) => Promise<void>;
+  resetBackoff: (calendarId: string, observedAttempt: SourceIngestAttempt) => Promise<void>;
 }
 
 interface SourceIngestHandlers {
@@ -37,16 +37,13 @@ const settleSuccess = async (
   dependencies: SourceIngestDependencies,
   calendarId: string,
   attempt: SourceIngestAttempt,
-  lease: SourceIngestLease,
 ): Promise<void> => {
   if (attempt.failureCount === 0) {
     return;
   }
 
   try {
-    if (await lease.isCurrent()) {
-      await dependencies.resetBackoff(calendarId);
-    }
+    await dependencies.resetBackoff(calendarId, attempt);
   } catch (error) {
     widelog.error("retry.reset_error", error);
   }
@@ -136,7 +133,7 @@ const runSourceIngest = async <TResult>(
     }
 
     const result = await runWork(dependencies, calendarId, attempt, lease, work, handlers);
-    await settleSuccess(dependencies, calendarId, attempt, lease);
+    await settleSuccess(dependencies, calendarId, attempt);
     return result;
   } finally {
     await lease.release().catch((error: unknown) => {

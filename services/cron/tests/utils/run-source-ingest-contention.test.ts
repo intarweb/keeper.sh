@@ -294,7 +294,7 @@ describe("runSourceIngest under contention", () => {
     expect(fleet.rows.get(CALENDAR_A)).toEqual(freshRow());
   });
 
-  it("converges once a superseded lease stops stealing the reset", async () => {
+  it("clears the streak on a successful run whose lease was superseded", async () => {
     const leaseState = { current: false };
     const fleet = createFleet(
       {
@@ -307,9 +307,12 @@ describe("runSourceIngest under contention", () => {
       { isCurrent: () => Promise.resolve(leaseState.current) },
     );
 
+    expect(await tick(fleet, CALENDAR_A, () => Promise.resolve("ingested"))).toBe("ingested");
+    expect(fleet.rows.get(CALENDAR_A)).toEqual(freshRow());
+
     for (let index = 0; index < 3; index += 1) {
       expect(await tick(fleet, CALENDAR_A, () => Promise.resolve("ingested"))).toBe("ingested");
-      expect(fleet.rows.get(CALENDAR_A)?.ingestFailureCount).toBe(4);
+      expect(fleet.rows.get(CALENDAR_A)).toEqual(freshRow());
     }
 
     leaseState.current = true;

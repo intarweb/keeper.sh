@@ -10,6 +10,7 @@ import {
   createGoogleUserRateLimiter,
   ensureValidToken,
   isTimeoutError,
+  isOAuthReauthRequiredError,
   buildCalendarBackoffState,
   SOURCE_INGEST_LOCK_NAMESPACE,
   createRequiredSourceRanges,
@@ -69,7 +70,17 @@ const SOURCE_CONCURRENCY = 5;
 const SOURCE_INGEST_LOCK_KEY_PREFIX = "source-ingest:";
 const sourceIngestLock = createSyncLock(refreshLockRedis);
 
-const resetIngestBackoff = async (calendarId: string): Promise<void> => {
+const matchesObservedAttemptClock = (nextAttemptAt: Date | null) => {
+  if (nextAttemptAt === null) {
+    return isNull(calendarsTable.ingestNextAttemptAt);
+  }
+  return eq(calendarsTable.ingestNextAttemptAt, nextAttemptAt);
+};
+
+const resetIngestBackoff = async (
+  calendarId: string,
+  observedAttempt: SourceIngestAttempt,
+): Promise<void> => {
   await database
     .update(calendarsTable)
     .set({
@@ -77,14 +88,11 @@ const resetIngestBackoff = async (calendarId: string): Promise<void> => {
       ingestLastFailureAt: null,
       ingestNextAttemptAt: null,
     })
-    .where(eq(calendarsTable.id, calendarId));
-};
-
-const matchesObservedAttemptClock = (nextAttemptAt: Date | null) => {
-  if (nextAttemptAt === null) {
-    return isNull(calendarsTable.ingestNextAttemptAt);
-  }
-  return eq(calendarsTable.ingestNextAttemptAt, nextAttemptAt);
+    .where(and(
+      eq(calendarsTable.id, calendarId),
+      eq(calendarsTable.ingestFailureCount, observedAttempt.failureCount),
+      matchesObservedAttemptClock(observedAttempt.nextAttemptAt),
+    ));
 };
 
 const applyIngestBackoff = async (
@@ -162,10 +170,11 @@ const runSourceIngest = <TResult>(
     handlers,
   );
 
+const requiresProviderAuthentication = (error: unknown): boolean =>
+  error instanceof Error && "authRequired" in error && error.authRequired === true;
+
 const requiresOAuthReauthentication = (error: unknown): boolean =>
-  error instanceof Error
-  && (("authRequired" in error && error.authRequired === true)
-    || ("oauthReauthRequired" in error && error.oauthReauthRequired === true));
+  requiresProviderAuthentication(error) || isOAuthReauthRequiredError(error);
 
 interface ObservedOAuthCredential {
   oauthCredentialId: string;
@@ -657,13 +666,13 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
               throw error;
             }
 
-            if (error instanceof Error && "authRequired" in error && error.authRequired === true) {
+            if (requiresProviderAuthentication(error)) {
               widelog.errorFields(error, { slug: "provider-auth-failed", retriable: false, requiresReauth: true });
 
               return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [], shouldPush: false, userId: source.userId };
             }
 
-            if (error instanceof Error && "oauthReauthRequired" in error && error.oauthReauthRequired === true) {
+            if (isOAuthReauthRequiredError(error)) {
               widelog.errorFields(error, { slug: "provider-token-refresh-failed", retriable: false, requiresReauth: true });
 
               return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [], shouldPush: false, userId: source.userId };

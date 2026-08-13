@@ -34,6 +34,42 @@ interface MicrosoftOAuthService {
   refreshAccessToken: (refreshToken: string) => Promise<MicrosoftTokenResponse>;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseMicrosoftTokenErrorCode = (value: string): string | null => {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed) || typeof parsed.error !== "string") {
+      return null;
+    }
+    return parsed.error.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+class MicrosoftOAuthRefreshError extends Error {
+  readonly status: number;
+  readonly oauthErrorCode: string | null;
+  readonly oauthReauthRequired: boolean;
+
+  constructor(
+    message: string,
+    options: {
+      status: number;
+      oauthErrorCode: string | null;
+      oauthReauthRequired: boolean;
+    },
+  ) {
+    super(message);
+    this.name = "MicrosoftOAuthRefreshError";
+    this.status = options.status;
+    this.oauthErrorCode = options.oauthErrorCode;
+    this.oauthReauthRequired = options.oauthReauthRequired;
+  }
+}
+
 const createMicrosoftTokenRefresher = (
   credentials: MicrosoftOAuthCredentials,
 ) => {
@@ -59,8 +95,16 @@ const createMicrosoftTokenRefresher = (
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Token refresh failed (${response.status}): ${error}`);
+      const rawError = await response.text();
+      const oauthErrorCode = parseMicrosoftTokenErrorCode(rawError);
+      throw new MicrosoftOAuthRefreshError(
+        `Token refresh failed (${response.status}): ${rawError}`,
+        {
+          oauthErrorCode,
+          oauthReauthRequired: response.status === 400 && oauthErrorCode === "invalid_grant",
+          status: response.status,
+        },
+      );
     }
 
     const body = await response.json();
@@ -155,6 +199,7 @@ const hasRequiredScopes = (grantedScopes: string): boolean => {
 
 export {
   createMicrosoftTokenRefresher,
+  MicrosoftOAuthRefreshError,
   MICROSOFT_CALENDAR_SCOPE,
   MICROSOFT_USER_SCOPE,
   MICROSOFT_OFFLINE_SCOPE,
