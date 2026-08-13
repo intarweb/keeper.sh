@@ -49,11 +49,11 @@ const createStore = (row: CalendarRow, options: StoreOptions = {}): Store => {
         return Promise.resolve();
       },
     })),
-    applyBackoff: (_calendarId, currentFailureCount) => {
+    applyBackoff: (_calendarId, observedAttempt) => {
       if (options.applyBackoffError) {
         return Promise.reject(options.applyBackoffError);
       }
-      const state = buildCalendarBackoffState(currentFailureCount, new Date());
+      const state = buildCalendarBackoffState(observedAttempt.failureCount, new Date());
       store.row.ingestFailureCount = state.failureCount;
       store.row.ingestLastFailureAt = state.lastFailureAt;
       store.row.ingestNextAttemptAt = state.nextAttemptAt;

@@ -15,7 +15,7 @@ interface SourceIngestDependencies {
   acquireLease: (calendarId: string, signal: AbortSignal) => Promise<SourceIngestLease | null>;
   applyBackoff: (
     calendarId: string,
-    currentFailureCount: number,
+    observedAttempt: SourceIngestAttempt,
   ) => Promise<CalendarBackoffState | null>;
   readAttempt: (calendarId: string) => Promise<SourceIngestAttempt | null>;
   recordBackoff: (state: CalendarBackoffState) => void;
@@ -60,7 +60,7 @@ const settleFailure = async (
       return;
     }
 
-    const state = await dependencies.applyBackoff(calendarId, attempt.failureCount);
+    const state = await dependencies.applyBackoff(calendarId, attempt);
     if (!state) {
       widelog.set("retry.backoff_skipped", "attempt-state-changed");
       return;

@@ -47,7 +47,7 @@ import env from "@/env";
 import { safeFetchOptions } from "@/utils/safe-fetch-options";
 import { resolveMissingCalendarFailure } from "@/utils/provider-ingest-failure";
 import { runSourceIngest as runSourceIngestWithDependencies } from "@/utils/run-source-ingest";
-import type { SourceIngestDependencies } from "@/utils/run-source-ingest";
+import type { SourceIngestAttempt, SourceIngestDependencies } from "@/utils/run-source-ingest";
 import { resolveOAuthIngestionState } from "@/utils/oauth-ingestion-state";
 import { withAbortTimeout } from "@/utils/with-abort-timeout";
 import { createSyncLock } from "@keeper.sh/sync";
@@ -71,11 +71,18 @@ const resetIngestBackoff = async (calendarId: string): Promise<void> => {
     .where(eq(calendarsTable.id, calendarId));
 };
 
+const matchesObservedAttemptClock = (nextAttemptAt: Date | null) => {
+  if (nextAttemptAt === null) {
+    return isNull(calendarsTable.ingestNextAttemptAt);
+  }
+  return eq(calendarsTable.ingestNextAttemptAt, nextAttemptAt);
+};
+
 const applyIngestBackoff = async (
   calendarId: string,
-  currentFailureCount: number,
+  observedAttempt: SourceIngestAttempt,
 ): Promise<CalendarBackoffState | null> => {
-  const state = buildCalendarBackoffState(currentFailureCount);
+  const state = buildCalendarBackoffState(observedAttempt.failureCount);
   const updated = await database
     .update(calendarsTable)
     .set({
@@ -85,7 +92,8 @@ const applyIngestBackoff = async (
     })
     .where(and(
       eq(calendarsTable.id, calendarId),
-      eq(calendarsTable.ingestFailureCount, currentFailureCount),
+      eq(calendarsTable.ingestFailureCount, observedAttempt.failureCount),
+      matchesObservedAttemptClock(observedAttempt.nextAttemptAt),
     ))
     .returning({ id: calendarsTable.id });
   if (updated.length === 0) {

@@ -2,7 +2,7 @@ import { buildCalendarBackoffState } from "@keeper.sh/calendar";
 import type { CalendarBackoffState } from "@keeper.sh/calendar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runSourceIngest } from "../../src/utils/run-source-ingest";
-import type { SourceIngestDependencies } from "../../src/utils/run-source-ingest";
+import type { SourceIngestAttempt, SourceIngestDependencies } from "../../src/utils/run-source-ingest";
 
 const CALENDAR_ID = "6f2a5b41-77c3-4a9e-8b2d-5d1e0c9a4477";
 const MINUTE_MS = 60_000;
@@ -31,6 +31,12 @@ interface Calendar {
   writes: string[];
 }
 
+const rowMatchesObservedAttempt = (
+  row: CalendarRow,
+  observed: SourceIngestAttempt,
+): boolean => row.ingestFailureCount === observed.failureCount
+  && (row.ingestNextAttemptAt?.getTime() ?? null) === (observed.nextAttemptAt?.getTime() ?? null);
+
 const createCalendar = (row: CalendarRow, options: CalendarOptions = {}): Calendar => {
   const calendar: Calendar = {
     dependencies: {} as SourceIngestDependencies,
@@ -51,12 +57,12 @@ const createCalendar = (row: CalendarRow, options: CalendarOptions = {}): Calend
         return Promise.resolve();
       },
     }),
-    applyBackoff: async (_calendarId, currentFailureCount) => {
+    applyBackoff: async (_calendarId, observedAttempt) => {
       await options.beforeApplyBackoff?.();
-      if (calendar.row.ingestFailureCount !== currentFailureCount) {
+      if (!rowMatchesObservedAttempt(calendar.row, observedAttempt)) {
         return null;
       }
-      const state = buildCalendarBackoffState(currentFailureCount, new Date());
+      const state = buildCalendarBackoffState(observedAttempt.failureCount, new Date());
       calendar.row.ingestFailureCount = state.failureCount;
       calendar.row.ingestLastFailureAt = state.lastFailureAt;
       calendar.row.ingestNextAttemptAt = state.nextAttemptAt;

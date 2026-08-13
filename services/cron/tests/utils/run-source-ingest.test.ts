@@ -34,9 +34,9 @@ const createHarness = (attempt: SourceIngestAttempt | null): Harness => {
         isCurrent: () => Promise.resolve(true),
         release: () => Promise.resolve(),
       }),
-      applyBackoff: (calendarId, currentFailureCount) => {
-        applied.push({ calendarId, currentFailureCount });
-        return Promise.resolve(buildCalendarBackoffState(currentFailureCount));
+      applyBackoff: (calendarId, observedAttempt) => {
+        applied.push({ calendarId, currentFailureCount: observedAttempt.failureCount });
+        return Promise.resolve(buildCalendarBackoffState(observedAttempt.failureCount));
       },
       readAttempt: () => Promise.resolve(attempt),
       recordBackoff: (state) => {
