@@ -1,5 +1,6 @@
 import { SQL } from "bun";
 import { drizzle } from "drizzle-orm/bun-sql";
+import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { eq } from "drizzle-orm";
 import {
   caldavCredentialsTable,
@@ -171,7 +172,7 @@ const readCalendar = async (calendarId: string) => {
 
 const runPushSync = (calendarId: string) =>
   syncDestinationsForUser(USER_ID, {
-    database,
+    database: database as unknown as BunSQLDatabase,
     destinationCalendarId: calendarId,
     encryptionKey: ENCRYPTION_KEY,
     oauthConfig: {},

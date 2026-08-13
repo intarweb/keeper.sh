@@ -5,7 +5,7 @@ import {
   calendarAccountsTable,
   oauthCredentialsTable,
 } from "@keeper.sh/database/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 
 const MS_PER_SECOND = 1000;
@@ -79,7 +79,10 @@ const createCoordinatedRefresher = (options: CoordinatedRefresherOptions) => {
               expiresAt: newExpiresAt,
               refreshToken: result.refresh_token ?? refreshToken,
             })
-            .where(eq(oauthCredentialsTable.id, oauthCredentialId));
+            .where(and(
+              eq(oauthCredentialsTable.id, oauthCredentialId),
+              eq(oauthCredentialsTable.refreshToken, refreshToken),
+            ));
 
           return result;
         } catch (error) {

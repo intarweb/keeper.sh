@@ -28,7 +28,7 @@ import {
   calendarAccountsTable,
   calendarsTable,
 } from "@keeper.sh/database/schema";
-import { and, arrayContains, eq, inArray } from "drizzle-orm";
+import { and, arrayContains, eq, inArray, isNull } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import type Redis from "ioredis";
 import { getErrorMessage, isBackoffEligibleError } from "./destination-errors";
@@ -51,17 +51,27 @@ const resetDestinationBackoff = async (
     .where(eq(calendarsTable.id, calendarId));
 };
 
+const matchesObservedDestinationClock = (nextAttemptAt: Date | null) => {
+  if (nextAttemptAt === null) {
+    return isNull(calendarsTable.nextAttemptAt);
+  }
+  return eq(calendarsTable.nextAttemptAt, nextAttemptAt);
+};
+
 const applyDestinationBackoff = async (
   database: BunSQLDatabase,
-  calendarId: string,
-  currentFailureCount: number,
+  observedAttempt: DestinationAttempt,
 ): Promise<void> => {
-  const backoffState = buildCalendarBackoffState(currentFailureCount);
+  const backoffState = buildCalendarBackoffState(observedAttempt.failureCount);
 
   await database
     .update(calendarsTable)
     .set(backoffState)
-    .where(eq(calendarsTable.id, calendarId));
+    .where(and(
+      eq(calendarsTable.id, observedAttempt.calendarId),
+      eq(calendarsTable.failureCount, observedAttempt.failureCount),
+      matchesObservedDestinationClock(observedAttempt.nextAttemptAt),
+    ));
 };
 
 const extractNumericField = (event: Record<string, unknown> | null | undefined, key: string): number => {
@@ -735,7 +745,7 @@ const syncDestinationsForUser = async (
         throw error;
       }
 
-      await applyDestinationBackoff(database, destination.calendarId, destination.failureCount);
+      await applyDestinationBackoff(database, destination);
       errors.push(getErrorMessage(error));
       callbacks?.onCalendarError?.({
         provider: destination.provider,
