@@ -22,6 +22,20 @@ interface CoordinatedRefresherOptions {
   }>;
 }
 
+const isStoredRefreshToken = async (
+  database: BunSQLDatabase,
+  oauthCredentialId: string,
+  refreshToken: string,
+): Promise<boolean> => {
+  const [credential] = await database
+    .select({ refreshToken: oauthCredentialsTable.refreshToken })
+    .from(oauthCredentialsTable)
+    .where(eq(oauthCredentialsTable.id, oauthCredentialId))
+    .limit(1);
+
+  return credential?.refreshToken === refreshToken;
+};
+
 const createCoordinatedRefresher = (options: CoordinatedRefresherOptions) => {
   const { database, oauthCredentialId, calendarAccountId, refreshLockStore, rawRefresh } = options;
 
@@ -45,7 +59,10 @@ const createCoordinatedRefresher = (options: CoordinatedRefresherOptions) => {
 
           return result;
         } catch (error) {
-          if (isOAuthReauthRequiredError(error)) {
+          if (
+            isOAuthReauthRequiredError(error)
+            && await isStoredRefreshToken(database, oauthCredentialId, refreshToken)
+          ) {
             await database
               .update(calendarAccountsTable)
               .set({ needsReauthentication: true })

@@ -47,7 +47,11 @@ import env from "@/env";
 import { safeFetchOptions } from "@/utils/safe-fetch-options";
 import { resolveMissingCalendarFailure } from "@/utils/provider-ingest-failure";
 import { runSourceIngest as runSourceIngestWithDependencies } from "@/utils/run-source-ingest";
-import type { SourceIngestAttempt, SourceIngestDependencies } from "@/utils/run-source-ingest";
+import type {
+  SourceIngestAttempt,
+  SourceIngestDependencies,
+  SourceIngestHandlers,
+} from "@/utils/run-source-ingest";
 import { resolveOAuthIngestionState } from "@/utils/oauth-ingestion-state";
 import { withAbortTimeout } from "@/utils/with-abort-timeout";
 import { createSyncLock } from "@keeper.sh/sync";
@@ -143,8 +147,27 @@ const runSourceIngest = <TResult>(
   calendarId: string,
   signal: AbortSignal,
   work: (isCurrent: () => Promise<boolean>) => Promise<TResult>,
+  handlers: SourceIngestHandlers = {},
 ): Promise<TResult | null> =>
-  runSourceIngestWithDependencies(sourceIngestDependencies, calendarId, signal, work);
+  runSourceIngestWithDependencies(
+    sourceIngestDependencies,
+    calendarId,
+    signal,
+    work,
+    handlers,
+  );
+
+const requiresOAuthReauthentication = (error: unknown): boolean =>
+  error instanceof Error
+  && (("authRequired" in error && error.authRequired === true)
+    || ("oauthReauthRequired" in error && error.oauthReauthRequired === true));
+
+const flagAccountReauthentication = async (accountId: string): Promise<void> => {
+  await database
+    .update(calendarAccountsTable)
+    .set({ needsReauthentication: true })
+    .where(eq(calendarAccountsTable.id, accountId));
+};
 
 const recordSkippedResources = (skippedResourceCount: number, reasons: string[]): void => {
   if (skippedResourceCount === 0) {
@@ -554,6 +577,13 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
                     || ingestionResult.eventsRemoved > 0,
                   userId: currentSource.userId,
                 };
+              }, {
+                onSettledFailure: (error) => {
+                  if (!requiresOAuthReauthentication(error)) {
+                    return;
+                  }
+                  return flagAccountReauthentication(source.accountId);
+                },
               }),
             );
             if (!result) {
@@ -580,21 +610,11 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
             if (error instanceof Error && "authRequired" in error && error.authRequired === true) {
               widelog.errorFields(error, { slug: "provider-auth-failed", retriable: false, requiresReauth: true });
 
-              await database
-                .update(calendarAccountsTable)
-                .set({ needsReauthentication: true })
-                .where(eq(calendarAccountsTable.id, source.accountId));
-
               return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [], shouldPush: false, userId: source.userId };
             }
 
             if (error instanceof Error && "oauthReauthRequired" in error && error.oauthReauthRequired === true) {
               widelog.errorFields(error, { slug: "provider-token-refresh-failed", retriable: false, requiresReauth: true });
-
-              await database
-                .update(calendarAccountsTable)
-                .set({ needsReauthentication: true })
-                .where(eq(calendarAccountsTable.id, source.accountId));
 
               return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [], shouldPush: false, userId: source.userId };
             }
@@ -753,6 +773,13 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                     || ingestionResult.eventsRemoved > 0,
                   userId: currentSource.userId,
                 };
+              }, {
+                onSettledFailure: (error) => {
+                  if (!isCalDAVAuthenticationError(error)) {
+                    return;
+                  }
+                  return flagAccountReauthentication(source.accountId);
+                },
               }),
             );
             if (!result) {
@@ -772,11 +799,6 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
 
             if (isCalDAVAuthenticationError(error)) {
               widelog.errorFields(error, { slug: "provider-auth-failed", retriable: false, requiresReauth: true });
-
-              await database
-                .update(calendarAccountsTable)
-                .set({ needsReauthentication: true })
-                .where(eq(calendarAccountsTable.id, source.accountId));
 
               return { eventsAdded: 0, eventsRemoved: 0, ingestEvents: [], shouldPush: false, userId: source.userId };
             }

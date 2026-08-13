@@ -22,6 +22,10 @@ interface SourceIngestDependencies {
   resetBackoff: (calendarId: string) => Promise<void>;
 }
 
+interface SourceIngestHandlers {
+  onSettledFailure?: (error: unknown) => Promise<void> | void;
+}
+
 const isAttemptDue = (attempt: SourceIngestAttempt, now: Date): boolean =>
   attempt.nextAttemptAt === null || attempt.nextAttemptAt <= now;
 
@@ -52,23 +56,46 @@ const settleFailure = async (
   dependencies: SourceIngestDependencies,
   calendarId: string,
   attempt: SourceIngestAttempt,
-): Promise<void> => {
+): Promise<boolean> => {
   try {
     const current = await dependencies.readAttempt(calendarId);
     if (!current || !isSameAttempt(current, attempt)) {
       widelog.set("retry.backoff_skipped", "attempt-state-changed");
-      return;
+      return false;
     }
 
     const state = await dependencies.applyBackoff(calendarId, attempt);
     if (!state) {
       widelog.set("retry.backoff_skipped", "attempt-state-changed");
-      return;
+      return false;
     }
 
     dependencies.recordBackoff(state);
+    return true;
   } catch (error) {
     widelog.error("retry.backoff_error", error);
+    return true;
+  }
+};
+
+const runFailureHandler = async (
+  handlers: SourceIngestHandlers,
+  settled: boolean,
+  error: unknown,
+): Promise<void> => {
+  if (!handlers.onSettledFailure) {
+    return;
+  }
+
+  if (!settled) {
+    widelog.set("failure.handler_skipped", "attempt-state-changed");
+    return;
+  }
+
+  try {
+    await handlers.onSettledFailure(error);
+  } catch (handlerError) {
+    widelog.error("failure.handler_error", handlerError);
   }
 };
 
@@ -78,11 +105,13 @@ const runWork = async <TResult>(
   attempt: SourceIngestAttempt,
   lease: SourceIngestLease,
   work: (isCurrent: () => Promise<boolean>) => Promise<TResult>,
+  handlers: SourceIngestHandlers,
 ): Promise<TResult> => {
   try {
     return await work(lease.isCurrent);
   } catch (error) {
-    await settleFailure(dependencies, calendarId, attempt);
+    const settled = await settleFailure(dependencies, calendarId, attempt);
+    await runFailureHandler(handlers, settled, error);
     throw error;
   }
 };
@@ -92,6 +121,7 @@ const runSourceIngest = async <TResult>(
   calendarId: string,
   signal: AbortSignal,
   work: (isCurrent: () => Promise<boolean>) => Promise<TResult>,
+  handlers: SourceIngestHandlers = {},
 ): Promise<TResult | null> => {
   const lease = await dependencies.acquireLease(calendarId, signal);
   if (!lease) {
@@ -105,7 +135,7 @@ const runSourceIngest = async <TResult>(
       return null;
     }
 
-    const result = await runWork(dependencies, calendarId, attempt, lease, work);
+    const result = await runWork(dependencies, calendarId, attempt, lease, work, handlers);
     await settleSuccess(dependencies, calendarId, attempt, lease);
     return result;
   } finally {
@@ -116,4 +146,9 @@ const runSourceIngest = async <TResult>(
 };
 
 export { isAttemptDue, runSourceIngest };
-export type { SourceIngestAttempt, SourceIngestDependencies, SourceIngestLease };
+export type {
+  SourceIngestAttempt,
+  SourceIngestDependencies,
+  SourceIngestHandlers,
+  SourceIngestLease,
+};
