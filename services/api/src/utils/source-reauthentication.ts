@@ -25,5 +25,20 @@ const clearSourceReauthentication = async (
     .where(inArray(calendarsTable.accountId, accounts.map(({ id }) => id)));
 };
 
-export { clearSourceReauthentication };
+const clearAccountReauthentication = async (
+  databaseClient: SourceReauthenticationDatabase,
+  accountId: string,
+): Promise<void> => {
+  await databaseClient
+    .update(calendarAccountsTable)
+    .set({ needsReauthentication: false })
+    .where(eq(calendarAccountsTable.id, accountId));
+
+  await databaseClient
+    .update(calendarsTable)
+    .set(RECONNECTED_SOURCE_INGEST_STATE)
+    .where(eq(calendarsTable.accountId, accountId));
+};
+
+export { clearAccountReauthentication, clearSourceReauthentication };
 export type { SourceReauthenticationDatabase };

@@ -8,6 +8,7 @@ import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { encryptPassword } from "@keeper.sh/database";
 import { database, premiumService, encryptionKey } from "@/context";
 import { enqueuePushSync } from "./enqueue-push-sync";
+import { clearAccountReauthentication } from "./source-reauthentication";
 import { applySourceSyncDefaults } from "./source-sync-defaults";
 
 const FIRST_RESULT_LIMIT = 1;
@@ -15,7 +16,7 @@ const CALDAV_CALENDAR_TYPE = "caldav";
 const USER_ACCOUNT_LOCK_NAMESPACE = 9002;
 type CaldavSourceDatabase = Pick<
   typeof database,
-  "insert" | "select" | "selectDistinct"
+  "insert" | "select" | "selectDistinct" | "update"
 >;
 
 class CalDAVSourceLimitError extends Error {
@@ -122,6 +123,27 @@ const createCalDAVAccount = async (
   return account.id;
 };
 
+const reconnectCalDAVAccount = async (
+  databaseClient: CaldavSourceDatabase,
+  account: { id: string; caldavCredentialId: string | null },
+  data: CreateCalDAVSourceData,
+  resolvedEncryptionKey: string,
+): Promise<void> => {
+  if (!account.caldavCredentialId) {
+    throw new Error(`CalDAV account ${account.id} is missing caldavCredentialId`);
+  }
+
+  await databaseClient
+    .update(caldavCredentialsTable)
+    .set({
+      authMethod: data.authMethod,
+      encryptedPassword: encryptPassword(data.password, resolvedEncryptionKey),
+    })
+    .where(eq(caldavCredentialsTable.id, account.caldavCredentialId));
+
+  await clearAccountReauthentication(databaseClient, account.id);
+};
+
 const getUserCalDAVSources = async (userId: string, provider?: string): Promise<CalDAVSource[]> => {
   const conditions = [
     eq(calendarsTable.userId, userId),
@@ -212,10 +234,6 @@ const createCalDAVSource = async (
       )
       .limit(FIRST_RESULT_LIMIT);
 
-    if (existingSource) {
-      throw new DuplicateCalDAVSourceError();
-    }
-
     const existingAccount = await findReusableCalDAVAccount(
       tx,
       userId,
@@ -223,6 +241,14 @@ const createCalDAVSource = async (
       data.serverUrl,
       data.username,
     );
+
+    if (existingAccount) {
+      await reconnectCalDAVAccount(tx, existingAccount, data, resolvedEncryptionKey);
+    }
+
+    if (existingSource) {
+      return null;
+    }
 
     if (!existingAccount) {
       const existingAccountCount = await countUserAccountsWithDatabase(tx, userId);
@@ -265,6 +291,10 @@ const createCalDAVSource = async (
       username: data.username,
     };
   });
+
+  if (!result) {
+    throw new DuplicateCalDAVSourceError();
+  }
 
   await enqueuePushSync(userId, plan);
 
