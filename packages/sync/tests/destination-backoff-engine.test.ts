@@ -101,6 +101,7 @@ const makeMapping = (
   remoteContentHash: null,
   remoteEchoAlgorithm: null,
   remoteEchoAt: null,
+  remoteRejectedContentHash: null,
   sourceCalendarId: SOURCE_ID,
   startTime: event.startTime,
   syncEventHash: createSyncEventContentHash(event),

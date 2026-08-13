@@ -142,6 +142,7 @@ describe("syncCalendar phase attribution", () => {
       remoteContentHash: null,
       remoteEchoAlgorithm: null,
       remoteEchoAt: null,
+      remoteRejectedContentHash: null,
       id: "map-1",
       sourceCalendarId: "cal-1",
       startTime: localEvent.startTime,

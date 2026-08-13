@@ -1,15 +1,10 @@
-import {
-  DEFAULT_ECHO_ADOPTION_MAX_PER_RUN,
-  DEFAULT_ECHO_MAX_AGE_MS,
-} from "../sync/operations";
+import { DEFAULT_ECHO_ADOPTION_MAX_PER_RUN } from "../sync/operations";
 import type { EchoComparisonMode } from "../sync/operations";
 
 interface EchoConfig {
   adoptionEnabled: boolean;
   maxAdoptionsPerRun: number;
-  maxAgeMs: number;
   mode: EchoComparisonMode;
-  repairOnAdopt: boolean;
 }
 
 type EchoEnvironment = Record<string, string | undefined>;
@@ -18,7 +13,7 @@ const ECHO_COMPARISON_MODES: EchoComparisonMode[] = ["off", "shadow", "on"];
 
 const readMode = (value?: string): EchoComparisonMode => {
   if (!value) {
-    return "off";
+    return "on";
   }
   const mode = ECHO_COMPARISON_MODES.find((candidate) => candidate === value);
   if (!mode) {
@@ -72,17 +67,7 @@ const resolveEchoConfig = (environment: EchoEnvironment): EchoConfig => ({
     DEFAULT_ECHO_ADOPTION_MAX_PER_RUN,
     environment["KEEPER_ECHO_ADOPTION_MAX_PER_RUN"],
   ),
-  maxAgeMs: readPositiveInteger(
-    "KEEPER_ECHO_MAX_AGE_MS",
-    DEFAULT_ECHO_MAX_AGE_MS,
-    environment["KEEPER_ECHO_MAX_AGE_MS"],
-  ),
   mode: readMode(environment["KEEPER_ECHO_COMPARISON"]),
-  repairOnAdopt: readSwitch(
-    "KEEPER_ECHO_REPAIR_ON_ADOPT",
-    false,
-    environment["KEEPER_ECHO_REPAIR_ON_ADOPT"],
-  ),
 });
 
 export { resolveEchoConfig };

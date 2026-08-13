@@ -53,7 +53,8 @@ describe.skipIf(!administrativeUrl)("createDatabaseEchoAdoption against Postgres
         "id" uuid primary key,
         "remoteContentHash" text,
         "remoteEchoAlgorithm" text,
-        "remoteEchoAt" timestamp
+        "remoteEchoAt" timestamp,
+        "remoteRejectedContentHash" text
       )
     `);
   }, 120_000);
@@ -67,7 +68,8 @@ describe.skipIf(!administrativeUrl)("createDatabaseEchoAdoption against Postgres
 
   it("stores the observation and its recorded instant on the matching rows only", async () => {
     await withDatabase().execute(sql`
-      insert into "event_mappings" ("id") values (${mappingId(1)}::uuid), (${mappingId(2)}::uuid)
+      insert into "event_mappings" ("id", "remoteRejectedContentHash")
+      values (${mappingId(1)}::uuid, ${"d".repeat(64)}), (${mappingId(2)}::uuid, null)
       on conflict do nothing
     `);
     const recordedAt = new Date("2026-03-08T12:34:56.000Z");
@@ -78,18 +80,21 @@ describe.skipIf(!administrativeUrl)("createDatabaseEchoAdoption against Postgres
     );
 
     const rows = await withDatabase().execute(sql`
-      select "id", "remoteContentHash", "remoteEchoAlgorithm", "remoteEchoAt"
+      select "id", "remoteContentHash", "remoteEchoAlgorithm", "remoteEchoAt",
+             "remoteRejectedContentHash"
       from "event_mappings" order by "id"
     `) as unknown as {
       id: string;
       remoteContentHash: string | null;
       remoteEchoAlgorithm: string | null;
       remoteEchoAt: Date | null;
+      remoteRejectedContentHash: string | null;
     }[];
 
     expect(rows[0]).toMatchObject({
       remoteContentHash: "a".repeat(64),
       remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteRejectedContentHash: null,
     });
     expect(new Date(rows[0]?.remoteEchoAt ?? 0).toISOString())
       .toBe("2026-03-08T12:34:56.000Z");

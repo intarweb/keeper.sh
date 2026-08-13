@@ -5,7 +5,12 @@ const administrativeUrl = process.env.KEEPER_TEST_DATABASE_URL;
 const migrationScript = `${import.meta.dirname}/../../scripts/migrate.ts`;
 const scratchName = `keeper_echo_columns_${process.pid}`;
 
-const ECHO_COLUMNS = ["remoteContentHash", "remoteEchoAlgorithm", "remoteEchoAt"];
+const ECHO_COLUMNS = [
+  "remoteContentHash",
+  "remoteEchoAlgorithm",
+  "remoteEchoAt",
+  "remoteRejectedContentHash",
+];
 
 const withAdministrativeClient = async <Result>(
   run: (client: Client) => Promise<Result>,
@@ -49,7 +54,7 @@ const runMigrations = async (): Promise<void> => {
   }
 };
 
-describe("event mapping destination echo columns", () => {
+describe.skipIf(!administrativeUrl)("event mapping destination echo columns", () => {
   beforeAll(async () => {
     await withAdministrativeClient(async (client) => {
       await client.query(`DROP DATABASE IF EXISTS "${scratchName}"`);
@@ -98,6 +103,12 @@ describe("event mapping destination echo columns", () => {
         column_default: null,
         column_name: "remoteEchoAt",
         data_type: "timestamp without time zone",
+        is_nullable: "YES",
+      },
+      {
+        column_default: null,
+        column_name: "remoteRejectedContentHash",
+        data_type: "text",
         is_nullable: "YES",
       },
     ]);

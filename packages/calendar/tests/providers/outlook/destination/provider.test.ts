@@ -138,6 +138,45 @@ describe("createOutlookSyncProvider", () => {
     expect(requestUrl.searchParams.get("$filter")).not.toContain("start/dateTime le");
   });
 
+  /*
+   * Graph renders the same stored note as HTML or text depending on the Prefer header,
+   * so a create response read under a different preference than the listing would look
+   * like a divergence on the very next run and replace a mirror that never changed.
+   */
+  it("reports created content under the same body preference the listing uses", async () => {
+    const event = createEvent();
+    const created = {
+      body: { content: "Body", contentType: "text" },
+      iCalUId: "ical-uid-1",
+      id: "graph-event-id-1",
+      isAllDay: false,
+      showAs: "busy",
+      start: { dateTime: event.startTime.toISOString(), timeZone: "UTC" },
+      end: { dateTime: event.endTime.toISOString(), timeZone: "UTC" },
+      subject: "Meeting rewritten by Graph",
+    };
+    const fetchMock = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(Response.json(created, { status: 201 }));
+      }
+      return Promise.resolve(Response.json({
+        value: [{ ...created, categories: [KEEPER_CATEGORY] }],
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createProvider();
+    const [pushResult] = await provider.pushEvents([event]);
+    const [listed] = await provider.listRemoteEvents({
+      timeMin: new Date("2026-07-10T00:00:00.000Z"),
+    });
+
+    expect(pushResult?.editableContentHash).toBe(listed?.editableContentHash);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: { Prefer: `outlook.body-content-type="text"` },
+    });
+  });
+
   it("pages through far-future Keeper events without a future cutoff", async () => {
     const timeMin = new Date("2026-07-10T00:00:00.000Z");
     const nextLink = "https://graph.microsoft.com/v1.0/me/events?$skiptoken=page-2";

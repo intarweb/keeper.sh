@@ -4,6 +4,7 @@ import {
   outlookEventListSchema,
   outlookEventSchema,
 } from "@keeper.sh/data-schemas";
+import type { OutlookEvent } from "@keeper.sh/data-schemas";
 import type {
   DeleteResult,
   ListRemoteEventsOptions,
@@ -74,6 +75,8 @@ const readGraphErrorMessage = async (response: Response): Promise<string> => {
   }
 };
 
+const TEXT_BODY_PREFERENCE = 'outlook.body-content-type="text"';
+
 const parseRemoteAvailability = (
   showAs: string | undefined,
 ): MaterializedSyncableEvent["availability"] => {
@@ -81,6 +84,29 @@ const parseRemoteAvailability = (
     return showAs;
   }
   return "busy";
+};
+
+/*
+ * The single place a Graph event resource becomes an editable-content hash, shared by
+ * the read-back and the create response so the two are comparable by construction. Both
+ * requests ask for a plain-text body, because Graph otherwise renders the same stored
+ * note as HTML on one endpoint and text on the other.
+ */
+const readOutlookEditableContentHash = (event: OutlookEvent): string | null => {
+  const startTime = parseEventTime(event.start, event.isAllDay);
+  const endTime = parseEventTime(event.end, event.isAllDay);
+  if (!startTime || !endTime) {
+    return null;
+  }
+  return createEditableEventContentHash({
+    availability: parseRemoteAvailability(event.showAs),
+    description: event.body?.content,
+    endTime,
+    isAllDay: event.isAllDay,
+    location: event.location?.displayName,
+    startTime,
+    summary: event.subject ?? "",
+  });
 };
 
 const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
@@ -99,6 +125,7 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
   const getHeaders = (): Record<string, string> => ({
     Authorization: `Bearer ${tokenState.accessToken}`,
     "Content-Type": "application/json",
+    Prefer: TEXT_BODY_PREFERENCE,
   });
 
   const calendarEventsUrl = `${MICROSOFT_GRAPH_API}/me/calendars/${encodeURIComponent(config.externalCalendarId)}/events`;
@@ -170,7 +197,13 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
 
         const body = await response.json();
         const created = outlookEventSchema.assert(body);
-        results.push({ deleteId: created.id, remoteId: created.iCalUId ?? created.id, success: true });
+        const editableContentHash = readOutlookEditableContentHash(created);
+        results.push({
+          deleteId: created.id,
+          remoteId: created.iCalUId ?? created.id,
+          success: true,
+          ...(editableContentHash !== null && { editableContentHash }),
+        });
       } catch (error) {
         if (config.signal?.aborted) {
           throw error;
@@ -250,7 +283,7 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
       const response = await sendRequestWithRetry(url, {
         headers: {
           Authorization: `Bearer ${tokenState.accessToken}`,
-          Prefer: `outlook.body-content-type="text"`,
+          Prefer: TEXT_BODY_PREFERENCE,
         },
         method: "GET",
       });
@@ -270,19 +303,11 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
           continue;
         }
 
-        const availability = parseRemoteAvailability(event.showAs);
+        const editableContentHash = readOutlookEditableContentHash(event);
         remoteEvents.push({
           deleteId: event.id,
-          editableAvailability: availability,
-          editableContentHash: createEditableEventContentHash({
-            availability,
-            description: event.body?.content,
-            endTime,
-            isAllDay: event.isAllDay,
-            location: event.location?.displayName,
-            startTime,
-            summary: event.subject ?? "",
-          }),
+          editableAvailability: parseRemoteAvailability(event.showAs),
+          ...(editableContentHash !== null && { editableContentHash }),
           endTime,
           isKeeperEvent: event.categories?.includes(KEEPER_CATEGORY) ?? false,
           supportedAvailabilities: ["busy", "free", "oof", "workingElsewhere"],

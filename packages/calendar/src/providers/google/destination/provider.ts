@@ -9,7 +9,8 @@ import type {
   PushResult,
   RemoteEvent,
 } from "../../../core/types";
-import { googleApiErrorSchema, googleEventListSchema } from "@keeper.sh/data-schemas";
+import { googleApiErrorSchema, googleEventListSchema, googleEventSchema } from "@keeper.sh/data-schemas";
+import type { GoogleEvent } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, PROVIDER_PUSH_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GOOGLE_CALENDAR_MAX_RESULTS, GONE_STATUS } from "../shared/api";
@@ -65,13 +66,56 @@ const getImportedEventId = (body: unknown): string | null => {
   return body.id;
 };
 
+const resolveGoogleAvailability = (
+  transparency?: string,
+): MaterializedSyncableEvent["availability"] => {
+  if (transparency === "transparent") {
+    return "free";
+  }
+  return "busy";
+};
+
+/*
+ * The single place a Google event resource becomes an editable-content hash, shared by
+ * the read-back and the import response so the two are comparable by construction.
+ */
+const readGoogleEditableContentHash = (event: GoogleEvent): string | null => {
+  const startTime = parseEventTime(event.start);
+  const endTime = parseEventTime(event.end);
+  if (!startTime || !endTime) {
+    return null;
+  }
+  return createEditableEventContentHash({
+    availability: resolveGoogleAvailability(event.transparency),
+    description: event.description,
+    endTime,
+    isAllDay: Boolean(event.start?.date),
+    location: event.location,
+    startTime,
+    summary: event.summary ?? "",
+  });
+};
+
+const readImportedEditableContentHash = (body: unknown): string | null => {
+  if (!googleEventSchema.allows(body)) {
+    return null;
+  }
+  return readGoogleEditableContentHash(googleEventSchema.assert(body));
+};
+
 const createImportResult = (
   deleteId: string | null,
   remoteId: string,
   statusCode: number,
+  editableContentHash: string | null,
 ): PushResult => {
   if (deleteId) {
-    return { deleteId, remoteId, success: true };
+    return {
+      deleteId,
+      remoteId,
+      success: true,
+      ...(editableContentHash !== null && { editableContentHash }),
+    };
   }
   return {
     error: "Google import response is missing the event ID",
@@ -225,6 +269,7 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
           deleteId,
           entry.uid,
           response.statusCode,
+          readImportedEditableContentHash(response.body),
         );
       } else {
         results[entry.index] = {
@@ -404,22 +449,11 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
       if (!startTime || !endTime) {
         continue;
       }
-      let availability: MaterializedSyncableEvent["availability"] = "busy";
-      if (event.transparency === "transparent") {
-        availability = "free";
-      }
+      const editableContentHash = readGoogleEditableContentHash(event);
       items.push({
         deleteId: event.id ?? event.iCalUID,
-        editableAvailability: availability,
-        editableContentHash: createEditableEventContentHash({
-          availability,
-          description: event.description,
-          endTime,
-          isAllDay: Boolean(event.start?.date),
-          location: event.location,
-          startTime,
-          summary: event.summary ?? "",
-        }),
+        editableAvailability: resolveGoogleAvailability(event.transparency),
+        ...(editableContentHash !== null && { editableContentHash }),
         endTime,
         isKeeperEvent: true,
         supportedAvailabilities: ["busy", "free"],

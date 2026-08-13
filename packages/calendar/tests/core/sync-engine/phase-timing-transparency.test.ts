@@ -114,6 +114,7 @@ const makeMapping = (
   overrides: Partial<EventMapping> = {},
 ): EventMapping => ({
   calendarId: "dest-cal-1",
+  remoteRejectedContentHash: null,
   deleteIdentifier: `remote-${event.id}`,
   destinationEventUid: `remote-${event.id}`,
   endTime: event.endTime,

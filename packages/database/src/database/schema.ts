@@ -303,11 +303,20 @@ const eventMappingsTable = pgTable(
     eventStateId: uuid()
       .references(() => eventStatesTable.id, { onDelete: "set null" }),
     id: uuid().notNull().primaryKey().defaultRandom(),
-    // The destination's own read-back of the content it stored, and when it was observed.
-    // Null means no observation, which reconciliation reads as "re-learn", never "replace".
+    /*
+     * The destination's account of the content it holds, and when a read-back last
+     * confirmed it. A null hash means no account, which reconciliation reads as "compare
+     * against the source"; a null instant means the destination claimed the hash in a
+     * write response but no read-back has reproduced it yet.
+     */
     remoteContentHash: text(),
     remoteEchoAlgorithm: text(),
     remoteEchoAt: timestamp(),
+    /*
+     * The read-back this mapping's predecessor was replaced for. A read-back that repeats
+     * it after the fresh push is the destination rendering its own stored copy, not an edit.
+     */
+    remoteRejectedContentHash: text(),
     syncEventId: text(),
     syncEventHash: text(),
     // Nullable for rolling compatibility with writers from before this column existed.

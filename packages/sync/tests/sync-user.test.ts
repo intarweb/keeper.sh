@@ -290,6 +290,7 @@ describe("createDestinationReconciliationScope", () => {
     remoteContentHash: null,
     remoteEchoAlgorithm: null,
     remoteEchoAt: null,
+    remoteRejectedContentHash: null,
     sourceCalendarId: SOURCE_CALENDAR_ID,
     startTime: new Date(`2026-03-0${index}T14:00:00.000Z`),
     syncEventHash: `hash-${index}`,

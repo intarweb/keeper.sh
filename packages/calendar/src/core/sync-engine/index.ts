@@ -158,6 +158,8 @@ const processAddResults = (
       destinationEventUid: pushResult.remoteId,
       deleteIdentifier: pushResult.deleteId ?? pushResult.remoteId,
       syncEventHash: createSyncEventContentHash(operation.event),
+      remoteContentHash: pushResult.editableContentHash ?? null,
+      remoteRejectedContentHash: operation.rejectedContentHash ?? null,
       startTime: operation.event.startTime,
       endTime: operation.event.endTime,
     });
@@ -429,6 +431,8 @@ const executeReplacements = async (
           event: replacement.event,
           staleMappingId: replacement.staleMappingId,
           type: "add",
+          ...(replacement.rejectedContentHash
+            && { rejectedContentHash: replacement.rejectedContentHash }),
         });
       }
     }
@@ -642,11 +646,12 @@ const appendEchoFields = (
   event["echo.mode"] = config.mode;
   event["echo.adopted_count"] = adoptedCount;
   event["echo.adoption_local_divergence_count"] = counts.adoptionLocalDivergenceCount;
+  event["echo.avoided_content_changed_count"] = counts.avoidedContentChangedCount;
   event["echo.content_changed_count"] = counts.contentChangedCount;
   event["echo.eligible_count"] = counts.eligibleCount;
   event["echo.legacy_content_changed_count"] = counts.legacyContentChangedCount;
   event["echo.missing_count"] = counts.missingCount;
-  event["echo.stale_count"] = counts.staleCount;
+  event["echo.unconfirmed_count"] = counts.unconfirmedCount;
 };
 
 const appendThrottleFields = (
@@ -740,10 +745,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       reconciliationScope,
       {
         maxAdoptionsPerRun: echoConfig.maxAdoptionsPerRun,
-        maxAgeMs: echoConfig.maxAgeMs,
         mode: echoConfig.mode,
-        now: observedAt,
-        repairOnAdopt: echoConfig.repairOnAdopt,
       },
     ));
 

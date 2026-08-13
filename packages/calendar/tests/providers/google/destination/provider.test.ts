@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGoogleSyncProvider } from "../../../../src/providers/google/destination/provider";
 import { computeSyncOperations } from "../../../../src/core/sync/operations";
-import { createSyncEventContentHash } from "../../../../src/core/events/content-hash";
+import {
+  createEditableEventContentHash,
+  createSyncEventContentHash,
+} from "../../../../src/core/events/content-hash";
 import type { MaterializedSyncableEvent } from "../../../../src/core/types";
 import type { RedisRateLimiter } from "../../../../src/core/utils/redis-rate-limiter";
 
@@ -73,6 +76,52 @@ describe("createGoogleSyncProvider", () => {
     });
   });
 
+  /*
+   * Google's import response is the stored resource. Hashing it through the same
+   * extraction the read-back uses is what lets reconciliation tell a rewrite Google
+   * performed from an edit a guest made afterwards.
+   */
+  it("reports the content Google says it stored, hashed as a read-back would be", async () => {
+    const event: MaterializedSyncableEvent = {
+      calendarId: "source-calendar",
+      calendarName: "Source",
+      calendarUrl: null,
+      description: "Body",
+      endTime: new Date("2026-03-15T10:00:00Z"),
+      id: "event-state-id",
+      sourceEventUid: "source-event-uid",
+      startTime: new Date("2026-03-15T09:00:00Z"),
+      summary: "Meeting",
+    };
+    const storedResource = {
+      description: "<div>Body</div>",
+      end: { dateTime: event.endTime.toISOString() },
+      id: "google-event-id",
+      start: { dateTime: event.startTime.toISOString() },
+      summary: "Meeting",
+    };
+    batchMocks.executeBatchChunked.mockResolvedValueOnce([
+      batchResponse(200, storedResource),
+    ]);
+
+    const provider = createProvider();
+    const [pushResult] = await provider.pushEvents([event]);
+    if (!pushResult?.success || !pushResult.remoteId) {
+      throw new Error("Expected a successful Google import");
+    }
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({
+      items: [{ ...storedResource, iCalUID: pushResult.remoteId }],
+    }, { status: 200 }))));
+    const [listed] = await provider.listRemoteEvents({
+      timeMin: new Date("2026-03-01T00:00:00.000Z"),
+    });
+
+    expect(pushResult.editableContentHash).toBe(listed?.editableContentHash);
+    expect(pushResult.editableContentHash).not.toBe(
+      createEditableEventContentHash(event),
+    );
+  });
+
   it("converges when import and listing use Google's two different identifiers", async () => {
     const event: MaterializedSyncableEvent = {
       calendarId: "source-calendar",
@@ -115,6 +164,7 @@ describe("createGoogleSyncProvider", () => {
       remoteContentHash: null,
       remoteEchoAlgorithm: null,
       remoteEchoAt: null,
+      remoteRejectedContentHash: null,
       sourceCalendarId: "source-cal-1",
       startTime: event.startTime,
       syncEventHash: createSyncEventContentHash(event),

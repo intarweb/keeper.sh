@@ -80,6 +80,7 @@ const createHarness = () => {
         remoteContentHash: null,
         remoteEchoAlgorithm: null,
         remoteEchoAt: null,
+        remoteRejectedContentHash: null,
         id: `mapping-${mappings.length}`,
         sourceCalendarId: insert.sourceCalendarId,
         startTime: insert.startTime,

@@ -24,6 +24,8 @@ interface PendingInsert {
   destinationEventUid: string;
   deleteIdentifier: string;
   syncEventHash: string | null;
+  remoteContentHash: string | null;
+  remoteRejectedContentHash: string | null;
   startTime: Date;
   endTime: Date;
 }

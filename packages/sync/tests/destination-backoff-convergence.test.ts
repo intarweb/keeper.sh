@@ -39,6 +39,7 @@ const applyPendingChanges = (changes: PendingChanges): void => {
       remoteContentHash: null,
       remoteEchoAlgorithm: null,
       remoteEchoAt: null,
+      remoteRejectedContentHash: null,
     });
   }
   for (const update of changes.updates ?? []) {
@@ -133,6 +134,7 @@ const makeMapping = (
   remoteContentHash: null,
   remoteEchoAlgorithm: null,
   remoteEchoAt: null,
+  remoteRejectedContentHash: null,
   sourceCalendarId: SOURCE_ID,
   startTime: event.startTime,
   syncEventHash: createSyncEventContentHash(event),

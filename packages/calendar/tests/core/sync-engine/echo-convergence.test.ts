@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { syncCalendar } from "../../../src/core/sync-engine/index";
-import type { CalendarSyncProvider, PendingChanges } from "../../../src/core/sync-engine/types";
+import type {
+  CalendarSyncProvider,
+  PendingChanges,
+  PendingInsert,
+} from "../../../src/core/sync-engine/types";
 import type { EchoAdoption } from "../../../src/core/sync/operations";
 import { EDITABLE_CONTENT_ECHO_ALGORITHM } from "../../../src/core/events/content-hash";
 import { createEditableEventContentHash } from "../../../src/core/events/content-hash";
@@ -35,9 +39,17 @@ const storeLossily = (event: MaterializedSyncableEvent): MaterializedSyncableEve
   description: `<div>${event.description ?? ""}</div>`,
 });
 
+const resolveEchoAlgorithm = (insert: PendingInsert): string | null => {
+  if (insert.remoteContentHash === null && insert.remoteRejectedContentHash === null) {
+    return null;
+  }
+  return EDITABLE_CONTENT_ECHO_ALGORITHM;
+};
+
 const createHarness = (options: {
   adoptionEnabled?: boolean;
   failAdoption?: boolean;
+  listRewrite?: (remote: RemoteEvent) => RemoteEvent;
   mode?: "off" | "shadow" | "on";
 } = {}) => {
   const mappings: EventMapping[] = [];
@@ -59,6 +71,9 @@ const createHarness = (options: {
   };
   let nextRemoteId = 0;
 
+  const listedRemoteEvents = (): RemoteEvent[] =>
+    remoteEvents.map((remote) => options.listRewrite?.(remote) ?? remote);
+
   const provider: CalendarSyncProvider = {
     deleteEvents: (eventIds) => {
       for (const eventId of eventIds) {
@@ -70,7 +85,7 @@ const createHarness = (options: {
       }
       return Promise.resolve(eventIds.map(() => ({ success: true })));
     },
-    listRemoteEvents: () => Promise.resolve([...remoteEvents]),
+    listRemoteEvents: () => Promise.resolve(listedRemoteEvents()),
     pushEvents: (events) => Promise.resolve(events.map((event) => {
       const remoteId = `remote-${nextRemoteId}`;
       nextRemoteId += 1;
@@ -86,7 +101,12 @@ const createHarness = (options: {
         supportedAvailabilities: ["busy", "free"],
         uid: remoteId,
       });
-      return { deleteId: remoteId, remoteId, success: true };
+      return {
+        deleteId: remoteId,
+        editableContentHash: createEditableEventContentHash(stored),
+        remoteId,
+        success: true,
+      };
     })),
   };
 
@@ -105,9 +125,10 @@ const createHarness = (options: {
         endTime: insert.endTime,
         eventStateId: insert.eventStateId,
         id: `mapping-${nextRemoteId}-${mappings.length}`,
-        remoteContentHash: null,
-        remoteEchoAlgorithm: null,
+        remoteContentHash: insert.remoteContentHash,
+        remoteEchoAlgorithm: resolveEchoAlgorithm(insert),
         remoteEchoAt: null,
+        remoteRejectedContentHash: insert.remoteRejectedContentHash,
         sourceCalendarId: insert.sourceCalendarId,
         startTime: insert.startTime,
         syncEventHash: insert.syncEventHash,
@@ -136,6 +157,7 @@ const createHarness = (options: {
         mapping.remoteContentHash = adoption.contentHash;
         mapping.remoteEchoAlgorithm = EDITABLE_CONTENT_ECHO_ALGORITHM;
         mapping.remoteEchoAt = recordedAt;
+        mapping.remoteRejectedContentHash = null;
       }
     }
     return Promise.resolve();
@@ -147,9 +169,7 @@ const createHarness = (options: {
     echoConfig: {
       adoptionEnabled: options.adoptionEnabled ?? true,
       maxAdoptionsPerRun: 2000,
-      maxAgeMs: 86_400_000,
       mode: options.mode ?? "on",
-      repairOnAdopt: false,
     },
     flush,
     isCurrent: () => Promise.resolve(true),
@@ -158,7 +178,7 @@ const createHarness = (options: {
     readState: () => Promise.resolve({
       existingMappings: [...mappings],
       localEvents: [localEvent],
-      remoteEvents: [...remoteEvents],
+      remoteEvents: listedRemoteEvents(),
     }),
     reconciliationScope: TEST_RECONCILIATION_SCOPE,
     userId: "user-1",
@@ -198,6 +218,34 @@ describe("syncCalendar destination echo", () => {
     expect(fourth.added).toBe(0);
     expect(fourth.removed).toBe(0);
     expect(harness.remoteEvents[0]?.uid).toBe("remote-0");
+  });
+
+  /*
+   * A destination whose write response and listing render the same stored copy
+   * differently cannot be told from a guest edit on the first read-back, so it costs one
+   * correction -- and then the read-back that survived that push identifies itself.
+   */
+  it("settles after one correction when the listing contradicts the write response", async () => {
+    const harness = createHarness({
+      listRewrite: (remote) => ({
+        ...remote,
+        editableContentHash: createEditableEventContentHash({
+          description: "Listed differently",
+          summary: "Standup",
+        }),
+      }),
+    });
+
+    const first = await harness.runSync();
+    const second = await harness.runSync();
+    const third = await harness.runSync();
+    const fourth = await harness.runSync();
+
+    expect(first.added).toBe(1);
+    expect(second.added).toBe(1);
+    expect(third.added).toBe(0);
+    expect(fourth.added).toBe(0);
+    expect(harness.remoteEvents).toHaveLength(1);
   });
 
   it("keeps replacing the same mirror forever with the comparison off", async () => {
@@ -241,12 +289,13 @@ describe("syncCalendar destination echo", () => {
     expect(wideEvent).toMatchObject({
       "echo.adopted_count": 0,
       "echo.adoption_local_divergence_count": 0,
+      "echo.avoided_content_changed_count": 0,
       "echo.content_changed_count": 0,
       "echo.eligible_count": 0,
       "echo.legacy_content_changed_count": 0,
       "echo.missing_count": 0,
       "echo.mode": "on",
-      "echo.stale_count": 0,
+      "echo.unconfirmed_count": 0,
     });
   });
 
@@ -260,7 +309,8 @@ describe("syncCalendar destination echo", () => {
     expect(harness.syncEvents.at(-1)).toMatchObject({
       "echo.adopted_count": 0,
       "echo.eligible_count": 1,
-      "echo.missing_count": 1,
+      "echo.missing_count": 0,
+      "echo.unconfirmed_count": 1,
     });
   });
 

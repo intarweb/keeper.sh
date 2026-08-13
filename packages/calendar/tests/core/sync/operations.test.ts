@@ -22,6 +22,7 @@ import type {
 
 const createEventMapping = (overrides: Partial<EventMapping>): EventMapping => ({
   calendarId: "destination-calendar-id",
+  remoteRejectedContentHash: null,
   deleteIdentifier: "delete-identifier-1",
   destinationEventUid: "destination-uid-1",
   endTime: new Date("2026-03-08T15:00:00.000Z"),
@@ -72,11 +73,12 @@ const EMPTY_STALE_REASON_COUNTS = {
 const EMPTY_ECHO_COUNTS = {
   adoptedCount: 0,
   adoptionLocalDivergenceCount: 0,
+  avoidedContentChangedCount: 0,
   contentChangedCount: 0,
   eligibleCount: 0,
   legacyContentChangedCount: 0,
   missingCount: 0,
-  staleCount: 0,
+  unconfirmedCount: 0,
 };
 
 const TEST_WINDOW = {
@@ -655,6 +657,7 @@ describe("computeSyncOperations", () => {
     expect(result.operations).toEqual([{
         deleteId: mapping.deleteIdentifier,
         event,
+        rejectedContentHash: editedRemote.editableContentHash,
         staleMappingId: mapping.id,
         type: "replace",
         uid: mapping.destinationEventUid,

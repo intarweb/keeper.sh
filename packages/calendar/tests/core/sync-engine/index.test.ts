@@ -11,6 +11,7 @@ import type { PendingChanges } from "../../../src/core/sync-engine/types";
 import {
   createEditableEventContentHash,
   createSyncEventContentHash,
+  EDITABLE_CONTENT_ECHO_ALGORITHM,
 } from "../../../src/core/events/content-hash";
 import { RecurrenceMaterializationLimitError } from "../../../src/core/events/recurrence-materializer";
 
@@ -48,6 +49,7 @@ const makeMapping = (id: string, eventStateId: string, destinationEventUid: stri
   remoteContentHash: null,
   remoteEchoAlgorithm: null,
   remoteEchoAt: null,
+  remoteRejectedContentHash: null,
   eventStateId,
   syncEventId: eventStateId,
   calendarId: "dest-cal-1",
@@ -1212,6 +1214,7 @@ describe("createDatabaseFlush", () => {
         sourceCalendarId: "source-cal-1",
         syncEventId: "ev-1",
         deleteIdentifier: "remote-1", syncEventHash: null,
+        remoteContentHash: null, remoteRejectedContentHash: null,
         startTime: new Date("2026-03-15T09:00:00Z"), endTime: new Date("2026-03-15T10:00:00Z"),
       }],
       deletes: ["map-1", "map-2"],
@@ -1301,6 +1304,7 @@ describe("createDatabaseFlush", () => {
         sourceCalendarId: "source-cal-1",
         syncEventId: "ev-1",
         deleteIdentifier: "remote-1", syncEventHash: null,
+        remoteContentHash: null, remoteRejectedContentHash: null,
         startTime: new Date("2026-03-15T09:00:00Z"), endTime: new Date("2026-03-15T10:00:00Z"),
       }],
       deletes: [],
@@ -1385,6 +1389,7 @@ describe("createDatabaseFlush", () => {
       sourceCalendarId: "source-cal-1",
       syncEventId: `ev-${idx}`,
       deleteIdentifier: `remote-${idx}`, syncEventHash: null,
+      remoteContentHash: null, remoteRejectedContentHash: null,
       startTime: new Date("2026-03-15T09:00:00Z"), endTime: new Date("2026-03-15T10:00:00Z"),
     }));
 
@@ -1422,6 +1427,7 @@ describe("createDatabaseFlush", () => {
           sourceCalendarId: "source-cal-1",
           syncEventId: "ev-1",
           deleteIdentifier: "remote-1", syncEventHash: null,
+          remoteContentHash: "pushed-hash", remoteRejectedContentHash: "rejected-hash",
           startTime: new Date("2026-03-15T09:00:00Z"), endTime: new Date("2026-03-15T10:00:00Z"),
         },
         {
@@ -1429,6 +1435,7 @@ describe("createDatabaseFlush", () => {
           sourceCalendarId: "source-cal-1",
           syncEventId: "ev-2",
           deleteIdentifier: "remote-2", syncEventHash: null,
+          remoteContentHash: null, remoteRejectedContentHash: null,
           startTime: new Date("2026-03-16T09:00:00Z"), endTime: new Date("2026-03-16T10:00:00Z"),
         },
       ],
@@ -1437,5 +1444,19 @@ describe("createDatabaseFlush", () => {
 
     expect(insertCallCount).toBe(1);
     expect(valuesReceived).toHaveLength(2);
+    /*
+     * The destination's account of a brand new mirror only survives if it is written with
+     * the mapping itself; learning it later cannot tell a rewrite from an edit made since.
+     */
+    expect(valuesReceived[0]).toMatchObject({
+      remoteContentHash: "pushed-hash",
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteRejectedContentHash: "rejected-hash",
+    });
+    expect(valuesReceived[1]).toMatchObject({
+      remoteContentHash: null,
+      remoteEchoAlgorithm: null,
+      remoteRejectedContentHash: null,
+    });
   });
 });

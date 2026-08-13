@@ -50,6 +50,7 @@ const createLocalEvent = (
 
 const createEventMapping = (overrides: Partial<EventMapping> = {}): EventMapping => ({
   calendarId: "destination-calendar-id",
+  remoteRejectedContentHash: null,
   deleteIdentifier: "delete-identifier-1",
   destinationEventUid: "destination-uid-1",
   endTime: new Date("2026-03-08T15:00:00.000Z"),
@@ -80,10 +81,7 @@ const createEchoOptions = (
   overrides: Partial<EchoReconciliationOptions> = {},
 ): EchoReconciliationOptions => ({
   maxAdoptionsPerRun: 2000,
-  maxAgeMs: ONE_DAY_MS,
   mode: "on",
-  now: NOW,
-  repairOnAdopt: false,
   ...overrides,
 });
 
@@ -118,6 +116,7 @@ const applyAdoptions = (
       remoteContentHash: adoption.contentHash,
       remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
       remoteEchoAt: recordedAt,
+      remoteRejectedContentHash: null,
     };
   });
 };
@@ -137,11 +136,13 @@ const rewriteContent = (event: MaterializedSyncableEvent): string =>
   });
 
 describe("read-back echo comparison", () => {
-  it("converges after one cycle against a provider that rewrites content", () => {
+  it("never replaces a mirror whose rewrite the destination reported when we pushed", () => {
     const localEvent = createLocalEvent();
     const rewrittenHash = rewriteContent(localEvent);
     const remoteEvent = createRemoteEvent({ editableContentHash: rewrittenHash });
     let mappings = [createEventMapping({
+      remoteContentHash: rewrittenHash,
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
       syncEventHash: createSyncEventContentHash(localEvent),
     })];
 
@@ -153,17 +154,16 @@ describe("read-back echo comparison", () => {
     ]);
     expect(first.echoCounts).toMatchObject({
       adoptionLocalDivergenceCount: 1,
+      avoidedContentChangedCount: 1,
       eligibleCount: 1,
       legacyContentChangedCount: 1,
-      missingCount: 1,
-      staleCount: 0,
+      missingCount: 0,
+      unconfirmedCount: 1,
     });
 
     mappings = applyAdoptions(mappings, first.adoptionIntents, NOW);
 
-    const second = compute([localEvent], mappings, [remoteEvent], {
-      now: new Date(NOW.getTime() + ONE_HOUR_MS),
-    });
+    const second = compute([localEvent], mappings, [remoteEvent]);
     expect(second.operations).toHaveLength(0);
     expect(second.adoptionIntents).toHaveLength(0);
     expect(second.echoCounts).toMatchObject({
@@ -173,11 +173,60 @@ describe("read-back echo comparison", () => {
       missingCount: 0,
     });
 
-    const third = compute([localEvent], mappings, [remoteEvent], {
-      now: new Date(NOW.getTime() + 2 * ONE_HOUR_MS),
-    });
+    const third = compute([localEvent], mappings, [remoteEvent]);
     expect(third.operations).toHaveLength(0);
     expect(third.adoptionIntents).toHaveLength(0);
+  });
+
+  /*
+   * A mapping written before the destination's account was recorded cannot tell a
+   * rewrite from an edit, so it is repaired against the source exactly as it always
+   * was. The replacement carries the read-back it rejected, which is what lets the
+   * next run recognise the same rewrite instead of repairing it again.
+   */
+  it("repairs a mapping with no recorded echo and remembers what it rejected", () => {
+    const localEvent = createLocalEvent();
+    const rewrittenHash = rewriteContent(localEvent);
+    const remoteEvent = createRemoteEvent({ editableContentHash: rewrittenHash });
+    const mapping = createEventMapping({
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const result = compute([localEvent], [mapping], [remoteEvent]);
+
+    expect(result.staleReasonCounts.remoteContentChanged).toBe(1);
+    expect(result.operations).toEqual([expect.objectContaining({
+      rejectedContentHash: rewrittenHash,
+      staleMappingId: "mapping-id-1",
+      type: "replace",
+    })]);
+    expect(result.adoptionIntents).toHaveLength(0);
+    expect(result.echoCounts).toMatchObject({
+      contentChangedCount: 1,
+      missingCount: 1,
+    });
+  });
+
+  it("accepts the rejected read-back when it survives a fresh push", () => {
+    const localEvent = createLocalEvent();
+    const rewrittenHash = rewriteContent(localEvent);
+    const mapping = createEventMapping({
+      remoteContentHash: createEditableEventContentHash(localEvent),
+      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
+      remoteRejectedContentHash: rewrittenHash,
+      syncEventHash: createSyncEventContentHash(localEvent),
+    });
+
+    const result = compute(
+      [localEvent],
+      [mapping],
+      [createRemoteEvent({ editableContentHash: rewrittenHash })],
+    );
+
+    expect(countReplacements(result.operations)).toBe(0);
+    expect(result.adoptionIntents).toEqual([
+      { contentHash: rewrittenHash, mappingId: "mapping-id-1" },
+    ]);
   });
 
   it("still replaces when the source event itself changed", () => {
@@ -217,9 +266,7 @@ describe("read-back echo comparison", () => {
       }),
     });
 
-    const result = compute([localEvent], [mapping], [editedRemote], {
-      now: new Date(NOW.getTime() + ONE_HOUR_MS),
-    });
+    const result = compute([localEvent], [mapping], [editedRemote]);
 
     expect(countReplacements(result.operations)).toBe(1);
     expect(result.staleReasonCounts.remoteContentChanged).toBe(1);
@@ -227,37 +274,32 @@ describe("read-back echo comparison", () => {
     expect(result.adoptionIntents).toHaveLength(0);
   });
 
-  it("re-observes rather than replacing once an echo passes the age bound", () => {
+  /*
+   * An echo does not decay: age is not evidence about the destination, so an old echo
+   * the read-back still reproduces settles the mapping and an old echo it contradicts
+   * is a divergence to repair, exactly as a recent one would be.
+   */
+  it("keeps trusting an old echo the read-back still reproduces", () => {
     const localEvent = createLocalEvent();
-    const driftedHash = createEditableEventContentHash({
-      ...localEvent,
-      summary: "Drifted away from its source",
-    });
+    const rewrittenHash = rewriteContent(localEvent);
     const mapping = createEventMapping({
-      remoteContentHash: rewriteContent(localEvent),
+      remoteContentHash: rewrittenHash,
       remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
-      remoteEchoAt: new Date(NOW.getTime() - 2 * ONE_DAY_MS),
+      remoteEchoAt: new Date(NOW.getTime() - 30 * ONE_DAY_MS),
       syncEventHash: createSyncEventContentHash(localEvent),
     });
 
     const result = compute(
       [localEvent],
       [mapping],
-      [createRemoteEvent({ editableContentHash: driftedHash })],
+      [createRemoteEvent({ editableContentHash: rewrittenHash })],
     );
 
     expect(countReplacements(result.operations)).toBe(0);
-    expect(result.adoptionIntents).toEqual([
-      { contentHash: driftedHash, mappingId: "mapping-id-1" },
-    ]);
-    expect(result.echoCounts).toMatchObject({
-      adoptionLocalDivergenceCount: 1,
-      missingCount: 0,
-      staleCount: 1,
-    });
+    expect(result.adoptionIntents).toHaveLength(0);
   });
 
-  it("repairs an aged divergent echo only when repair on adopt is enabled", () => {
+  it("repairs an old echo the read-back contradicts", () => {
     const localEvent = createLocalEvent();
     const driftedHash = createEditableEventContentHash({
       ...localEvent,
@@ -274,7 +316,6 @@ describe("read-back echo comparison", () => {
       [localEvent],
       [mapping],
       [createRemoteEvent({ editableContentHash: driftedHash })],
-      { repairOnAdopt: true },
     );
 
     expect(countReplacements(result.operations)).toBe(1);
@@ -282,7 +323,7 @@ describe("read-back echo comparison", () => {
     expect(result.adoptionIntents).toHaveLength(0);
   });
 
-  it("produces no replacements for a fleet whose echoes all aged out", () => {
+  it("produces no replacements for a fleet whose echoes are all long stale but intact", () => {
     const localEvents: MaterializedSyncableEvent[] = [];
     const mappings: EventMapping[] = [];
     const remoteEvents: RemoteEvent[] = [];
@@ -294,10 +335,7 @@ describe("read-back echo comparison", () => {
         destinationEventUid: `uid-${index}`,
         eventStateId: `event-${index}`,
         id: `mapping-${index}`,
-        remoteContentHash: createEditableEventContentHash({
-          ...localEvent,
-          summary: `Long gone ${index}`,
-        }),
+        remoteContentHash: rewriteContent(localEvent),
         remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
         remoteEchoAt: new Date(NOW.getTime() - 7 * ONE_DAY_MS),
         syncEventHash: createSyncEventContentHash(localEvent),
@@ -313,11 +351,11 @@ describe("read-back echo comparison", () => {
     const result = compute(localEvents, mappings, remoteEvents);
 
     expect(result.operations).toHaveLength(0);
-    expect(result.adoptionIntents).toHaveLength(250);
-    expect(result.echoCounts.staleCount).toBe(250);
+    expect(result.adoptionIntents).toHaveLength(0);
+    expect(result.echoCounts.avoidedContentChangedCount).toBe(250);
   });
 
-  it("produces no replacements on a fleet that has never recorded an echo", () => {
+  it("repairs a fleet that has never recorded an echo exactly once", () => {
     const localEvents: MaterializedSyncableEvent[] = [];
     const mappings: EventMapping[] = [];
     const remoteEvents: RemoteEvent[] = [];
@@ -341,11 +379,19 @@ describe("read-back echo comparison", () => {
 
     const result = compute(localEvents, mappings, remoteEvents);
 
-    expect(result.operations).toHaveLength(0);
+    expect(countReplacements(result.operations)).toBe(250);
+    expect(result.operations.every((operation) =>
+      operation.type === "replace" && typeof operation.rejectedContentHash === "string"))
+      .toBe(true);
+    expect(result.adoptionIntents).toHaveLength(0);
     expect(result.echoCounts.missingCount).toBe(250);
     expect(result.echoCounts.eligibleCount).toBe(250);
   });
 
+  /*
+   * Bumping the algorithm identifier retires every recorded echo fleet-wide, so its
+   * holders are compared against their source again and cost one correction each.
+   */
   it("treats an echo written by another algorithm as absent", () => {
     const localEvent = createLocalEvent();
     const remoteHash = rewriteContent(localEvent);
@@ -362,11 +408,9 @@ describe("read-back echo comparison", () => {
       [createRemoteEvent({ editableContentHash: remoteHash })],
     );
 
-    expect(countReplacements(result.operations)).toBe(0);
+    expect(countReplacements(result.operations)).toBe(1);
     expect(result.echoCounts.missingCount).toBe(1);
-    expect(result.adoptionIntents).toEqual([
-      { contentHash: remoteHash, mappingId: "mapping-id-1" },
-    ]);
+    expect(result.adoptionIntents).toHaveLength(0);
   });
 
   it("orders adoption intents by mapping id and caps them per run", () => {
@@ -381,6 +425,8 @@ describe("read-back echo comparison", () => {
         destinationEventUid: `uid-${index}`,
         eventStateId: `event-${index}`,
         id: `mapping-${index}`,
+        remoteContentHash: rewriteContent(localEvent),
+        remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
         syncEventHash: createSyncEventContentHash(localEvent),
         syncEventId: `event-${index}`,
       }));
@@ -399,7 +445,7 @@ describe("read-back echo comparison", () => {
       "mapping-0",
       "mapping-1",
     ]);
-    expect(result.echoCounts.missingCount).toBe(5);
+    expect(result.echoCounts.unconfirmedCount).toBe(5);
   });
 
   it("keeps the availability comparison local while the echo is fresh and matching", () => {
@@ -501,29 +547,27 @@ describe("read-back echo comparison", () => {
 
   it("computes both verdicts in shadow mode while the legacy rule still drives", () => {
     const localEvent = createLocalEvent();
-    const localHash = createEditableEventContentHash(localEvent);
+    const rewrittenHash = rewriteContent(localEvent);
     const mapping = createEventMapping({
-      remoteContentHash: createEditableEventContentHash({
-        ...localEvent,
-        summary: "Recorded under a different observation",
-      }),
+      remoteContentHash: rewrittenHash,
       remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
       remoteEchoAt: NOW,
       syncEventHash: createSyncEventContentHash(localEvent),
     });
-    const remoteEvent = createRemoteEvent({ editableContentHash: localHash });
+    const remoteEvent = createRemoteEvent({ editableContentHash: rewrittenHash });
 
     const shadow = compute([localEvent], [mapping], [remoteEvent], {
       mode: "shadow",
     });
-    expect(countReplacements(shadow.operations)).toBe(0);
-    expect(shadow.staleReasonCounts.remoteContentChanged).toBe(0);
-    expect(shadow.echoCounts.contentChangedCount).toBe(1);
-    expect(shadow.echoCounts.legacyContentChangedCount).toBe(0);
+    expect(countReplacements(shadow.operations)).toBe(1);
+    expect(shadow.staleReasonCounts.remoteContentChanged).toBe(1);
+    expect(shadow.echoCounts.contentChangedCount).toBe(0);
+    expect(shadow.echoCounts.avoidedContentChangedCount).toBe(1);
+    expect(shadow.echoCounts.legacyContentChangedCount).toBe(1);
 
     const enabled = compute([localEvent], [mapping], [remoteEvent], { mode: "on" });
-    expect(countReplacements(enabled.operations)).toBe(1);
-    expect(enabled.staleReasonCounts.remoteContentChanged).toBe(1);
+    expect(countReplacements(enabled.operations)).toBe(0);
+    expect(enabled.staleReasonCounts.remoteContentChanged).toBe(0);
   });
 
   it("keeps the legacy rule driving in off mode while the echo would converge", () => {

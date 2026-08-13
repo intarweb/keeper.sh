@@ -43,7 +43,8 @@ const createDatabaseEchoAdoption = (database: BunSQLClient): EchoAdoptionWriter 
         update "event_mappings"
         set "remoteContentHash" = "adoption"."content_hash",
             "remoteEchoAlgorithm" = ${EDITABLE_CONTENT_ECHO_ALGORITHM}::text,
-            "remoteEchoAt" = ${observedAt}::timestamp
+            "remoteEchoAt" = ${observedAt}::timestamp,
+            "remoteRejectedContentHash" = null
         from (values ${sql.join(rows, sql`, `)}) as "adoption" ("id", "content_hash")
         where "event_mappings"."id" = "adoption"."id"
       `);

@@ -1,7 +1,8 @@
 import type { BunSQLClient } from "../database-client";
 import { eventMappingsTable } from "@keeper.sh/database/schema";
 import { eq, inArray } from "drizzle-orm";
-import type { PendingChanges } from "./types";
+import { EDITABLE_CONTENT_ECHO_ALGORITHM } from "../events/content-hash";
+import type { PendingChanges, PendingInsert } from "./types";
 
 const FLUSH_BATCH_SIZE = 5000;
 
@@ -11,6 +12,13 @@ const chunk = <TItem>(items: TItem[], size: number): TItem[][] => {
     chunks.push(items.slice(offset, offset + size));
   }
   return chunks;
+};
+
+const resolveEchoAlgorithm = (insert: PendingInsert): string | null => {
+  if (insert.remoteContentHash === null && insert.remoteRejectedContentHash === null) {
+    return null;
+  }
+  return EDITABLE_CONTENT_ECHO_ALGORITHM;
 };
 
 const createDatabaseFlush = (database: BunSQLClient): (changes: PendingChanges) => Promise<void> =>
@@ -42,6 +50,14 @@ const createDatabaseFlush = (database: BunSQLClient): (changes: PendingChanges) 
               destinationEventUid: insert.destinationEventUid,
               deleteIdentifier: insert.deleteIdentifier,
               syncEventHash: insert.syncEventHash,
+              /*
+               * Written with the mapping, in the same transaction as the row it
+               * describes: an echo learned later cannot tell a destination's own
+               * rendering from an edit made in the meantime.
+               */
+              remoteContentHash: insert.remoteContentHash,
+              remoteRejectedContentHash: insert.remoteRejectedContentHash,
+              remoteEchoAlgorithm: resolveEchoAlgorithm(insert),
               startTime: insert.startTime,
               endTime: insert.endTime,
             })),

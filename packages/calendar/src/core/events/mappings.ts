@@ -16,6 +16,7 @@ interface EventMapping {
   remoteContentHash: string | null;
   remoteEchoAlgorithm: string | null;
   remoteEchoAt: Date | null;
+  remoteRejectedContentHash: string | null;
   startTime: Date;
   endTime: Date;
 }
@@ -61,6 +62,7 @@ const getEventMappingsForDestination = async (
       remoteContentHash: eventMappingsTable.remoteContentHash,
       remoteEchoAlgorithm: eventMappingsTable.remoteEchoAlgorithm,
       remoteEchoAt: eventMappingsTable.remoteEchoAt,
+      remoteRejectedContentHash: eventMappingsTable.remoteRejectedContentHash,
       sourceCalendarId: eventMappingsTable.sourceCalendarId,
       syncEventId: eventMappingsTable.syncEventId,
       syncEventHash: eventMappingsTable.syncEventHash,

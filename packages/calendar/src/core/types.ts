@@ -80,6 +80,8 @@ interface PushResult {
   success: boolean;
   remoteId?: string;
   deleteId?: string;
+  // The destination's own account of the content it stored, hashed the way a read-back is.
+  editableContentHash?: string;
   error?: string;
   errorType?: string;
   statusCode?: number;
@@ -119,7 +121,12 @@ interface RemoteEvent {
 }
 
 type SyncOperation =
-  | { type: "add"; event: MaterializedSyncableEvent; staleMappingId?: string }
+  | {
+    type: "add";
+    event: MaterializedSyncableEvent;
+    staleMappingId?: string;
+    rejectedContentHash?: string;
+  }
   | { type: "remove"; uid: string; deleteId: string; startTime: Date }
   | {
     type: "replace";
@@ -127,6 +134,7 @@ type SyncOperation =
     staleMappingId: string;
     uid: string;
     deleteId: string;
+    rejectedContentHash?: string;
   };
 
 interface ListRemoteEventsOptions {

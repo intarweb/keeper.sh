@@ -220,6 +220,7 @@ class InMemoryMappingStore {
         remoteContentHash: null,
         remoteEchoAlgorithm: null,
         remoteEchoAt: null,
+        remoteRejectedContentHash: null,
       };
       this.mappings.set(mapping.id, mapping);
     }
@@ -482,6 +483,7 @@ it("migrates a legacy recurring Google mapping in place and converges", async ()
     remoteContentHash: null,
     remoteEchoAlgorithm: null,
     remoteEchoAt: null,
+    remoteRejectedContentHash: null,
     sourceCalendarId: SOURCE_CALENDAR_ID,
     startTime: occurrence.startTime,
     syncEventHash: "legacy-master-hash",
