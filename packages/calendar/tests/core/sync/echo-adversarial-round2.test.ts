@@ -234,12 +234,6 @@ class Harness {
           deleteIdentifier: update.deleteIdentifier,
           syncEventHash: update.syncEventHash,
           syncEventId: update.syncEventId,
-          ...(update.remoteEcho && {
-            remoteContentHash: update.remoteEcho.contentHash,
-            remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
-            remoteEchoAt: now,
-            remoteRejectedContentHash: null,
-          }),
         };
       });
     }
@@ -265,7 +259,6 @@ class Harness {
         remoteContentHash: hash,
         remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
         remoteEchoAt: now,
-        remoteRejectedContentHash: null,
       };
     });
   }
@@ -453,8 +446,12 @@ describe("recurring occurrences re-materialized against a lossy destination", ()
   });
 });
 
+/*
+ * The rejected read-back lives on the mapping row the replacement inserts, so convergence
+ * must not depend on the best-effort observation write landing at all.
+ */
 describe("rejected read-back retained when adoption is disabled", () => {
-  it("stops accepting the rejected read-back after the run that follows the repair", () => {
+  it("settles on the rejected read-back and still repairs one it has not seen", () => {
     const harness = new Harness([createLocalEvent()], {
       writeEcho: (requested) => requested,
     });
@@ -466,6 +463,10 @@ describe("rejected read-back retained when adoption is disabled", () => {
 
     harness.run("on");
     harness.mutateRemote(firstRemoteUid(harness), { summary: "Guest rewrote this" });
+    harness.run("on");
+    expect(harness.providerWrites).toBe(2);
+
+    harness.mutateRemote(firstRemoteUid(harness), { summary: "A rendering never seen" });
     harness.run("on");
     expect(harness.providerWrites).toBe(3);
   });

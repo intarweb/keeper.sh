@@ -97,6 +97,7 @@ const EMPTY_ECHO_COUNTS = {
   missingCount: 0,
   timeChangedCount: 0,
   unconfirmedCount: 0,
+  unreadableCount: 0,
 };
 
 const TEST_WINDOW = {

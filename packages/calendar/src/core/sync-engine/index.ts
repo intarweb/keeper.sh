@@ -21,7 +21,7 @@ import type {
 } from "../sync/operations";
 import { resolveEchoConfig } from "./echo-config";
 import type { EchoConfig } from "./echo-config";
-import type { CalendarSyncProvider, PendingChanges, PendingUpdate } from "./types";
+import type { CalendarSyncProvider, PendingChanges } from "./types";
 
 /*
  * A run whose provider rejects everything produces one error per operation. The wide
@@ -671,6 +671,7 @@ const appendEchoFields = (
   event["echo.missing_count"] = counts.missingCount;
   event["echo.time_changed_count"] = counts.timeChangedCount;
   event["echo.unconfirmed_count"] = counts.unconfirmedCount;
+  event["echo.unreadable_count"] = counts.unreadableCount;
 };
 
 const appendThrottleFields = (
@@ -850,15 +851,9 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     }
 
     if (mappingUpdates.length > 0) {
-      const updates: PendingUpdate[] = mappingUpdates.map(({ remoteEcho, ...update }) => ({
-        ...update,
-        ...(remoteEcho && {
-          remoteEcho: { contentHash: remoteEcho.contentHash, observedAt },
-        }),
-      }));
       await timer.measure(
         "mapping_flush",
-        () => flush({ deletes: [], inserts: [], updates }),
+        () => flush({ deletes: [], inserts: [], updates: mappingUpdates }),
       );
       flushed = true;
     }

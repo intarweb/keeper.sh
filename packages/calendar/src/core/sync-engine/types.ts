@@ -33,12 +33,6 @@ interface PendingInsert {
 interface PendingUpdate {
   deleteIdentifier: string;
   id: string;
-  /*
-   * Carried by the operation flush rather than the best-effort observation write:
-   * retiring the allowance a replacement granted for the read-back it rejected is a
-   * correctness step, and a lost one accepts a destination-side edit as truth.
-   */
-  remoteEcho?: { contentHash: string; observedAt: Date };
   syncEventHash: string;
   syncEventId: string;
 }

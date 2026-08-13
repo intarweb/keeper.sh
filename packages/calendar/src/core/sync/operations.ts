@@ -15,7 +15,9 @@ import {
   echoAccountsForTime,
   parseRemoteStateEcho,
   readRemoteStateObservation,
+  rememberRejectedEcho,
   serializeRemoteStateEcho,
+  splitRemoteStateEchoes,
 } from "../events/remote-echo";
 import type { RemoteStateEcho, RemoteStateObservation } from "../events/remote-echo";
 import { overlapsTimeWindow } from "../events/time-range";
@@ -56,13 +58,13 @@ interface EchoCounts {
   missingCount: number;
   timeChangedCount: number;
   unconfirmedCount: number;
+  unreadableCount: number;
 }
 
 interface StaleMappingResult {
   adoptionIntents: EchoAdoption[];
   echoCounts: EchoCounts;
   rejectedContentHashes: Map<string, string>;
-  retiredRejectedEchoes: Map<string, string>;
   staleReasonCounts: StaleReasonCounts;
   staleMappingIds: string[];
   staleMappedEventIds: Set<string>;
@@ -96,7 +98,6 @@ interface RemoteStateChanges {
 interface MappingUpdate {
   deleteIdentifier: string;
   id: string;
-  remoteEcho?: { contentHash: string };
   syncEventHash: string;
   syncEventId: string;
 }
@@ -128,6 +129,7 @@ const createEchoCounts = (): EchoCounts => ({
   missingCount: 0,
   timeChangedCount: 0,
   unconfirmedCount: 0,
+  unreadableCount: 0,
 });
 
 /*
@@ -383,6 +385,8 @@ interface RemoteDecision {
   legacy: RemoteStateChanges;
   observedEcho: string | null;
   recordingNeeded: boolean;
+  rejectedEchoes: string | null;
+  unreadableEcho: boolean;
 }
 
 /*
@@ -431,13 +435,13 @@ const recordEchoObservation = (
 /*
  * Decides every dimension reconciliation can find a mirror stale in. The echo verdict
  * accepts a read-back the destination has already accounted for -- the state it reported
- * storing when we pushed, or the read-back its predecessor was replaced for and that
- * survived a fresh push -- so a lossy but deterministic provider rewrite of the content,
- * the times, or the availability settles instead of being replaced forever, while a
- * read-back nothing accounts for is still a divergence to repair. A dimension the
- * destination never reported is unknown rather than equal, so it keeps comparing against
- * the local event. The legacy verdict is always computed, because it is the standing
- * measure of how far a mirror sits from its source.
+ * storing when we pushed, or a read-back a predecessor was replaced for and that survived
+ * a fresh push -- so a lossy but deterministic provider rewrite of the content, the times,
+ * or the availability settles instead of being replaced forever, while a read-back nothing
+ * accounts for is still a divergence to repair. A dimension the destination never reported
+ * is unknown rather than equal, so it keeps comparing against the local event. The legacy
+ * verdict is always computed, because it is the standing measure of how far a mirror sits
+ * from its source.
  */
 const resolveRemoteDecision = (
   mapping: EventMapping,
@@ -447,6 +451,14 @@ const resolveRemoteDecision = (
 ): RemoteDecision => {
   const legacy = getRemoteStateChanges(mapping, localEvent, remoteEvent);
   const echoState = resolveEchoState(mapping);
+  const recordedEcho = readRecordedEcho(mapping);
+  const rejected = readRejectedEcho(mapping);
+  const rejectedEchoes = splitRemoteStateEchoes(rejected);
+  const rememberedEchoes = [recordedEcho, ...rejectedEchoes].filter(
+    (echo) => echo !== null,
+  );
+  const parsedEchoes = rememberedEchoes.map((echo) => parseRemoteStateEcho(echo));
+  const unreadableEcho = parsedEchoes.some((parsed) => parsed === null);
   const observation = readRemoteStateObservation(remoteEvent);
   if (observation === null) {
     return {
@@ -456,17 +468,14 @@ const resolveRemoteDecision = (
       legacy,
       observedEcho: null,
       recordingNeeded: false,
+      rejectedEchoes: rejected,
+      unreadableEcho,
     };
   }
 
-  const recordedEcho = readRecordedEcho(mapping);
-  const echoes = [
-    parseRemoteStateEcho(recordedEcho),
-    parseRemoteStateEcho(readRejectedEcho(mapping)),
-  ];
   const accountsFor = (
     accounts: (echo: RemoteStateEcho | null, observed: RemoteStateObservation) => boolean,
-  ): boolean => echoes.some((echo) => accounts(echo, observation));
+  ): boolean => parsedEchoes.some((echo) => accounts(echo, observation));
 
   const observedEcho = serializeRemoteStateEcho(observation);
   const echo: RemoteStateChanges = {
@@ -475,28 +484,43 @@ const resolveRemoteDecision = (
     time: legacy.time && !accountsFor(echoAccountsForTime),
   };
 
+  /*
+   * An observation the row already remembers teaches it nothing, and adopting it would
+   * overwrite the rendering it was recorded against: a destination that alternates
+   * between two renderings would forget one of them every run and churn forever.
+   */
+  const alreadyRemembered = observedEcho === recordedEcho
+    || rejectedEchoes.includes(observedEcho);
+
   return {
     echo,
     echoState,
     effective: resolveEffectiveChanges(mode, echo, legacy),
     legacy,
     observedEcho,
-    recordingNeeded: !(echoState === "confirmed"
-      && observedEcho === recordedEcho
-      && mapping.remoteRejectedContentHash === null),
+    recordingNeeded: !alreadyRemembered
+      || observedEcho === recordedEcho && echoState !== "confirmed",
+    rejectedEchoes: rejected,
+    unreadableEcho,
   };
 };
 
 /*
- * The read-back a replacement is granted an allowance for. It covers every dimension the
- * echo carries, because a destination that renders the time or the availability its own
- * way needs the same one-cycle convergence a content rewrite gets.
+ * The read-backs a replacement is granted an allowance for: the one it is rejecting now,
+ * carried onto the new row alongside the ones its predecessors rejected. It covers every
+ * dimension the echo carries, because a destination that renders the time or the
+ * availability its own way needs the same one-cycle convergence a content rewrite gets,
+ * and it accumulates because a destination that renders one stored mirror three ways
+ * would otherwise meet a row remembering two of them and churn forever.
  */
 const resolveRejectedEcho = (decision: RemoteDecision | null): string | null => {
   if (decision === null || !hasRemoteStateChanged(decision.effective)) {
     return null;
   }
-  return decision.observedEcho;
+  if (decision.observedEcho === null) {
+    return null;
+  }
+  return rememberRejectedEcho(decision.rejectedEchoes, decision.observedEcho);
 };
 
 const countStaleReasons = (
@@ -548,7 +572,6 @@ const identifyStaleMappings = (
   const echoCounts = createEchoCounts();
   const candidateAdoptions: EchoAdoption[] = [];
   const rejectedContentHashes = new Map<string, string>();
-  const retiredRejectedEchoes = new Map<string, string>();
 
   for (const mapping of mappings) {
     const syncEventId = getMappingSyncEventId(mapping);
@@ -596,6 +619,9 @@ const identifyStaleMappings = (
       || decision.echo.time;
 
     countLegacyDivergences(echoCounts, decision.legacy);
+    if (decision.unreadableEcho) {
+      echoCounts.unreadableCount += 1;
+    }
 
     if (decision.observedEcho !== null && !echoReasonStale) {
       const adoption = recordEchoObservation(echoCounts, mapping.id, decision, replacing);
@@ -618,23 +644,10 @@ const identifyStaleMappings = (
       staleMappingIds.push(mapping.id);
       staleMappedEventIds.add(syncEventId);
       staleRemoteMappings.push(mapping);
-      continue;
-    }
-
-    /*
-     * The one-shot allowance a replacement carries for the read-back it rejected is
-     * retired here, through the same flush that carries the run's other mapping
-     * writes: the observation channel is best-effort by design, and an allowance that
-     * outlives the read-back it was granted for accepts a destination-side edit that
-     * reproduces it as truth.
-     */
-    if (mapping.remoteRejectedContentHash !== null && decision.observedEcho !== null) {
-      retiredRejectedEchoes.set(mapping.id, decision.observedEcho);
     }
   }
 
   const adoptionIntents = candidateAdoptions
-    .filter((adoption) => !retiredRejectedEchoes.has(adoption.mappingId))
     .toSorted((first, second) => first.mappingId.localeCompare(second.mappingId))
     .slice(0, echoOptions.maxAdoptionsPerRun);
 
@@ -642,7 +655,6 @@ const identifyStaleMappings = (
     adoptionIntents,
     echoCounts: { ...echoCounts, adoptedCount: adoptionIntents.length },
     rejectedContentHashes,
-    retiredRejectedEchoes,
     staleMappedEventIds,
     staleMappingIds,
     staleReasonCounts,
@@ -853,13 +865,11 @@ const buildStandardMappingUpdate = (
   mapping: EventMapping,
   localEvent: MaterializedSyncableEvent | undefined,
   remoteEvent: RemoteEvent | undefined,
-  retiredEcho: string | null,
 ): MappingUpdate | null => {
   if (!localEvent || !remoteEvent) {
     return null;
   }
-  const deleteIdentifierStale = hasStaleDeleteIdentifier(mapping, remoteEvent);
-  if (!deleteIdentifierStale && retiredEcho === null) {
+  if (!hasStaleDeleteIdentifier(mapping, remoteEvent)) {
     return null;
   }
   return {
@@ -867,7 +877,6 @@ const buildStandardMappingUpdate = (
     id: mapping.id,
     syncEventHash: createSyncEventContentHash(localEvent),
     syncEventId: localEvent.id,
-    ...(retiredEcho !== null && { remoteEcho: { contentHash: retiredEcho } }),
   };
 };
 
@@ -936,7 +945,6 @@ const computeSyncOperations = (
   const databaseOnlyReassignments: OccurrenceReassignment[] = [];
   const remoteReassignments: OccurrenceReassignment[] = [];
   const reassignmentRejectedEchoes = new Map<string, string>();
-  const reassignmentRetiredEchoes = new Map<string, string>();
   for (const reassignment of occurrenceReassignments) {
     const { mapping } = reassignment;
     const decision = resolveReassignmentDecision(
@@ -946,15 +954,6 @@ const computeSyncOperations = (
     );
     if (canRemapReassignmentInDatabase(reassignment, decision)) {
       databaseOnlyReassignments.push(reassignment);
-      /*
-       * A remap keeps the mapping row, so it is the only write this run makes against it
-       * and therefore the only chance to retire the one-shot allowance the row carries.
-       * Left live it would outlast the read-back it was granted for and accept a
-       * destination-side edit reproducing that read-back as truth.
-       */
-      if (mapping.remoteRejectedContentHash !== null && decision?.observedEcho) {
-        reassignmentRetiredEchoes.set(mapping.id, decision.observedEcho);
-      }
       continue;
     }
     /*
@@ -986,7 +985,6 @@ const computeSyncOperations = (
     adoptionIntents,
     echoCounts,
     rejectedContentHashes,
-    retiredRejectedEchoes,
     staleMappingIds,
     staleMappedEventIds,
     staleReasonCounts,
@@ -1008,7 +1006,6 @@ const computeSyncOperations = (
       mapping,
       localEventsById.get(getMappingSyncEventId(mapping)),
       remoteEventsByMappingId.get(mapping.id),
-      retiredRejectedEchoes.get(mapping.id) ?? null,
     );
     if (update) {
       mappingUpdatesById.set(mapping.id, update);
@@ -1019,13 +1016,11 @@ const computeSyncOperations = (
     if (!remoteEvent) {
       continue;
     }
-    const retiredEcho = reassignmentRetiredEchoes.get(mapping.id);
     mappingUpdatesById.set(mapping.id, {
       deleteIdentifier: remoteEvent.deleteId,
       id: mapping.id,
       syncEventHash: createSyncEventContentHash(event),
       syncEventId: event.id,
-      ...(retiredEcho && { remoteEcho: { contentHash: retiredEcho } }),
     });
   }
 

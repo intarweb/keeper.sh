@@ -1284,45 +1284,6 @@ describe("createDatabaseFlush", () => {
     expect(whereCallCount).toBe(2);
   });
 
-  it("writes the recorded echo and clears the rejected one when an update carries an echo", async () => {
-    const { createDatabaseFlush } = await import("../../../src/core/sync-engine/flush");
-    const updateValues: unknown[] = [];
-    const fakeDatabase = {
-      transaction: (callback: (tx: unknown) => Promise<void>) => callback({
-        update: () => ({
-          set: (values: unknown) => {
-            updateValues.push(values);
-            return { where: () => Promise.resolve() };
-          },
-        }),
-      }),
-    };
-
-    const observedAt = new Date("2026-03-15T09:00:00Z");
-    const flush = createDatabaseFlush(fakeDatabase as never);
-    await flush({
-      deletes: [],
-      inserts: [],
-      updates: [{
-        deleteIdentifier: "remote-delete-1",
-        id: "019c0000-0000-7000-8000-000000000001",
-        remoteEcho: { contentHash: "observed-echo", observedAt },
-        syncEventHash: "hash-1",
-        syncEventId: "recurrence-1",
-      }],
-    });
-
-    expect(updateValues).toEqual([{
-      deleteIdentifier: "remote-delete-1",
-      remoteContentHash: "observed-echo",
-      remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
-      remoteEchoAt: observedAt,
-      remoteRejectedContentHash: null,
-      syncEventHash: "hash-1",
-      syncEventId: "recurrence-1",
-    }]);
-  });
-
   it("skips delete when there are no deletes", async () => {
     const { createDatabaseFlush } = await import("../../../src/core/sync-engine/flush");
     const executedOperations: string[] = [];

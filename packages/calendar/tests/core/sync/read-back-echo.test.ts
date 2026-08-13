@@ -220,7 +220,11 @@ describe("read-back echo comparison", () => {
     });
   });
 
-  it("accepts the rejected read-back when it survives a fresh push, and retires the allowance durably", () => {
+  /*
+   * The mapping row is left alone: what it remembers is what stops the mirror flapping,
+   * and the observation is confirmed through the best-effort channel instead.
+   */
+  it("accepts the rejected read-back when it survives a fresh push, and leaves the row alone", () => {
     const localEvent = createLocalEvent();
     const rewrittenHash = rewriteContent(localEvent);
     const mapping = createEventMapping({
@@ -237,11 +241,11 @@ describe("read-back echo comparison", () => {
     );
 
     expect(countReplacements(result.operations)).toBe(0);
-    expect(result.adoptionIntents).toHaveLength(0);
-    expect(result.mappingUpdates).toEqual([expect.objectContaining({
-      id: "mapping-id-1",
-      remoteEcho: { contentHash: recordedEcho(rewrittenHash) },
-    })]);
+    expect(result.adoptionIntents).toEqual([{
+      contentHash: recordedEcho(rewrittenHash),
+      mappingId: "mapping-id-1",
+    }]);
+    expect(result.mappingUpdates).toHaveLength(0);
   });
 
   it("still replaces when the source event itself changed", () => {

@@ -248,12 +248,6 @@ class Harness {
           deleteIdentifier: update.deleteIdentifier,
           syncEventHash: update.syncEventHash,
           syncEventId: update.syncEventId,
-          ...(update.remoteEcho && {
-            remoteContentHash: update.remoteEcho.contentHash,
-            remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
-            remoteEchoAt: now,
-            remoteRejectedContentHash: null,
-          }),
         };
       });
     }
@@ -279,7 +273,6 @@ class Harness {
         remoteContentHash: hash,
         remoteEchoAlgorithm: EDITABLE_CONTENT_ECHO_ALGORITHM,
         remoteEchoAt: now,
-        remoteRejectedContentHash: null,
       };
     });
   }
@@ -560,15 +553,12 @@ describe("genuine divergence in the time and availability dimensions still propa
  * A destination that reports one rendering on the read after a push and a different one on
  * the read after that is, from reconciliation's side, the same observation sequence as a
  * guest who re-applies an edit every other run: reject X, confirm the pushed Y, see X
- * again. Accepting X the second time is what "retires the rejected allowance on a quiet
- * run" below forbids, because it bakes a guest's version in permanently, so the two cannot
- * both be had and the design keeps the repair. What the echo does buy here is the quiet run
- * in between -- the read that reproduces the push is no longer a divergence -- which halves
- * the churn against the one-replace-per-run this family used to cost, in every dimension
+ * again. The two cannot be told apart, and replacing forever is the measured cost of
+ * assuming the guest, so the row remembers X and settles instead -- in every dimension
  * alike: a summary that genuinely alternates behaves identically to a time that does.
  */
 describe("a destination that renders one mirror two ways over time", () => {
-  it("rewrites a mirror whose listed start time alternates at most every other run", () => {
+  it("settles on a mirror whose listed start time alternates between two renderings", () => {
     const harness = new Harness([createLocalEvent()], {
       listRewrite: (stored, listCount) => ({
         ...stored,
@@ -580,7 +570,7 @@ describe("a destination that renders one mirror two ways over time", () => {
       harness.run("on");
     }
     expect(harness.remoteUids).toHaveLength(1);
-    expect(harness.providerWrites).toBeLessThanOrEqual(10);
+    expect(harness.providerWrites).toBeLessThanOrEqual(3);
     const consecutiveRewrites = harness.stats.filter((stats, index) =>
       stats.replaces > 0 && (harness.stats[index - 1]?.replaces ?? 0) > 0);
     expect(consecutiveRewrites).toHaveLength(0);
@@ -673,11 +663,19 @@ describe("day one, with every echo column empty across a fleet", () => {
   });
 });
 
+/*
+ * A read-back the row already rejected once and replaced the mirror for is remembered for
+ * as long as the row describes the same pushed content. Reconciliation cannot tell that
+ * read-back from a destination that renders the same stored mirror two ways, and repeating
+ * a correction that provably did not stick is the churn issue #649 measures, so the second
+ * appearance is accepted rather than repaired. A rendering the row has never seen is still
+ * repaired, and a local edit still replaces the row and its whole memory with it.
+ */
 describe("a re-materialized occurrence that carries a rejected read-back", () => {
   const seriesEvent = (id: string): MaterializedSyncableEvent =>
     createLocalEvent({ eventStateId: "series-1", id });
 
-  it("retires the rejected allowance on a quiet run when no remap intervenes", () => {
+  it("accepts the same read-back on a quiet run and repairs one it has not seen", () => {
     const harness = new Harness([seriesEvent("occurrence-a")], {
       writeEcho: echoWhatWasSent,
     });
@@ -692,10 +690,14 @@ describe("a re-materialized occurrence that carries a rejected read-back", () =>
 
     harness.mutateRemote(firstRemoteUid(harness), { summary: "Guest rewrote this" });
     harness.run("on");
+    expect(harness.providerWrites).toBe(writesAfterQuietRun);
+
+    harness.mutateRemote(firstRemoteUid(harness), { summary: "Guest rewrote this again" });
+    harness.run("on");
     expect(harness.providerWrites).toBe(writesAfterQuietRun + 1);
   });
 
-  it("retires the rejected allowance rather than carrying it across a database remap", () => {
+  it("carries what it rejected across a database remap", () => {
     const harness = new Harness([seriesEvent("occurrence-a")], {
       writeEcho: echoWhatWasSent,
     });
@@ -711,7 +713,9 @@ describe("a re-materialized occurrence that carries a rejected read-back", () =>
 
     harness.mutateRemote(firstRemoteUid(harness), { summary: "Guest rewrote this" });
     harness.run("on");
-    expect(harness.providerWrites).toBe(writesAfterRemap + 1);
+    expect(harness.providerWrites).toBe(writesAfterRemap);
+    expect(harness.remoteUids).toHaveLength(1);
+    expect(harness.mappingRows).toHaveLength(1);
   });
 });
 

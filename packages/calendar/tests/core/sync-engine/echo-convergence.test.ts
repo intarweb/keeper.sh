@@ -307,6 +307,7 @@ describe("syncCalendar destination echo", () => {
       "echo.mode": "on",
       "echo.time_changed_count": 0,
       "echo.unconfirmed_count": 0,
+      "echo.unreadable_count": 0,
     });
   });
 

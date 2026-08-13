@@ -55,6 +55,14 @@ const parseAllDayEventTime = (time: PartialOutlookDateTime | undefined): Date | 
   return date;
 };
 
+/* An Invalid Date read as a time poisons every hash, comparison and echo it reaches. */
+const toReadableDate = (value: Date): Date | null => {
+  if (!Number.isFinite(value.getTime())) {
+    return null;
+  }
+  return value;
+};
+
 const parseEventTime = (
   time: PartialOutlookDateTime | undefined,
   isAllDay = false,
@@ -68,9 +76,12 @@ const parseEventTime = (
   }
 
   if (!time.timeZone) {
-    return new Date(time.dateTime);
+    return toReadableDate(new Date(time.dateTime));
   }
-  return parseEventDateTime({ dateTime: time.dateTime, timeZone: time.timeZone });
+  return toReadableDate(parseEventDateTime({
+    dateTime: time.dateTime,
+    timeZone: time.timeZone,
+  }));
 };
 
 export { parseAllDayEventTime, parseEventDateTime, parseEventTime };

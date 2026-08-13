@@ -27,7 +27,9 @@ type EchoAdoptionWriter = (
 /*
  * Set-based and outside the operation flush: an adoption is coupled to nothing, and
  * losing one costs a single cycle. A batch matching no rows is normal, because a
- * concurrent run replaces a mapping by deleting and re-inserting it.
+ * concurrent run replaces a mapping by deleting and re-inserting it. The rejected
+ * read-backs the row remembers are left alone: they describe the same pushed content the
+ * adopted echo does, and dropping one is what makes a two-rendering destination churn.
  */
 const createDatabaseEchoAdoption = (database: BunSQLClient): EchoAdoptionWriter =>
   async (adoptions: EchoAdoption[], recordedAt: Date): Promise<void> => {
@@ -43,8 +45,7 @@ const createDatabaseEchoAdoption = (database: BunSQLClient): EchoAdoptionWriter 
         update "event_mappings"
         set "remoteContentHash" = "adoption"."content_hash",
             "remoteEchoAlgorithm" = ${EDITABLE_CONTENT_ECHO_ALGORITHM}::text,
-            "remoteEchoAt" = ${observedAt}::timestamp,
-            "remoteRejectedContentHash" = null
+            "remoteEchoAt" = ${observedAt}::timestamp
         from (values ${sql.join(rows, sql`, `)}) as "adoption" ("id", "content_hash")
         where "event_mappings"."id" = "adoption"."id"
       `);

@@ -33,10 +33,24 @@ interface RemoteStateEcho {
 
 const REMOTE_ECHO_FIELD_SEPARATOR = "|";
 
+const REMOTE_ECHO_RECORD_SEPARATOR = "\n";
+
+/*
+ * How many read-backs a mapping remembers alongside the one its push was echoed with. A
+ * destination served by replicas that normalize differently renders one stored mirror
+ * more than one way, so remembering a single rejected rendering only halves the churn:
+ * the next run meets the other rendering, replaces, and forgets the first again.
+ */
+const MAX_REMEMBERED_REJECTED_ECHOES = 3;
+
 const AVAILABILITIES: EventAvailability[] = ["busy", "free", "oof", "workingElsewhere"];
 
+/*
+ * A time the provider handed us but could not parse is unknown, not zero: serializing an
+ * Invalid Date would write a row no run can read back.
+ */
 const toSecond = (value: Date | null): number | null => {
-  if (value === null) {
+  if (value === null || !Number.isFinite(value.getTime())) {
     return null;
   }
   return Math.trunc(value.getTime() / 1000);
@@ -64,24 +78,25 @@ const parseSecond = (value: string | undefined): number | null => {
   if (!value) {
     return null;
   }
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed)) {
-    throw new TypeError(`Recorded destination echo carries an unreadable time: ${value}`);
-  }
-  return parsed;
+  return Number(value);
 };
 
-const parseAvailability = (value: string | undefined): EventAvailability | null => {
-  if (!value) {
-    return null;
-  }
-  const availability = AVAILABILITIES.find((candidate) => candidate === value);
-  if (!availability) {
-    throw new Error(`Recorded destination echo carries an unknown availability: ${value}`);
-  }
-  return availability;
-};
+const isReadableSecond = (value: string | undefined): boolean =>
+  !value || Number.isSafeInteger(Number(value));
 
+const parseAvailability = (value: string | undefined): EventAvailability | null =>
+  AVAILABILITIES.find((candidate) => candidate === value) ?? null;
+
+const isReadableAvailability = (value: string | undefined): boolean =>
+  !value || parseAvailability(value) !== null;
+
+/*
+ * An echo whose shape does not read is treated as absent rather than fatal. Reconciliation
+ * walks every mapping on the calendar in one loop, so throwing here would stop the whole
+ * destination reconciling on this run and on every run after it, while an absent echo
+ * degrades exactly one mapping to the source comparison: one correction, not a bricked
+ * calendar. `echo.unreadable_count` on the wide event is how it stays visible.
+ */
 const parseRemoteStateEcho = (value: string | null): RemoteStateEcho | null => {
   if (value === null) {
     return null;
@@ -92,6 +107,13 @@ const parseRemoteStateEcho = (value: string | null): RemoteStateEcho | null => {
   if (!contentHash) {
     return null;
   }
+  if (
+    !isReadableSecond(startSecond)
+    || !isReadableSecond(endSecond)
+    || !isReadableAvailability(availability)
+  ) {
+    return null;
+  }
   return {
     availability: parseAvailability(availability),
     contentHash,
@@ -99,6 +121,23 @@ const parseRemoteStateEcho = (value: string | null): RemoteStateEcho | null => {
     startSecond: parseSecond(startSecond),
   };
 };
+
+const splitRemoteStateEchoes = (value: string | null): string[] => {
+  if (value === null) {
+    return [];
+  }
+  return value.split(REMOTE_ECHO_RECORD_SEPARATOR).filter((echo) => echo.length > 0);
+};
+
+/*
+ * The renderings a mapping has seen the destination hold for the content it currently
+ * carries, newest first. A push of different content replaces the mapping row, so the set
+ * never outlives what it describes.
+ */
+const rememberRejectedEcho = (recorded: string | null, rejected: string): string =>
+  [rejected, ...splitRemoteStateEchoes(recorded).filter((echo) => echo !== rejected)]
+    .slice(0, MAX_REMEMBERED_REJECTED_ECHOES)
+    .join(REMOTE_ECHO_RECORD_SEPARATOR);
 
 const readRemoteStateObservation = (
   remoteEvent: RemoteEvent,
@@ -139,8 +178,11 @@ export {
   echoAccountsForAvailability,
   echoAccountsForContent,
   echoAccountsForTime,
+  MAX_REMEMBERED_REJECTED_ECHOES,
   parseRemoteStateEcho,
   readRemoteStateObservation,
+  rememberRejectedEcho,
   serializeRemoteStateEcho,
+  splitRemoteStateEchoes,
 };
 export type { RemoteStateEcho, RemoteStateObservation, StoredRemoteState };
