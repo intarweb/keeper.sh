@@ -39,6 +39,7 @@ const buildSelectChain = (rows: unknown[]) => {
     from: () => chain,
     innerJoin: () => chain,
     where: () => chain,
+    orderBy: () => Object.assign(Promise.resolve(rows), { limit: () => Promise.resolve(rows) }),
     limit: () => Promise.resolve(rows),
   };
   return chain;

@@ -1,9 +1,7 @@
-import { oauthCredentialsTable } from "@keeper.sh/database/schema";
-import { and, eq } from "drizzle-orm";
+import { calendarAccountsTable, oauthCredentialsTable } from "@keeper.sh/database/schema";
+import { and, eq, isNull } from "drizzle-orm";
 import { database } from "@/context";
 import { clearSourceReauthentication } from "./source-reauthentication";
-
-const FIRST_RESULT_LIMIT = 1;
 
 interface CreateOAuthSourceCredentialData {
   provider: string;
@@ -13,23 +11,47 @@ interface CreateOAuthSourceCredentialData {
   expiresAt: Date;
 }
 
+const findSourceCredentialId = async (
+  userId: string,
+  provider: string,
+  email: string | null,
+): Promise<string | undefined> => {
+  const candidates = await database
+    .select({
+      id: oauthCredentialsTable.id,
+      sourceAccountId: calendarAccountsTable.id,
+    })
+    .from(oauthCredentialsTable)
+    .leftJoin(
+      calendarAccountsTable,
+      and(
+        eq(calendarAccountsTable.oauthCredentialId, oauthCredentialsTable.id),
+        eq(calendarAccountsTable.userId, userId),
+        eq(calendarAccountsTable.provider, provider),
+        isNull(calendarAccountsTable.accountId),
+      ),
+    )
+    .where(
+      and(
+        eq(oauthCredentialsTable.userId, userId),
+        eq(oauthCredentialsTable.provider, provider),
+        eq(oauthCredentialsTable.email, email ?? ""),
+      ),
+    )
+    .orderBy(oauthCredentialsTable.createdAt, oauthCredentialsTable.id);
+
+  const sourceCandidate = candidates.find(({ sourceAccountId }) => sourceAccountId !== null);
+
+  return (sourceCandidate ?? candidates[0])?.id;
+};
+
 const createOAuthSourceCredential = async (
   userId: string,
   data: CreateOAuthSourceCredentialData,
 ): Promise<string> => {
-  const [existing] = await database
-    .select({ id: oauthCredentialsTable.id })
-    .from(oauthCredentialsTable)
-    .where(
-      and(
-        eq(oauthCredentialsTable.userId, userId),
-        eq(oauthCredentialsTable.provider, data.provider),
-        eq(oauthCredentialsTable.email, data.email ?? ""),
-      ),
-    )
-    .limit(FIRST_RESULT_LIMIT);
+  const existingId = await findSourceCredentialId(userId, data.provider, data.email);
 
-  if (existing) {
+  if (existingId) {
     await database
       .update(oauthCredentialsTable)
       .set({
@@ -38,11 +60,11 @@ const createOAuthSourceCredential = async (
         needsReauthentication: false,
         refreshToken: data.refreshToken,
       })
-      .where(eq(oauthCredentialsTable.id, existing.id));
+      .where(eq(oauthCredentialsTable.id, existingId));
 
-    await clearSourceReauthentication(database, existing.id);
+    await clearSourceReauthentication(database, existingId);
 
-    return existing.id;
+    return existingId;
   }
 
   const [credential] = await database

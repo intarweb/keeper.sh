@@ -35,6 +35,7 @@ type SelectPromise = Promise<unknown[]> & {
   innerJoin: () => SelectPromise;
   leftJoin: () => SelectPromise;
   where: () => SelectPromise;
+  orderBy: () => SelectPromise;
   limit: () => Promise<unknown[]>;
 };
 
@@ -44,6 +45,7 @@ const createSelectBuilder = (result: unknown[]): SelectPromise => {
   chain.innerJoin = () => chain;
   chain.leftJoin = () => chain;
   chain.where = () => chain;
+  chain.orderBy = () => chain;
   chain.limit = () => Promise.resolve(result);
   return chain;
 };

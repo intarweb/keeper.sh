@@ -64,8 +64,9 @@ const findReusableCalDAVAccount = async (
   provider: string,
   serverUrl: string,
   username: string,
+  existingSourceAccountId: string | null,
 ): Promise<{ id: string; caldavCredentialId: string | null } | undefined> => {
-  const [account] = await databaseClient
+  const accounts = await databaseClient
     .select({
       id: calendarAccountsTable.id,
       caldavCredentialId: calendarAccountsTable.caldavCredentialId,
@@ -83,9 +84,9 @@ const findReusableCalDAVAccount = async (
         eq(caldavCredentialsTable.username, username),
       ),
     )
-    .limit(FIRST_RESULT_LIMIT);
+    .orderBy(calendarAccountsTable.createdAt, calendarAccountsTable.id);
 
-  return account;
+  return accounts.find(({ id }) => id === existingSourceAccountId) ?? accounts[0];
 };
 
 const createCalDAVAccount = async (
@@ -242,6 +243,7 @@ const createCalDAVSource = async (
           eq(calendarsTable.calendarType, CALDAV_CALENDAR_TYPE),
         ),
       )
+      .orderBy(calendarsTable.createdAt, calendarsTable.id)
       .limit(FIRST_RESULT_LIMIT);
 
     const existingAccount = await findReusableCalDAVAccount(
@@ -250,6 +252,7 @@ const createCalDAVSource = async (
       data.provider,
       data.serverUrl,
       data.username,
+      existingSource?.accountId ?? null,
     );
 
     if (existingSource && existingSource.accountId !== existingAccount?.id) {

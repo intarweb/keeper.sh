@@ -46,13 +46,17 @@ const resolveUpdatedRows = (name: string): { id: string }[] => {
   return state.accountIds.map((id) => ({ id }));
 };
 
+const selectCredentialRows = () =>
+  [state.existingCredential].filter((row): row is { id: string } => row !== null)
+    .map((row) => ({ ...row, sourceAccountId: ACCOUNT_IDS[0] ?? null }));
+
 const databaseStub = {
   select: () => ({
     from: () => ({
-      where: () => ({
-        limit: () => Promise.resolve(
-          [state.existingCredential].filter((row): row is { id: string } => row !== null),
-        ),
+      leftJoin: () => ({
+        where: () => ({
+          orderBy: () => Promise.resolve(selectCredentialRows()),
+        }),
       }),
     }),
   }),
