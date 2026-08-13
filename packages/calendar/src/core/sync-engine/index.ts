@@ -667,8 +667,11 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
   try {
     emitProgress("fetching", 0, 0);
     const state = await timer.measure("read_state", readState);
+    const localEvents = state.localEvents.map(
+      (event) => provider.normalizeEvent?.(event) ?? event,
+    );
 
-    wideEvent["local_events.count"] = state.localEvents.length;
+    wideEvent["local_events.count"] = localEvents.length;
     wideEvent["existing_mappings.count"] = state.existingMappings.length;
     wideEvent["remote_events.count"] = state.remoteEvents.length;
 
@@ -679,14 +682,14 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       return EMPTY_RESULT;
     }
 
-    emitProgress("comparing", state.localEvents.length, state.remoteEvents.length);
+    emitProgress("comparing", localEvents.length, state.remoteEvents.length);
     const {
       mappingUpdates,
       operations,
       staleMappingIds,
       staleReasonCounts,
     } = timer.measureSync("compute_operations", () => computeSyncOperations(
-      state.localEvents,
+      localEvents,
       state.existingMappings,
       state.remoteEvents,
       reconciliationScope,
@@ -716,7 +719,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       return EMPTY_RESULT;
     }
 
-    emitProgress("processing", state.localEvents.length, state.remoteEvents.length, {
+    emitProgress("processing", localEvents.length, state.remoteEvents.length, {
       current: 0,
       total: getTotalOperationCount(operations),
     });
@@ -728,7 +731,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       timedProvider,
       timedIsCurrent,
       (processed, total) => {
-        emitProgress("processing", state.localEvents.length, state.remoteEvents.length, { current: processed, total });
+        emitProgress("processing", localEvents.length, state.remoteEvents.length, { current: processed, total });
       },
       async (changes) => {
         await timer.measure("checkpoint_flush", () => flush(changes));

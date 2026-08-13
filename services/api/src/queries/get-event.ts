@@ -5,12 +5,14 @@ import {
   userEventsTable,
 } from "@keeper.sh/database/schema";
 import { and, eq } from "drizzle-orm";
+import { resolveRepresentableTimeRange } from "@keeper.sh/calendar";
 
 import type { KeeperDatabase, KeeperEvent } from "@/types";
 import {
   parseEventReference,
   projectSyncedEvents,
   toKeeperEvent,
+  toUserProjection,
 } from "./event-read-model";
 import type {
   KeeperEventProjection,
@@ -58,6 +60,7 @@ const getUserEvent = async (
       calendarId: userEventsTable.calendarId,
       startTime: userEventsTable.startTime,
       endTime: userEventsTable.endTime,
+      isAllDay: userEventsTable.isAllDay,
       title: userEventsTable.title,
       description: userEventsTable.description,
       location: userEventsTable.location,
@@ -81,7 +84,7 @@ const getUserEvent = async (
   }
 
   return toKeeperEvent(
-    { ...result, eventStateId: null },
+    toUserProjection(result),
     {
       name: result.calendarName,
       provider: result.calendarProvider,
@@ -138,12 +141,15 @@ const getSeriesRows = (
 const toPersistedSyncedProjection = (row: SyncedEventRow): KeeperEventProjection => ({
   calendarId: row.calendarId,
   description: row.description,
-  endTime: row.endTime,
   eventStateId: row.id,
   id: row.id,
   location: row.location,
-  startTime: row.startTime,
   title: row.title,
+  ...resolveRepresentableTimeRange({
+    endTime: row.endTime,
+    startTime: row.startTime,
+    ...(row.isAllDay !== null && { isAllDay: row.isAllDay }),
+  }),
 });
 
 const resolveEventReadModel = async (

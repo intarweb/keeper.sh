@@ -1,6 +1,7 @@
 import { convertIcsCalendar } from "ts-ics";
 import type { Line, ParseNonStandardValues } from "ts-ics";
 import { stripIcsByteOrderMark } from "./apply-patches";
+import { resolveCalendarZonedInstants } from "./resolve-zoned-instants";
 import { synthesizeMissingVtimezones } from "./synthesize-vtimezones";
 
 interface CalendarNonStandardValues {
@@ -31,11 +32,11 @@ const parseIcsCalendar = (options: ParseIcsCalendarOptions) => {
   if (!CALENDAR_BEGIN_PATTERN.test(icsString)) {
     throw new Error("Not an iCalendar document: no BEGIN:VCALENDAR line");
   }
-  return convertIcsCalendar<CalendarNonStandardValues>(
+  return resolveCalendarZonedInstants(convertIcsCalendar<CalendarNonStandardValues>(
     globalThis.undefined,
     icsString,
     { nonStandard: CALENDAR_NON_STANDARD_VALUES },
-  );
+  ));
 };
 
 export { parseIcsCalendar };

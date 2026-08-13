@@ -1,6 +1,13 @@
 import { KEEPER_EVENT_SUFFIX } from "@keeper.sh/constants";
-import { resolveIsAllDayEvent } from "@keeper.sh/calendar";
-import { buildVtimezone, buildZonedIcsDate } from "@keeper.sh/calendar/ics";
+import {
+  resolveIsAllDayEvent,
+  resolveRepresentableTimeRange,
+} from "@keeper.sh/calendar";
+import {
+  buildVtimezone,
+  buildZonedIcsDate,
+  getIcsDurationNominalMilliseconds,
+} from "@keeper.sh/calendar/ics";
 import { generateIcsCalendar } from "ts-ics";
 import type { IcsCalendar, IcsDateObject, IcsDuration, IcsEvent, IcsRecurrenceRule, IcsTimezone } from "ts-ics";
 
@@ -133,22 +140,26 @@ const groupEventsBySourceUid = (events: CalendarEvent[]): EventGroup[] => {
   return [...groups, ...ungrouped];
 };
 
+const isPositiveIcsDuration = (duration: IcsDuration): boolean =>
+  !duration.before && getIcsDurationNominalMilliseconds(duration) > 0;
+
 const buildBaseIcsEvent = (event: CalendarEvent, uid: string, settings: FeedSettings): IcsEvent => {
   const isAllDay = resolveIsAllDayEvent(toAllDayShape(event));
   const timezone = event.startTimeZone ?? "";
+  const { endTime, startTime } = resolveRepresentableTimeRange(toAllDayShape(event));
   const common = {
     stamp: { date: new Date() },
-    start: buildZonedIcsDate(event.startTime, timezone, isAllDay),
+    start: buildZonedIcsDate(startTime, timezone, isAllDay),
     summary: resolveEventSummary(event, settings),
     uid,
     ...buildTransparency(event.availability),
     ...(settings.includeEventDescription && event.description && { description: event.description }),
     ...(settings.includeEventLocation && event.location && { location: event.location }),
   };
-  if (event.recurrenceRule && event.recurrenceDuration) {
+  if (event.recurrenceRule && event.recurrenceDuration && isPositiveIcsDuration(event.recurrenceDuration)) {
     return { ...common, duration: event.recurrenceDuration };
   }
-  return { ...common, end: buildZonedIcsDate(event.endTime, timezone, isAllDay) };
+  return { ...common, end: buildZonedIcsDate(endTime, timezone, isAllDay) };
 };
 
 const buildMasterIcsEvent = (master: CalendarEvent, uid: string, settings: FeedSettings): IcsEvent => {

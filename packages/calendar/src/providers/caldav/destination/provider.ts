@@ -5,6 +5,7 @@ import {
   createSyncEventContentHash,
 } from "../../../core/events/content-hash";
 import { getErrorMessage } from "../../../core/utils/error";
+import { resolveTimeRangeEnd } from "../../../core/events/time-range";
 import type {
   DeleteResult,
   ListRemoteEventsOptions,
@@ -21,6 +22,7 @@ import {
   parseICalToRemoteEvent,
 } from "../shared/ics";
 import type { SafeFetchOptions } from "../../../utils/safe-fetch";
+import { normalizeCalDAVEvent } from "./normalize-event";
 
 const CALDAV_RATE_LIMIT_CONCURRENCY = 5;
 
@@ -234,7 +236,7 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
     assertAllResourcesRead(resources);
     assertAllEventsSupported(resources);
     for (const parsed of resources.events) {
-      if (!isKeeperEvent(parsed.uid) || parsed.endTime < options.timeMin) {
+      if (!isKeeperEvent(parsed.uid) || resolveTimeRangeEnd(parsed) < options.timeMin) {
         continue;
       }
 
@@ -257,7 +259,7 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
     return remoteEvents;
   };
 
-  return { pushEvents, deleteEvents, listRemoteEvents };
+  return { pushEvents, deleteEvents, listRemoteEvents, normalizeEvent: normalizeCalDAVEvent };
 };
 
 export { createCalDAVSyncProvider };

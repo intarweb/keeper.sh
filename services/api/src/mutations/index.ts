@@ -268,6 +268,21 @@ const dispatchUpdateEvent = async (
   return { success: false, error: "Calendar provider not supported for event updates." };
 };
 
+const completeUpdateRange = (
+  updates: EventUpdateInput,
+  stored: { endTime: Date; startTime: Date },
+): EventUpdateInput => {
+  if (!updates.startTime && !updates.endTime) {
+    return updates;
+  }
+
+  return {
+    ...updates,
+    endTime: updates.endTime ?? stored.endTime.toISOString(),
+    startTime: updates.startTime ?? stored.startTime.toISOString(),
+  };
+};
+
 const buildDbUpdates = (updates: EventUpdateInput): Record<string, unknown> => {
   const dbUpdates: Record<string, unknown> = {};
 
@@ -326,7 +341,27 @@ const updateEventMutation = async (
     return { success: false, error: "Event cannot be updated (no source UID)." };
   }
 
-  const providerResult = await dispatchUpdateEvent(credentials, sourceEventUid, updates, deps);
+  const [stored] = await deps.database
+    .select({
+      endTime: userEventsTable.endTime,
+      startTime: userEventsTable.startTime,
+    })
+    .from(userEventsTable)
+    .where(eq(userEventsTable.id, reference.resourceId))
+    .limit(1);
+
+  if (!stored) {
+    throw new Error(`User event ${reference.resourceId} resolved credentials but has no row.`);
+  }
+
+  const completedUpdates = completeUpdateRange(updates, stored);
+
+  const providerResult = await dispatchUpdateEvent(
+    credentials,
+    sourceEventUid,
+    completedUpdates,
+    deps,
+  );
 
   if (!providerResult.success) {
     return providerResult;
@@ -594,5 +629,5 @@ const getPendingInvitesMutation = async (
   return invites;
 };
 
-export { createEventMutation, updateEventMutation, deleteEventMutation, rsvpEventMutation, getPendingInvitesMutation };
+export { completeUpdateRange, createEventMutation, updateEventMutation, deleteEventMutation, rsvpEventMutation, getPendingInvitesMutation };
 export type { MutationDependencies, OAuthTokenRefresher };

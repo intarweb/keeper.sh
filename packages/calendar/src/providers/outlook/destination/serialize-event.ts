@@ -1,25 +1,39 @@
 import { KEEPER_CATEGORY } from "@keeper.sh/constants";
 import type { OutlookEvent } from "@keeper.sh/data-schemas";
 import type { MaterializedSyncableEvent } from "../../../core/types";
+import type { OutlookDateTime } from "../types";
 import { resolveIsAllDayEvent } from "../../../core/events/all-day";
 import {
   instantToWallTime,
   resolveTimeZone,
+  wallTimeToInstant,
 } from "../../../ics/utils/timezone-instant";
 
-const formatOutlookDateTime = (
+const UTC_TIME_ZONE = "UTC";
+
+const toGraphWallValue = (value: Date): string => value.toISOString().replace("Z", "");
+
+// UTC is the only unambiguous label: a repeated fall-back wall time names two instants, and an all-day value is already snapped to the UTC day grid.
+const buildOutlookDateTime = (
   value: Date,
   timeZone: string,
   isAllDay: boolean,
-): string => {
+): OutlookDateTime => {
   if (isAllDay) {
-    return value.toISOString().replace("Z", "");
+    return { dateTime: toGraphWallValue(value), timeZone: UTC_TIME_ZONE };
   }
+
   const resolvedTimeZone = resolveTimeZone(timeZone);
   if (!resolvedTimeZone) {
     throw new RangeError("Outlook event timezone is required");
   }
-  return instantToWallTime(value, resolvedTimeZone).toISOString().replace("Z", "");
+
+  const wallTime = instantToWallTime(value, resolvedTimeZone);
+  if (wallTimeToInstant(wallTime, resolvedTimeZone).getTime() !== value.getTime()) {
+    return { dateTime: toGraphWallValue(value), timeZone: UTC_TIME_ZONE };
+  }
+
+  return { dateTime: toGraphWallValue(wallTime), timeZone };
 };
 
 const getOutlookBody = (event: MaterializedSyncableEvent): OutlookEvent["body"] => {
@@ -69,16 +83,10 @@ const serializeOutlookEvent = (event: MaterializedSyncableEvent): OutlookEvent =
     ...(body && { body }),
     ...(location && { location }),
     categories: [KEEPER_CATEGORY],
-    end: {
-      dateTime: formatOutlookDateTime(event.endTime, eventTimeZone, isAllDay),
-      timeZone: eventTimeZone,
-    },
+    end: buildOutlookDateTime(event.endTime, eventTimeZone, isAllDay),
     isAllDay,
     showAs: getShowAs(event.availability),
-    start: {
-      dateTime: formatOutlookDateTime(event.startTime, eventTimeZone, isAllDay),
-      timeZone: eventTimeZone,
-    },
+    start: buildOutlookDateTime(event.startTime, eventTimeZone, isAllDay),
     subject: event.summary,
   };
 };

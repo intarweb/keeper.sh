@@ -51,6 +51,15 @@ export {
 export { generateDeterministicEventUid, isKeeperEvent } from "./core/events/identity";
 export { inferAllDayEvent, resolveIsAllDayEvent } from "./core/events/all-day";
 export {
+  type EventTimeRange,
+  overlapsRepresentableTimeWindow,
+  overlapsTimeWindow,
+  REPRESENTABLE_RANGE_SLACK_MS,
+  resolvePointInTimeRange,
+  resolveRepresentableTimeRange,
+  resolveWholeDayTimeRange,
+} from "./core/events/time-range";
+export {
   instantToWallTime,
   resolveTimeZone,
   wallTimeToInstant,
@@ -172,7 +181,6 @@ export {
 export {
   getOAuthAccountsByPlan,
   getOAuthAccountsForUser,
-  getUserEventsForSync,
   type OAuthAccount,
 } from "./core/oauth/accounts";
 export {

@@ -11,6 +11,8 @@ import {
   addIcsDuration,
   getIcsDurationNominalMilliseconds,
 } from "../../ics/utils/recurrence-duration";
+import { overlapsTimeWindow } from "./time-range";
+import { resolveIsAllDayEvent } from "./all-day";
 import { MS_PER_DAY } from "@keeper.sh/constants";
 
 interface RecurrenceMaterializationWindow {
@@ -135,7 +137,7 @@ const assertValidWindow = (window: RecurrenceMaterializationWindow): void => {
 const overlapsWindow = (
   event: Pick<SyncableEvent, "startTime" | "endTime">,
   window: RecurrenceMaterializationWindow,
-): boolean => event.endTime > window.start && event.startTime < window.end;
+): boolean => overlapsTimeWindow(event, window.start, window.end);
 
 const toRecurrenceWallTime = (date: Date, timeZone: string | undefined): Date => {
   if (!timeZone) {
@@ -358,6 +360,16 @@ const getOverriddenSlotsByMaster = (
   return slotsByMaster;
 };
 
+// DATE-valued series are floating (RFC 5545 §3.3.10); the zone is still resolved so unsupported ones throw.
+const resolveExpansionTimeZone = (master: SyncableEvent): string | undefined => {
+  const timeZone = resolveTimeZone(master.startTimeZone);
+  if (resolveIsAllDayEvent(master)) {
+    return;
+  }
+
+  return timeZone;
+};
+
 const materializeMaster = (
   master: SyncableEvent,
   overriddenSlots: Set<number>,
@@ -367,7 +379,7 @@ const materializeMaster = (
     return [];
   }
 
-  const timeZone = resolveTimeZone(master.startTimeZone);
+  const timeZone = resolveExpansionTimeZone(master);
   const recurrenceStart = toRecurrenceWallTime(master.startTime, timeZone);
   const recurrenceEnd = toRecurrenceWallTime(window.end, timeZone);
   let durationForWindowLookback = master.endTime.getTime() - master.startTime.getTime();

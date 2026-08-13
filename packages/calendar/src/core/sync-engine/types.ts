@@ -8,6 +8,8 @@ import type {
 } from "../types";
 
 interface CalendarSyncProvider {
+  // Must run before reconciliation, not in the serializer, or mapping and remote disagree and churn forever.
+  normalizeEvent?: (event: MaterializedSyncableEvent) => MaterializedSyncableEvent;
   pushEvents: (events: MaterializedSyncableEvent[]) => Promise<PushResult[]>;
   deleteEvents: (eventIds: string[]) => Promise<DeleteResult[]>;
   listRemoteEvents: (options: ListRemoteEventsOptions) => Promise<RemoteEvent[]>;

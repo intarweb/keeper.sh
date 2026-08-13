@@ -265,4 +265,4 @@ export {
   parseICalToRemoteEvent,
   parseICalToRemoteEvents,
 };
-export type { ParseICalCalendarsOptions, ParsedCalendarResources };
+export type { ParsedCalendarEvent, ParseICalCalendarsOptions, ParsedCalendarResources };

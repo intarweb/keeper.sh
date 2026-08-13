@@ -130,7 +130,9 @@ describe("createDestinationAttemptWideEventFields", () => {
 describe("createDestinationReconciliationWideEventFields", () => {
   const eventReadDiagnostics = {
     candidateEventStateCount: 8,
+    emptyTimeRangeCount: 1,
     excludedBySyncPolicyCount: 2,
+    invertedTimeRangeCount: 0,
     materializedEventCount: 5,
     missingSourceEventUidCount: 1,
     outsideReconciliationWindowCount: 1,
@@ -157,7 +159,9 @@ describe("createDestinationReconciliationWideEventFields", () => {
       verifiedSourceCalendarCount: 2,
     })).toEqual({
       "local_event_states.candidate_count": 8,
+      "local_event_states.empty_time_range_count": 1,
       "local_event_states.excluded_by_sync_policy_count": 2,
+      "local_event_states.inverted_time_range_count": 0,
       "local_event_states.materialized_count": 5,
       "local_event_states.missing_source_event_uid_count": 1,
       "local_event_states.outside_reconciliation_window_count": 1,
@@ -256,7 +260,9 @@ describe("createDestinationReconciliationScope", () => {
 
   const baseDiagnostics = {
     candidateEventStateCount: 3,
+    emptyTimeRangeCount: 0,
     excludedBySyncPolicyCount: 0,
+    invertedTimeRangeCount: 0,
     materializedEventCount: 0,
     missingSourceEventUidCount: 0,
     outsideReconciliationWindowCount: 0,

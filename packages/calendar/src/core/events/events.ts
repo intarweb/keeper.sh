@@ -14,12 +14,15 @@ import type {
 import type { SyncWindow } from "../sync/sync-range";
 import { parseStoredRecurrenceForMaterialization } from "./stored-recurrence";
 import { materializeRecurrenceEvents } from "./recurrence-materializer";
+import { isEmptyTimeRange, isInvertedTimeRange, resolveTimeRangeEnd } from "./time-range";
 
 const EMPTY_SOURCES_COUNT = 0;
 
 interface DestinationEventReadDiagnostics {
   candidateEventStateCount: number;
+  emptyTimeRangeCount: number;
   excludedBySyncPolicyCount: number;
+  invertedTimeRangeCount: number;
   materializedEventCount: number;
   missingSourceEventUidCount: number;
   outsideReconciliationWindowCount: number;
@@ -35,7 +38,9 @@ interface DestinationEventReadResult {
 
 const EMPTY_DESTINATION_EVENT_READ_DIAGNOSTICS: DestinationEventReadDiagnostics = {
   candidateEventStateCount: 0,
+  emptyTimeRangeCount: 0,
   excludedBySyncPolicyCount: 0,
+  invertedTimeRangeCount: 0,
   materializedEventCount: 0,
   missingSourceEventUidCount: 0,
   outsideReconciliationWindowCount: 0,
@@ -45,9 +50,9 @@ const EMPTY_DESTINATION_EVENT_READ_DIAGNOSTICS: DestinationEventReadDiagnostics 
 };
 
 const isEventInDestinationReconciliationWindow = (
-  event: Pick<SyncableEvent, "endTime">,
+  event: Pick<SyncableEvent, "endTime" | "startTime">,
   timeMin: Date,
-): boolean => event.endTime >= timeMin;
+): boolean => resolveTimeRangeEnd(event) >= timeMin;
 
 const orAbsent = <TValue>(value: TValue | null): TValue | undefined => {
   if (value === null) {
@@ -198,8 +203,10 @@ const getEventsForCalendarsWithDiagnostics = async (
     .where(
       and(
         inArray(eventStatesTable.calendarId, calendarIds),
+        // Deliberately a superset of the real lower bound; the shared in-memory predicate decides.
         or(
           gte(eventStatesTable.endTime, syncWindow.timeMin),
+          gte(eventStatesTable.startTime, syncWindow.timeMin),
           isNotNull(eventStatesTable.recurrenceRule),
           isNotNull(eventStatesTable.recurrenceId),
         ),
@@ -286,10 +293,15 @@ const getEventsForCalendarsWithDiagnostics = async (
     },
   });
 
+  const emptyTimeRangeCount = events.filter((event) => isEmptyTimeRange(event)).length;
+  const invertedTimeRangeCount = events.filter((event) => isInvertedTimeRange(event)).length;
+
   return {
     diagnostics: {
       candidateEventStateCount: results.length,
+      emptyTimeRangeCount,
       excludedBySyncPolicyCount,
+      invertedTimeRangeCount,
       materializedEventCount: events.length,
       missingSourceEventUidCount,
       outsideReconciliationWindowCount,

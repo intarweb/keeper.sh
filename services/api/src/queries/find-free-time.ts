@@ -1,5 +1,6 @@
 import { eventStatesTable, userEventsTable } from "@keeper.sh/database/schema";
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { resolveRepresentableTimeRange } from "@keeper.sh/calendar";
 import type { SQL } from "drizzle-orm";
 import type {
   KeeperDatabase,
@@ -12,7 +13,9 @@ import { findFreeSlots } from "@/utils/free-time";
 import type { TimeInterval } from "@/utils/free-time";
 import {
   buildSyncedRangeCondition,
+  buildUserRangeCondition,
   getSourcesForUser,
+  isWithinReadWindow,
   normalizeEventRange,
 } from "./get-events-in-range";
 import { materializeSyncedEvents } from "./event-read-model";
@@ -38,10 +41,19 @@ const isBlocking = (candidate: BusyCandidate, ignoreAllDayEvents: boolean): bool
   return !NON_BLOCKING_AVAILABILITY.has(candidate.availability);
 };
 
-const toBusyInterval = (candidate: BusyCandidate, range: TimeInterval): TimeInterval => ({
-  end: new Date(Math.min(candidate.endTime.getTime(), range.end.getTime())),
-  start: new Date(Math.max(candidate.startTime.getTime(), range.start.getTime())),
-});
+// Shaped first: interval merging drops non-positive spans, so a degenerate event would read as free.
+const toBusyInterval = (candidate: BusyCandidate, range: TimeInterval): TimeInterval => {
+  const { endTime, startTime } = resolveRepresentableTimeRange({
+    endTime: candidate.endTime,
+    startTime: candidate.startTime,
+    ...(typeof candidate.isAllDay === "boolean" && { isAllDay: candidate.isAllDay }),
+  });
+
+  return {
+    end: new Date(Math.min(endTime.getTime(), range.end.getTime())),
+    start: new Date(Math.max(startTime.getTime(), range.start.getTime())),
+  };
+};
 
 const collectBusyIntervals = async (
   database: KeeperDatabase,
@@ -83,6 +95,15 @@ const collectBusyIntervals = async (
     .where(and(...syncedConditions))
     .orderBy(asc(eventStatesTable.startTime));
 
+  const userConditions: SQL[] = [
+    inArray(userEventsTable.calendarId, calendarIds),
+    eq(userEventsTable.userId, userId),
+  ];
+  const userRangeCondition = buildUserRangeCondition(range.start, range.end);
+  if (userRangeCondition) {
+    userConditions.push(userRangeCondition);
+  }
+
   const userEvents = await database
     .select({
       availability: userEventsTable.availability,
@@ -91,19 +112,12 @@ const collectBusyIntervals = async (
       startTime: userEventsTable.startTime,
     })
     .from(userEventsTable)
-    .where(
-      and(
-        inArray(userEventsTable.calendarId, calendarIds),
-        eq(userEventsTable.userId, userId),
-        gte(userEventsTable.endTime, range.start),
-        lte(userEventsTable.startTime, range.end),
-      ),
-    )
+    .where(and(...userConditions))
     .orderBy(asc(userEventsTable.startTime));
 
   const candidates: BusyCandidate[] = [
     ...materializeSyncedEvents(syncedRows, sourceMap, range.start, range.end),
-    ...userEvents,
+    ...userEvents.filter((event) => isWithinReadWindow(event, range.start, range.end)),
   ];
 
   return candidates
@@ -138,4 +152,4 @@ const findFreeTime = async (
   };
 };
 
-export { findFreeTime, isBlocking };
+export { findFreeTime, isBlocking, toBusyInterval };

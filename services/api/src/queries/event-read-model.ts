@@ -1,6 +1,9 @@
 import {
   materializeRecurrenceEvents,
+  overlapsRepresentableTimeWindow,
   parseStoredRecurrenceForMaterialization,
+  REPRESENTABLE_RANGE_SLACK_MS,
+  resolveRepresentableTimeRange,
 } from "@keeper.sh/calendar";
 import type { MaterializedSyncableEvent, SyncableEvent } from "@keeper.sh/calendar";
 
@@ -30,6 +33,17 @@ interface SyncedEventRow {
   sourceEventUid: string | null;
   startTime: Date;
   startTimeZone: string | null;
+  title: string | null;
+}
+
+interface UserEventRow {
+  calendarId: string;
+  description: string | null;
+  endTime: Date;
+  id: string;
+  isAllDay: boolean | null;
+  location: string | null;
+  startTime: Date;
   title: string | null;
 }
 
@@ -138,6 +152,7 @@ const toSyncableEvent = (
   };
 };
 
+// The occurrence id stays keyed to the stored start, so shaping never moves a lookup.
 const toSyncedProjection = (
   occurrence: MaterializedSyncableEvent,
 ): KeeperEventProjection => {
@@ -152,14 +167,27 @@ const toSyncedProjection = (
   return {
     calendarId: occurrence.calendarId,
     description: occurrence.description ?? null,
-    endTime: occurrence.endTime,
     eventStateId,
     id,
     location: occurrence.location ?? null,
-    startTime: occurrence.startTime,
     title: occurrence.summary || null,
+    ...resolveRepresentableTimeRange(occurrence),
   };
 };
+
+const toUserProjection = (row: UserEventRow): KeeperEventProjection => ({
+  calendarId: row.calendarId,
+  description: row.description,
+  eventStateId: null,
+  id: row.id,
+  location: row.location,
+  title: row.title,
+  ...resolveRepresentableTimeRange({
+    endTime: row.endTime,
+    startTime: row.startTime,
+    ...(row.isAllDay !== null && { isAllDay: row.isAllDay }),
+  }),
+});
 
 const isIncludedByFilters = (
   occurrence: MaterializedSyncableEvent,
@@ -198,10 +226,14 @@ const materializeSyncedEvents = (
   });
   const exclusiveWindowEnd = new Date(windowEnd.getTime() + 1);
 
-  return materializeRecurrenceEvents(events, {
-    end: exclusiveWindowEnd,
-    start: windowStart,
+  // Materialize wider than asked — the materializer judges stored ranges — then filter on the published span.
+  const occurrences = materializeRecurrenceEvents(events, {
+    end: new Date(exclusiveWindowEnd.getTime() + REPRESENTABLE_RANGE_SLACK_MS),
+    start: new Date(windowStart.getTime() - REPRESENTABLE_RANGE_SLACK_MS),
   });
+
+  return occurrences.filter((occurrence) =>
+    overlapsRepresentableTimeWindow(occurrence, windowStart, exclusiveWindowEnd));
 };
 
 const projectSyncedEvents = (
@@ -238,10 +270,12 @@ export {
   projectSyncedEvents,
   toKeeperEvent,
   toSyncableEvent,
+  toUserProjection,
 };
 export type {
   EventReference,
   KeeperEventProjection,
   SourceInfo,
   SyncedEventRow,
+  UserEventRow,
 };

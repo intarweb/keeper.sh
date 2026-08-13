@@ -10,7 +10,7 @@ import {
   buildEventStateInsertRow,
   insertEventStatesWithConflictResolution,
 } from "../../../core/source/write-event-states";
-import { isKeeperEvent } from "../../../core/events/identity";
+import { buildCalDAVSourceEvents } from "./window";
 import type { SourceEvent } from "../../../core/types";
 import { REAUTHENTICATION_SOURCE_CREDENTIALS } from "@keeper.sh/constants";
 import { calendarAccountsTable, calendarsTable, eventStatesTable } from "@keeper.sh/database/schema";
@@ -84,7 +84,6 @@ const createCalDAVSourceProvider = (
       },
     });
 
-    const events: SourceEvent[] = [];
     const resources = parseICalCalendarsToRemoteEvents(
       objects.flatMap(({ data }) => {
         if (!data) {
@@ -101,33 +100,7 @@ const createCalDAVSourceProvider = (
     assertAllResourcesRead(resources);
     assertAllEventsSupported(resources);
 
-    for (const parsed of resources.events) {
-      if (isKeeperEvent(parsed.uid)) {
-        continue;
-      }
-
-      if (!parsed.recurrenceRule && parsed.endTime < syncWindow.timeMin) {
-        continue;
-      }
-
-      events.push({
-        availability: parsed.availability,
-        description: parsed.description,
-        endTime: parsed.endTime,
-        exceptionDates: parsed.exceptionDates,
-        recurrenceId: parsed.recurrenceId,
-        isAllDay: parsed.isAllDay,
-        location: parsed.location,
-        recurrenceDuration: parsed.recurrenceDuration,
-        recurrenceRule: parsed.recurrenceRule,
-        startTime: parsed.startTime,
-        startTimeZone: parsed.startTimeZone,
-        title: parsed.title,
-        uid: parsed.uid,
-      });
-    }
-
-    return events;
+    return buildCalDAVSourceEvents(resources.events, syncWindow);
   };
 
   const processEvents = async (
