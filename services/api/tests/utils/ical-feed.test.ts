@@ -86,15 +86,17 @@ describe("createIcalFeedQuery", () => {
     expect(widest.windowStart.getTime()).toBeLessThan(shiftDays(-700).getTime());
   });
 
-  it("ignores an unrecognised stored range instead of widening on it", () => {
-    const query = createIcalFeedQuery([{
+  /*
+   * A check constraint pins the stored range to the enum, so an unrecognised
+   * value means that constraint is already broken. Substituting a default would
+   * publish a silently wrong horizon and hide it.
+   */
+  it("throws on a stored range outside the enum", () => {
+    expect(() => createIcalFeedQuery([{
       id: "calendar-1",
       syncFutureRange: "forever",
       syncHistoricRange: "9_years",
-    }], NOW);
-
-    expect(query.windowStart.getTime()).toBeGreaterThan(shiftDays(-400).getTime());
-    expect(query.windowEnd.getTime()).toBeGreaterThan(shiftDays(700).getTime());
+    }], NOW)).toThrow("calendar-1");
   });
 });
 

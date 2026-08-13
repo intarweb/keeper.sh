@@ -2,7 +2,7 @@ import {
   DEFAULT_FUTURE_SYNC_RANGE,
   DEFAULT_HISTORIC_SYNC_RANGE,
   getConfigurableSyncWindow,
-  getWiderSyncRange,
+  getSyncRangeOrder,
   parseStoredIcsExceptionDates,
   parseStoredIcsRecurrence,
 } from "@keeper.sh/calendar";
@@ -31,30 +31,37 @@ interface IcalFeedQuery {
   windowStart: Date;
 }
 
-const toSyncRange = (value: string, fallback: SyncRange): SyncRange => {
-  if (syncRangeSchema.allows(value)) {
-    return value;
+const parseSyncRange = (value: string, calendarId: string): SyncRange => {
+  if (!syncRangeSchema.allows(value)) {
+    throw new Error(`Calendar ${calendarId} stores an unknown sync range "${value}"`);
   }
-  return fallback;
+  return value;
 };
+
+/*
+ * The floor is the product default rather than a fallback: a feed is never
+ * narrower than that, however its calendars are configured.
+ */
+const widestSyncRange = (floor: SyncRange, ranges: SyncRange[]): SyncRange =>
+  [floor, ...ranges]
+    .toSorted((first, second) => getSyncRangeOrder(second) - getSyncRangeOrder(first))
+    .at(0) ?? floor;
 
 const createIcalFeedQuery = (
   calendars: FeedCalendar[],
   now: Date = new Date(),
 ): IcalFeedQuery => {
-  let historicRange: SyncRange = DEFAULT_HISTORIC_SYNC_RANGE;
-  let futureRange: SyncRange = DEFAULT_FUTURE_SYNC_RANGE;
-  for (const calendar of calendars) {
-    historicRange = getWiderSyncRange(
-      historicRange,
-      toSyncRange(calendar.syncHistoricRange, DEFAULT_HISTORIC_SYNC_RANGE),
-    );
-    futureRange = getWiderSyncRange(
-      futureRange,
-      toSyncRange(calendar.syncFutureRange, DEFAULT_FUTURE_SYNC_RANGE),
-    );
-  }
-  const window = getConfigurableSyncWindow(historicRange, futureRange, now);
+  const window = getConfigurableSyncWindow(
+    widestSyncRange(
+      DEFAULT_HISTORIC_SYNC_RANGE,
+      calendars.map(({ id, syncHistoricRange }) => parseSyncRange(syncHistoricRange, id)),
+    ),
+    widestSyncRange(
+      DEFAULT_FUTURE_SYNC_RANGE,
+      calendars.map(({ id, syncFutureRange }) => parseSyncRange(syncFutureRange, id)),
+    ),
+    now,
+  );
 
   return {
     windowEnd: window.timeMax,
