@@ -6,7 +6,7 @@ import {
   calendarAccountsTable,
   calendarsTable,
 } from "@keeper.sh/database/schema";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const administrativeUrl = process.env.KEEPER_TEST_DATABASE_URL;
 const scratchName = `keeper_caldav_reconnect_${process.pid}`;
@@ -160,6 +160,19 @@ const readAccountFlag = async (accountId: string): Promise<boolean | undefined> 
   return row?.needsReauthentication;
 };
 
+const readCredentialPassword = async (accountId: string): Promise<string | undefined> => {
+  const [row] = await database
+    .select({ encryptedPassword: caldavCredentialsTable.encryptedPassword })
+    .from(calendarAccountsTable)
+    .innerJoin(
+      caldavCredentialsTable,
+      eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
+    )
+    .where(eq(calendarAccountsTable.id, accountId))
+    .limit(1);
+  return row?.encryptedPassword;
+};
+
 const countRows = async (table: typeof calendarsTable | typeof calendarAccountsTable) => {
   const [row] = await database.select({ value: count() }).from(table);
   return row?.value ?? 0;
@@ -298,7 +311,7 @@ describe.skipIf(!administrativeUrl)("re-adding a CalDAV source with a new passwo
     expect(failure).toBeInstanceOf(DuplicateCalDAVSourceError);
   });
 
-  it("reconnects the account that actually owns the calendar row", async () => {
+  it("refuses to reconnect a calendar row owned by a different account", async () => {
     const seeded = await seedFailedSource();
     const [otherCredential] = await database
       .insert(caldavCredentialsTable)
@@ -308,7 +321,7 @@ describe.skipIf(!administrativeUrl)("re-adding a CalDAV source with a new passwo
         username: "second@icloud.com",
       })
       .returning({ id: caldavCredentialsTable.id });
-    await database
+    const [otherAccount] = await database
       .insert(calendarAccountsTable)
       .values({
         authType: "caldav",
@@ -318,16 +331,18 @@ describe.skipIf(!administrativeUrl)("re-adding a CalDAV source with a new passwo
       })
       .returning({ id: calendarAccountsTable.id });
 
-    const result = await createCalDAVSource(
+    const failure = await createCalDAVSource(
       USER_ID,
       sourceData({ username: "second@icloud.com" }),
-    );
+    ).catch((error: unknown) => error);
 
-    expect(result.source.id).toBe(seeded.calendarId);
+    expect(failure).toBeInstanceOf(DuplicateCalDAVSourceError);
     expect(await readCalendar(seeded.calendarId)).toMatchObject({
-      ingestFailureCount: 0,
-      ingestNextAttemptAt: null,
+      ingestFailureCount: 6,
+      ingestNextAttemptAt: REARMED_AT,
     });
-    expect(await readAccountFlag(seeded.accountId)).toBe(false);
+    expect(await readAccountFlag(seeded.accountId)).toBe(true);
+    expect(await countRows(calendarsTable)).toBe(2);
+    expect(await readCredentialPassword(otherAccount?.id ?? "")).toBe("encrypted:other-app-password");
   });
 });

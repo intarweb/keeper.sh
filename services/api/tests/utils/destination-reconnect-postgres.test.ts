@@ -248,6 +248,32 @@ describe.skipIf(!administrativeUrl)("reconnecting an account that is both source
     });
   });
 
+  it("keeps the backoff armed when the callback came back without the required scopes", async () => {
+    const seeded = await seedSharedAccount("shared-missing-scopes");
+
+    await saveCalendarDestinationWithDatabase(
+      database as never,
+      USER_ID,
+      "google",
+      "shared-missing-scopes",
+      "shared-missing-scopes@example.com",
+      "fresh-access-token",
+      "fresh-refresh-token",
+      new Date(REARMED_AT.getTime() + 3_600_000),
+      true,
+    );
+
+    expect(await readAccountFlag(seeded.accountId)).toBe(true);
+    expect(await readCalendar(seeded.sourceCalendarId)).toMatchObject({
+      ingestFailureCount: 6,
+      ingestNextAttemptAt: REARMED_AT,
+    });
+    expect(await readCalendar(seeded.destinationCalendarId)).toMatchObject({
+      ingestFailureCount: 6,
+      ingestNextAttemptAt: REARMED_AT,
+    });
+  });
+
   it("stays cleared when the user reconnects twice", async () => {
     const seeded = await seedSharedAccount("shared-twice");
 

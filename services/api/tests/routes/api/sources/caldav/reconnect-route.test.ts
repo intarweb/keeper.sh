@@ -50,7 +50,7 @@ const createTransactionClient = () => ({
     if ("caldavCredentialId" in columns) {
       return buildSelectChain([{ caldavCredentialId: CREDENTIAL_ID, id: ACCOUNT_ID }]);
     }
-    return buildSelectChain([{ id: SOURCE_ID }]);
+    return buildSelectChain([{ accountId: ACCOUNT_ID, id: SOURCE_ID }]);
   },
   selectDistinct: () => buildSelectChain([]),
   insert: () => {

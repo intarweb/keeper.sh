@@ -229,6 +229,7 @@ const createCalDAVSource = async (
 
     const [existingSource] = await tx
       .select({
+        accountId: calendarsTable.accountId,
         createdAt: calendarsTable.createdAt,
         id: calendarsTable.id,
         name: calendarsTable.name,
@@ -251,15 +252,15 @@ const createCalDAVSource = async (
       data.username,
     );
 
+    if (existingSource && existingSource.accountId !== existingAccount?.id) {
+      return null;
+    }
+
     if (existingAccount) {
       await reconnectCalDAVAccount(tx, existingAccount, data, resolvedEncryptionKey);
     }
 
-    if (existingSource) {
-      if (!existingAccount) {
-        return null;
-      }
-
+    if (existingSource && existingAccount) {
       return {
         reconnected: true,
         source: {

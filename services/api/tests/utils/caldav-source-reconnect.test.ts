@@ -60,7 +60,7 @@ const createTransactionClient = () => ({
       return buildSelectChain(state.reusableAccount ? [state.reusableAccount] : []);
     }
     if (state.existingSource && "id" in columns) {
-      return buildSelectChain([{ id: SOURCE_ID }]);
+      return buildSelectChain([{ accountId: ACCOUNT_ID, id: SOURCE_ID }]);
     }
     return buildSelectChain([]);
   },
