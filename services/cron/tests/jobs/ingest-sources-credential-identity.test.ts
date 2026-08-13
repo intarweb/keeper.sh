@@ -141,6 +141,7 @@ const liveRows = (): Record<string, Record<string, unknown>> => ({
   calendar_accounts: {
     caldavCredentialId: state.account.caldavCredentialId,
     id: ACCOUNT_ID,
+    needsReauthentication: state.account.needsReauthentication,
     oauthCredentialId: state.account.oauthCredentialId,
   },
   caldav_credentials: {
@@ -160,7 +161,7 @@ const isSameValue = (left: unknown, right: unknown): boolean => {
   return left === right;
 };
 
-const COLUMN_COMPARISON = /"(\w+)"\."(\w+)" = \$(\d+)/g;
+const COLUMN_COMPARISON = /"(\w+)"\."(\w+)" (=|<>) \$(\d+)/g;
 
 const guardMatchesLiveRows = (text: string, params: unknown[]): boolean => {
   const rows = liveRows();
@@ -168,12 +169,16 @@ const guardMatchesLiveRows = (text: string, params: unknown[]): boolean => {
   if (comparisons.length === 0) {
     throw new Error(`Reauthentication flag written with an unreadable guard: ${text}`);
   }
-  return comparisons.every(([, table, column, index]) => {
+  return comparisons.every(([, table, column, operator, index]) => {
     const row = rows[table ?? ""];
     if (!row) {
       throw new Error(`Reauthentication guard read an unmodelled table: ${table ?? ""}`);
     }
-    return isSameValue(row[column ?? ""], params[Number(index) - 1]);
+    const matches = isSameValue(row[column ?? ""], params[Number(index) - 1]);
+    if (operator === "<>") {
+      return !matches;
+    }
+    return matches;
   });
 };
 
@@ -336,6 +341,7 @@ describe("an OAuth source with no failure history whose credential dies", () => 
       OAUTH_CREDENTIAL_ID,
       OAUTH_CREDENTIAL_ID,
       DEAD_REFRESH_TOKEN,
+      true,
     ]]);
   });
 
@@ -398,6 +404,7 @@ describe("a CalDAV source with no failure history whose password stopped working
       CALDAV_CREDENTIAL_ID,
       CALDAV_CREDENTIAL_ID,
       DEAD_ENCRYPTED_PASSWORD,
+      true,
     ]]);
   });
 

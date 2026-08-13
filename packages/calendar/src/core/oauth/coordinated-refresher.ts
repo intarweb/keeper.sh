@@ -5,6 +5,7 @@ import {
   calendarAccountsTable,
   oauthCredentialsTable,
 } from "@keeper.sh/database/schema";
+import { REAUTHENTICATION_TOKEN_REFRESH } from "@keeper.sh/constants";
 import { and, eq, sql } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 
@@ -31,7 +32,10 @@ const flagAccountReauthentication = async (
 ): Promise<void> => {
   await database
     .update(calendarAccountsTable)
-    .set({ needsReauthentication: true })
+    .set({
+      needsReauthentication: true,
+      reauthenticationSource: REAUTHENTICATION_TOKEN_REFRESH,
+    })
     .where(and(
       eq(calendarAccountsTable.id, calendarAccountId),
       sql`exists (

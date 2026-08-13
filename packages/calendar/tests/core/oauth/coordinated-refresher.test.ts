@@ -75,7 +75,10 @@ describe("a refresh that fails because the credential is dead", () => {
     await expect(refresh(FAILED_REFRESH_TOKEN)).rejects.toThrow("invalid_grant");
 
     expect(writes).toEqual([
-      { table: "calendar_accounts", values: { needsReauthentication: true } },
+      {
+        table: "calendar_accounts",
+        values: { needsReauthentication: true, reauthenticationSource: "token-refresh" },
+      },
     ]);
   });
 

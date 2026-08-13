@@ -135,6 +135,7 @@ export {
   createSyncWindow,
   createSourceIngestionPlan,
   getConfigurableSyncWindow,
+  getSyncRangeOrder,
   getWiderSyncRange,
   intersectSyncWindows,
   type SourceIngestionPlan,

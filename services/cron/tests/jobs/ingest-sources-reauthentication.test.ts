@@ -1,5 +1,9 @@
 import { calendarAccountsTable, calendarsTable } from "@keeper.sh/database/schema";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const dialect = new PgDialect();
 
 const CALENDAR_ID = "3f0b6d21-5c8e-4a17-9d3b-1e7c2a9f4d60";
 const ACCOUNT_ID = "4a1c7e32-6d9f-4b28-ae4c-2f8d3b0a5e71";
@@ -113,6 +117,52 @@ const applyCalendarWrite = (values: Record<string, unknown>): void => {
   };
 };
 
+const liveRows = (): Record<string, Record<string, unknown>> => ({
+  calendar_accounts: {
+    id: ACCOUNT_ID,
+    needsReauthentication: state.account.needsReauthentication,
+    oauthCredentialId: CREDENTIAL_ID,
+  },
+  oauth_credentials: {
+    id: CREDENTIAL_ID,
+    refreshToken: oauthSourceRow().refreshToken,
+  },
+});
+
+const COLUMN_COMPARISON = /"(\w+)"\."(\w+)" (=|<>) \$(\d+)/g;
+
+const guardMatchesLiveRows = (text: string, params: unknown[]): boolean => {
+  const rows = liveRows();
+  const comparisons = [...text.matchAll(COLUMN_COMPARISON)];
+  if (comparisons.length === 0) {
+    throw new Error(`Reauthentication flag written with an unreadable guard: ${text}`);
+  }
+  return comparisons.every(([, table, column, operator, index]) => {
+    const row = rows[table ?? ""];
+    if (!row) {
+      throw new Error(`Reauthentication guard read an unmodelled table: ${table ?? ""}`);
+    }
+    const matches = row[column ?? ""] === params[Number(index) - 1];
+    if (operator === "<>") {
+      return !matches;
+    }
+    return matches;
+  });
+};
+
+const applyAccountFlag = (values: Record<string, unknown>, condition: SQL | undefined): unknown[] => {
+  if (condition) {
+    const query = dialect.sqlToQuery(condition);
+    if (!guardMatchesLiveRows(query.sql, query.params)) {
+      return [];
+    }
+  }
+
+  state.updates.push({ table: "calendar_accounts", values });
+  state.account.needsReauthentication = values.needsReauthentication === true;
+  return [{ id: ACCOUNT_ID }];
+};
+
 const databaseStub = {
   execute: () => Promise.resolve(),
   select: (columns: Record<string, unknown>) => createChain(resolveSelectRows(columns)),
@@ -120,13 +170,14 @@ const databaseStub = {
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => {
       const name = resolveTableName(table);
-      state.updates.push({ table: name, values });
       if (name === "calendars") {
+        state.updates.push({ table: name, values });
         applyCalendarWrite(values);
         return createChain([{ id: CALENDAR_ID }]);
       }
-      state.account.needsReauthentication = values.needsReauthentication === true;
-      return createChain([{ id: ACCOUNT_ID }]);
+      return {
+        where: (condition: SQL | undefined) => createChain(applyAccountFlag(values, condition)),
+      };
     },
   }),
 };
@@ -255,7 +306,7 @@ describe("ingesting an OAuth source whose credential died", () => {
     expect(state.updates).toEqual([]);
   });
 
-  it("clears the ingest backoff and leaves the marker alone once the source works again", async () => {
+  it("clears the ingest backoff and the demand it is entitled to adjudicate once the source works again", async () => {
     state.calendar = {
       ingestFailureCount: 4,
       ingestLastFailureAt: new Date(START_AT.getTime() - 80 * MINUTE_MS),
@@ -270,7 +321,28 @@ describe("ingesting an OAuth source whose credential died", () => {
       ingestLastFailureAt: null,
       ingestNextAttemptAt: null,
     }]);
+    expect(accountWrites().map(({ values }) => values)).toEqual([{
+      needsReauthentication: false,
+      reauthenticationSource: null,
+    }]);
+    expect(state.account.needsReauthentication).toBe(false);
+  });
+
+  it("settles instead of rewriting the demand on every later healthy tick", async () => {
+    state.calendar = {
+      ingestFailureCount: 4,
+      ingestLastFailureAt: new Date(START_AT.getTime() - 80 * MINUTE_MS),
+      ingestNextAttemptAt: new Date(START_AT.getTime() - MINUTE_MS),
+    };
+    state.account = { needsReauthentication: true };
+
+    await runTick();
+    state.updates = [];
+    await runTick();
+    await runTick();
+
     expect(accountWrites()).toEqual([]);
+    expect(state.account.needsReauthentication).toBe(false);
   });
 });
 

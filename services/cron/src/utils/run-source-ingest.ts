@@ -46,6 +46,7 @@ interface SourceIngestDependencies {
 
 interface SourceIngestHandlers {
   onSettledFailure?: (error: unknown) => Promise<void> | void;
+  shouldApplyBackoff?: (error: unknown) => boolean;
 }
 
 const isAttemptDue = (attempt: SourceIngestAttempt, now: Date): boolean =>
@@ -142,6 +143,11 @@ const runWork = async <TResult>(
     }
 
     forgetOAuthRefreshSkips(calendarId);
+    if (handlers.shouldApplyBackoff?.(error) === false) {
+      widelog.set("retry.backoff_skipped", "provider-credentials-rejected");
+      await runFailureHandler(handlers, true, error);
+      throw error;
+    }
     const settled = await settleFailure(dependencies, calendarId, attempt);
     await runFailureHandler(handlers, settled, error);
     throw error;

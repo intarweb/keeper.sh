@@ -129,6 +129,7 @@ const applyCalendarWrite = (values: Record<string, unknown>): void => {
 const liveRows = (): Record<string, Record<string, unknown>> => ({
   calendar_accounts: {
     id: ACCOUNT_ID,
+    needsReauthentication: state.account.needsReauthentication,
     oauthCredentialId: state.account.oauthCredentialId,
   },
   oauth_credentials: {
@@ -144,7 +145,7 @@ const isSameValue = (left: unknown, right: unknown): boolean => {
   return left === right;
 };
 
-const COLUMN_COMPARISON = /"(\w+)"\."(\w+)" = \$(\d+)/g;
+const COLUMN_COMPARISON = /"(\w+)"\."(\w+)" (=|<>) \$(\d+)/g;
 
 const guardMatchesLiveRows = (text: string, params: unknown[]): boolean => {
   const rows = liveRows();
@@ -152,12 +153,16 @@ const guardMatchesLiveRows = (text: string, params: unknown[]): boolean => {
   if (comparisons.length === 0) {
     throw new Error(`Reauthentication flag written with an unreadable guard: ${text}`);
   }
-  return comparisons.every(([, table, column, index]) => {
+  return comparisons.every(([, table, column, operator, index]) => {
     const row = rows[table ?? ""];
     if (!row) {
       throw new Error(`Reauthentication guard read an unmodelled table: ${table ?? ""}`);
     }
-    return isSameValue(row[column ?? ""], params[Number(index) - 1]);
+    const matches = isSameValue(row[column ?? ""], params[Number(index) - 1]);
+    if (operator === "<>") {
+      return !matches;
+    }
+    return matches;
   });
 };
 
@@ -174,7 +179,6 @@ const applyAccountFlag = (values: Record<string, unknown>, condition: SQL | unde
   state.flagGuardParams.push(query.params);
 
   if (!guardMatchesLiveRows(query.sql, query.params)) {
-    state.accountWrites.push({ flagged: false, needsReauthentication });
     return [];
   }
 
@@ -339,6 +343,7 @@ describe("a provider that rotates the refresh token on every refresh", () => {
       OAUTH_CREDENTIAL_ID,
       OAUTH_CREDENTIAL_ID,
       "refresh-token-1",
+      true,
     ]]);
   });
 
