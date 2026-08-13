@@ -109,7 +109,9 @@ const runSourceIngest = async <TResult>(
     await settleSuccess(dependencies, calendarId, attempt, lease);
     return result;
   } finally {
-    await lease.release();
+    await lease.release().catch((error: unknown) => {
+      widelog.error("lease.release_error", error);
+    });
   }
 };
 
