@@ -33,7 +33,13 @@ const applyPendingChanges = (changes: PendingChanges): void => {
   for (const insert of changes.inserts) {
     mappingSequence += 1;
     const id = `map-${mappingSequence}`;
-    mappingStore.set(id, { ...insert, id });
+    mappingStore.set(id, {
+      ...insert,
+      id,
+      remoteContentHash: null,
+      remoteEchoAlgorithm: null,
+      remoteEchoAt: null,
+    });
   }
   for (const update of changes.updates ?? []) {
     const existing = mappingStore.get(update.id);
@@ -124,6 +130,9 @@ const makeMapping = (
   endTime: event.endTime,
   eventStateId: event.id,
   id,
+  remoteContentHash: null,
+  remoteEchoAlgorithm: null,
+  remoteEchoAt: null,
   sourceCalendarId: SOURCE_ID,
   startTime: event.startTime,
   syncEventHash: createSyncEventContentHash(event),

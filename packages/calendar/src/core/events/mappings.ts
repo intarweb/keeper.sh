@@ -13,6 +13,9 @@ interface EventMapping {
   destinationEventUid: string;
   deleteIdentifier: string;
   syncEventHash: string | null;
+  remoteContentHash: string | null;
+  remoteEchoAlgorithm: string | null;
+  remoteEchoAt: Date | null;
   startTime: Date;
   endTime: Date;
 }
@@ -55,6 +58,9 @@ const getEventMappingsForDestination = async (
       eventStateCalendarId: eventStatesTable.calendarId,
       eventStateId: eventMappingsTable.eventStateId,
       id: eventMappingsTable.id,
+      remoteContentHash: eventMappingsTable.remoteContentHash,
+      remoteEchoAlgorithm: eventMappingsTable.remoteEchoAlgorithm,
+      remoteEchoAt: eventMappingsTable.remoteEchoAt,
       sourceCalendarId: eventMappingsTable.sourceCalendarId,
       syncEventId: eventMappingsTable.syncEventId,
       syncEventHash: eventMappingsTable.syncEventHash,

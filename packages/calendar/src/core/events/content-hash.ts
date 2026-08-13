@@ -50,6 +50,12 @@ const createSyncEventContentHash = (event: SyncableEventContent): string => {
   return new Bun.CryptoHasher("sha256").update(payload).digest("hex");
 };
 
+/*
+ * Identifies the hash function whose output is stored as a destination echo. Bumping it
+ * retires every recorded echo fleet-wide without a data migration.
+ */
+const EDITABLE_CONTENT_ECHO_ALGORITHM = "editable-content-v1";
+
 const createEditableEventContentHash = (event: SyncableEventContent): string => {
   const payload = JSON.stringify([
     normalizeText(event.summary),
@@ -61,5 +67,9 @@ const createEditableEventContentHash = (event: SyncableEventContent): string => 
   return new Bun.CryptoHasher("sha256").update(payload).digest("hex");
 };
 
-export { createEditableEventContentHash, createSyncEventContentHash };
+export {
+  createEditableEventContentHash,
+  createSyncEventContentHash,
+  EDITABLE_CONTENT_ECHO_ALGORITHM,
+};
 export type { SyncableEventContent };

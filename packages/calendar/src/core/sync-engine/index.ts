@@ -12,7 +12,14 @@ import { getDatabaseErrorDetails } from "@keeper.sh/database";
 import type { SyncProgressUpdate } from "../sync/types";
 import { createSyncEventContentHash } from "../events/content-hash";
 import { computeSyncOperations } from "../sync/operations";
-import type { ReconciliationScope, StaleReasonCounts } from "../sync/operations";
+import type {
+  EchoAdoption,
+  EchoCounts,
+  ReconciliationScope,
+  StaleReasonCounts,
+} from "../sync/operations";
+import { resolveEchoConfig } from "./echo-config";
+import type { EchoConfig } from "./echo-config";
 import type { CalendarSyncProvider, PendingChanges } from "./types";
 
 /*
@@ -31,6 +38,7 @@ const SYNC_PHASES = [
   "provider_delete",
   "checkpoint_flush",
   "mapping_flush",
+  "echo_adoption",
 ] as const;
 
 type SyncPhase = (typeof SYNC_PHASES)[number];
@@ -547,6 +555,8 @@ const executeRemoteOperations = async (
 };
 
 interface SyncCalendarOptions {
+  adoptEchoes?: (adoptions: EchoAdoption[], recordedAt: Date) => Promise<void>;
+  echoConfig?: EchoConfig;
   userId: string;
   calendarId: string;
   provider: CalendarSyncProvider;
@@ -611,6 +621,34 @@ const appendStaleReasonFields = (
   }
 };
 
+const describeError = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+};
+
+const appendEchoFields = (
+  event: Record<string, unknown>,
+  config: EchoConfig,
+  counts: EchoCounts,
+  adoptedCount: number,
+): void => {
+  /*
+   * Emitted including zeros: with suppression, "converged", "the run never happened",
+   * and "the field was never wired up" are the same absence in a dashboard, and the
+   * first two are exactly what a silently broken adoption write looks like.
+   */
+  event["echo.mode"] = config.mode;
+  event["echo.adopted_count"] = adoptedCount;
+  event["echo.adoption_local_divergence_count"] = counts.adoptionLocalDivergenceCount;
+  event["echo.content_changed_count"] = counts.contentChangedCount;
+  event["echo.eligible_count"] = counts.eligibleCount;
+  event["echo.legacy_content_changed_count"] = counts.legacyContentChangedCount;
+  event["echo.missing_count"] = counts.missingCount;
+  event["echo.stale_count"] = counts.staleCount;
+};
+
 const appendThrottleFields = (
   event: Record<string, unknown>,
   metrics?: ProviderThrottleMetrics,
@@ -622,11 +660,15 @@ const appendThrottleFields = (
   event["provider.retry_after_ms"] = metrics.retryAfterMs;
 };
 
+const DEFAULT_ECHO_CONFIG = resolveEchoConfig(process.env);
+
 const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarResult> => {
   const {
+    adoptEchoes,
     userId,
     calendarId,
     provider,
+    echoConfig = DEFAULT_ECHO_CONFIG,
     readState,
     isCurrent,
     flush,
@@ -683,7 +725,10 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     }
 
     emitProgress("comparing", localEvents.length, state.remoteEvents.length);
+    const observedAt = new Date();
     const {
+      adoptionIntents,
+      echoCounts,
       mappingUpdates,
       operations,
       staleMappingIds,
@@ -693,7 +738,36 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       state.existingMappings,
       state.remoteEvents,
       reconciliationScope,
+      {
+        maxAdoptionsPerRun: echoConfig.maxAdoptionsPerRun,
+        maxAgeMs: echoConfig.maxAgeMs,
+        mode: echoConfig.mode,
+        now: observedAt,
+        repairOnAdopt: echoConfig.repairOnAdopt,
+      },
     ));
+
+    /*
+     * Recording an observation is coupled to nothing, so a failure costs one cycle
+     * and must not fail an otherwise complete run -- but it is never silent, because
+     * a silently broken write reads on the dashboard exactly like convergence.
+     */
+    const adoptEchoesForRun = async (): Promise<number> => {
+      if (!adoptEchoes || !echoConfig.adoptionEnabled || adoptionIntents.length === 0) {
+        return 0;
+      }
+      try {
+        await timer.measure(
+          "echo_adoption",
+          () => adoptEchoes(adoptionIntents, observedAt),
+        );
+        return adoptionIntents.length;
+      } catch (error) {
+        wideEvent["echo.adoption_failed"] = true;
+        wideEvent["echo.adoption_error"] = describeError(error);
+        return 0;
+      }
+    };
 
     const addCount = operations.filter((op) => op.type === "add" || op.type === "replace").length;
     const removeCount = operations.filter((op) => op.type === "remove" || op.type === "replace").length;
@@ -710,6 +784,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       && staleMappingIds.length === 0
       && mappingUpdates.length === 0
     ) {
+      appendEchoFields(wideEvent, echoConfig, echoCounts, await adoptEchoesForRun());
       wideEvent["outcome"] = "in-sync";
       wideEvent["flushed"] = false;
       wideEvent["events.added"] = 0;
@@ -761,6 +836,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       flushed = true;
     }
 
+    appendEchoFields(wideEvent, echoConfig, echoCounts, await adoptEchoesForRun());
     wideEvent["outcome"] = resolveOutcome(outcome.superseded);
     wideEvent["flushed"] = flushed;
     wideEvent["flush.inserts"] = outcome.changes.inserts.length;

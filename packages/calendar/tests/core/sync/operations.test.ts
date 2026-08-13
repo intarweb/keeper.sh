@@ -28,6 +28,9 @@ const createEventMapping = (overrides: Partial<EventMapping>): EventMapping => (
   eventStateId: "event-state-id-1",
   syncEventId: "event-state-id-1",
   id: "mapping-id-1",
+  remoteContentHash: null,
+  remoteEchoAlgorithm: null,
+  remoteEchoAt: null,
   sourceCalendarId: "source-calendar-id",
   startTime: new Date("2026-03-08T14:00:00.000Z"),
   syncEventHash: "hash-1",
@@ -64,6 +67,16 @@ const EMPTY_STALE_REASON_COUNTS = {
   remoteContentChanged: 0,
   remoteMissing: 0,
   remoteTimeChanged: 0,
+};
+
+const EMPTY_ECHO_COUNTS = {
+  adoptedCount: 0,
+  adoptionLocalDivergenceCount: 0,
+  contentChangedCount: 0,
+  eligibleCount: 0,
+  legacyContentChangedCount: 0,
+  missingCount: 0,
+  staleCount: 0,
 };
 
 const TEST_WINDOW = {
@@ -389,6 +402,8 @@ describe("computeSyncOperations", () => {
     expect(computeSyncOperations([event], [mapping], [remoteEvent], {
       syncWindowStart: new Date("2026-07-10T00:00:00.000Z"),
     })).toEqual({
+      adoptionIntents: [],
+      echoCounts: EMPTY_ECHO_COUNTS,
       mappingUpdates: [],
       operations: [],
       staleMappingIds: [],
@@ -425,6 +440,8 @@ describe("computeSyncOperations", () => {
     }));
 
     expect(computeSyncOperations([first, second], mappings, remotes)).toEqual({
+      adoptionIntents: [],
+      echoCounts: EMPTY_ECHO_COUNTS,
       mappingUpdates: [],
       operations: [],
       staleMappingIds: [],
@@ -445,6 +462,8 @@ describe("computeSyncOperations", () => {
       cleanupWindowStart: new Date("2026-03-03T00:00:00.000Z"),
       syncWindowStart: new Date("2026-03-03T00:00:00.000Z"),
     })).toEqual({
+      adoptionIntents: [],
+      echoCounts: EMPTY_ECHO_COUNTS,
       mappingUpdates: [],
       operations: [{
         deleteId: mapping.deleteIdentifier,
@@ -603,6 +622,8 @@ describe("computeSyncOperations", () => {
     });
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
+      adoptionIntents: [],
+      echoCounts: EMPTY_ECHO_COUNTS,
       mappingUpdates: [],
       operations: [],
       staleMappingIds: [],
@@ -661,6 +682,16 @@ describe("computeSyncOperations", () => {
     });
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
+      adoptionIntents: [{
+        contentHash: remoteEvent.editableContentHash,
+        mappingId: mapping.id,
+      }],
+      echoCounts: {
+        ...EMPTY_ECHO_COUNTS,
+        adoptedCount: 1,
+        eligibleCount: 1,
+        missingCount: 1,
+      },
       mappingUpdates: [],
       operations: [],
       staleMappingIds: [],
@@ -714,6 +745,16 @@ describe("computeSyncOperations", () => {
     });
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
+      adoptionIntents: [{
+        contentHash: createEditableEventContentHash(event),
+        mappingId: mapping.id,
+      }],
+      echoCounts: {
+        ...EMPTY_ECHO_COUNTS,
+        adoptedCount: 1,
+        eligibleCount: 1,
+        missingCount: 1,
+      },
       mappingUpdates: [{
         deleteIdentifier: remoteEvent.deleteId,
         id: mapping.id,
@@ -764,6 +805,8 @@ describe("computeSyncOperations", () => {
     });
 
     expect(computeSyncOperations([event], [mapping], [remoteEvent])).toEqual({
+      adoptionIntents: [],
+      echoCounts: EMPTY_ECHO_COUNTS,
       mappingUpdates: [{
         deleteIdentifier: remoteEvent.deleteId,
         id: mapping.id,

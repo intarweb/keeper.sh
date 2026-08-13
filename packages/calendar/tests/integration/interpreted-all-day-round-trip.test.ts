@@ -224,7 +224,13 @@ class InMemoryMappingStore {
       this.mappings.delete(id);
     }
     for (const insert of changes.inserts) {
-      const mapping: EventMapping = { ...insert, id: `mapping-${this.nextId++}` };
+      const mapping: EventMapping = {
+        ...insert,
+        id: `mapping-${this.nextId++}`,
+        remoteContentHash: null,
+        remoteEchoAlgorithm: null,
+        remoteEchoAt: null,
+      };
       this.mappings.set(mapping.id, mapping);
     }
     for (const update of changes.updates ?? []) {

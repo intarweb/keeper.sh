@@ -303,6 +303,11 @@ const eventMappingsTable = pgTable(
     eventStateId: uuid()
       .references(() => eventStatesTable.id, { onDelete: "set null" }),
     id: uuid().notNull().primaryKey().defaultRandom(),
+    // The destination's own read-back of the content it stored, and when it was observed.
+    // Null means no observation, which reconciliation reads as "re-learn", never "replace".
+    remoteContentHash: text(),
+    remoteEchoAlgorithm: text(),
+    remoteEchoAt: timestamp(),
     syncEventId: text(),
     syncEventHash: text(),
     // Nullable for rolling compatibility with writers from before this column existed.

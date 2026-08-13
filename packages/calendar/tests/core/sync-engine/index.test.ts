@@ -45,6 +45,9 @@ const makeEvent = (
 
 const makeMapping = (id: string, eventStateId: string, destinationEventUid: string): EventMapping => ({
   id,
+  remoteContentHash: null,
+  remoteEchoAlgorithm: null,
+  remoteEchoAt: null,
   eventStateId,
   syncEventId: eventStateId,
   calendarId: "dest-cal-1",

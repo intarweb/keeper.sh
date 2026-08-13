@@ -112,6 +112,9 @@ describe("createGoogleSyncProvider", () => {
       endTime: event.endTime,
       eventStateId: event.id,
       id: "mapping-id",
+      remoteContentHash: null,
+      remoteEchoAlgorithm: null,
+      remoteEchoAt: null,
       sourceCalendarId: "source-cal-1",
       startTime: event.startTime,
       syncEventHash: createSyncEventContentHash(event),
@@ -129,7 +132,13 @@ describe("createGoogleSyncProvider", () => {
       },
     };
 
-    expect(computeSyncOperations([event], [mapping], remoteEvents, reconciliationScope)).toEqual({
+    const result = computeSyncOperations([event], [mapping], remoteEvents, reconciliationScope);
+
+    expect(result.adoptionIntents).toEqual([{
+      contentHash: remoteEvents[0]?.editableContentHash,
+      mappingId: "mapping-id",
+    }]);
+    expect(result).toMatchObject({
       mappingUpdates: [],
       operations: [],
       staleReasonCounts: {
@@ -153,7 +162,7 @@ describe("createGoogleSyncProvider", () => {
       [legacyMapping],
       remoteEvents,
       reconciliationScope,
-    )).toEqual({
+    )).toMatchObject({
       mappingUpdates: [{
         deleteIdentifier: remoteEvents[0]?.deleteId,
         id: legacyMapping.id,

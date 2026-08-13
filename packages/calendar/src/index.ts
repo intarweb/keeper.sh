@@ -256,6 +256,9 @@ export type {
 export { createRedisGenerationCheck } from "./core/sync-engine/generation";
 export type { GenerationStore } from "./core/sync-engine/generation";
 export { createDatabaseFlush } from "./core/sync-engine/flush";
+export { createDatabaseEchoAdoption } from "./core/sync-engine/echo-adoption";
+export { resolveEchoConfig } from "./core/sync-engine/echo-config";
+export type { EchoConfig } from "./core/sync-engine/echo-config";
 export { ingestSource } from "./core/sync-engine/ingest";
 export {
   JOB_OWNED_WIDE_EVENT_KEYS,

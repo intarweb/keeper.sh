@@ -2,6 +2,7 @@ import {
   syncCalendar,
   getEventsForCalendarsWithDiagnostics,
   getEventMappingsForDestination,
+  createDatabaseEchoAdoption,
   createDatabaseFlush,
   createGoogleUserRateLimiter,
   createRedisRateLimiter,
@@ -849,6 +850,7 @@ const syncDestinationsForUser = async (
           provider: providerRef,
           readState: () => Promise.resolve(reconciliationState),
           isCurrent: isAttemptCurrent,
+          adoptEchoes: createDatabaseEchoAdoption(database),
           flush: createDatabaseFlush(database),
           onProgress: callbacks?.onProgress,
           onSyncEvent: (event) => {

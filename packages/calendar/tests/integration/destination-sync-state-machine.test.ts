@@ -217,6 +217,9 @@ class InMemoryMappingStore {
       const mapping: EventMapping = {
         ...insert,
         id: `mapping-${this.nextId++}`,
+        remoteContentHash: null,
+        remoteEchoAlgorithm: null,
+        remoteEchoAt: null,
       };
       this.mappings.set(mapping.id, mapping);
     }
@@ -476,6 +479,9 @@ it("migrates a legacy recurring Google mapping in place and converges", async ()
     endTime: occurrence.endTime,
     eventStateId: "recurring-master-state",
     id: "legacy-mapping",
+    remoteContentHash: null,
+    remoteEchoAlgorithm: null,
+    remoteEchoAt: null,
     sourceCalendarId: SOURCE_CALENDAR_ID,
     startTime: occurrence.startTime,
     syncEventHash: "legacy-master-hash",
