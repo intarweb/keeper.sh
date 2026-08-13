@@ -14,6 +14,7 @@ interface CoordinatedRefresherOptions {
   database: BunSQLDatabase;
   oauthCredentialId: string;
   calendarAccountId: string;
+  onBookkeepingError?: (scope: string, error: unknown) => void;
   refreshLockStore: RefreshLockStore | null;
   rawRefresh: (refreshToken: string) => Promise<{
     access_token: string;
@@ -36,8 +37,31 @@ const isStoredRefreshToken = async (
   return credential?.refreshToken === refreshToken;
 };
 
+const flagAccountReauthentication = async (
+  database: BunSQLDatabase,
+  oauthCredentialId: string,
+  calendarAccountId: string,
+  refreshToken: string,
+): Promise<void> => {
+  if (!await isStoredRefreshToken(database, oauthCredentialId, refreshToken)) {
+    return;
+  }
+
+  await database
+    .update(calendarAccountsTable)
+    .set({ needsReauthentication: true })
+    .where(eq(calendarAccountsTable.id, calendarAccountId));
+};
+
 const createCoordinatedRefresher = (options: CoordinatedRefresherOptions) => {
-  const { database, oauthCredentialId, calendarAccountId, refreshLockStore, rawRefresh } = options;
+  const {
+    database,
+    oauthCredentialId,
+    calendarAccountId,
+    onBookkeepingError,
+    refreshLockStore,
+    rawRefresh,
+  } = options;
 
   return (refreshToken: string) =>
     runWithCredentialRefreshLock(
@@ -59,14 +83,15 @@ const createCoordinatedRefresher = (options: CoordinatedRefresherOptions) => {
 
           return result;
         } catch (error) {
-          if (
-            isOAuthReauthRequiredError(error)
-            && await isStoredRefreshToken(database, oauthCredentialId, refreshToken)
-          ) {
-            await database
-              .update(calendarAccountsTable)
-              .set({ needsReauthentication: true })
-              .where(eq(calendarAccountsTable.id, calendarAccountId));
+          if (isOAuthReauthRequiredError(error)) {
+            await flagAccountReauthentication(
+              database,
+              oauthCredentialId,
+              calendarAccountId,
+              refreshToken,
+            ).catch((bookkeepingError: unknown) => {
+              onBookkeepingError?.("oauth.reauth_flag_error", bookkeepingError);
+            });
           }
           throw error;
         }

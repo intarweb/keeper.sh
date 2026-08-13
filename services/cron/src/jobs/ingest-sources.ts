@@ -40,6 +40,7 @@ import {
   sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
 import { and, arrayContains, eq, isNull, ne, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { withCronWideEvent } from "@/utils/with-wide-event";
 import { context, widelog } from "@/utils/logging";
 import { database, refreshLockRedis, refreshLockStore } from "@/context";
@@ -162,12 +163,56 @@ const requiresOAuthReauthentication = (error: unknown): boolean =>
   && (("authRequired" in error && error.authRequired === true)
     || ("oauthReauthRequired" in error && error.oauthReauthRequired === true));
 
-const flagAccountReauthentication = async (accountId: string): Promise<void> => {
-  await database
+interface ObservedOAuthCredential {
+  oauthCredentialId: string;
+  tokenState: TokenState;
+}
+
+interface ObservedCalDAVCredential {
+  caldavCredentialId: string;
+  credentialUpdatedAt: Date;
+}
+
+const flagAccountReauthentication = async (
+  accountId: string,
+  credentialIsUnchanged: SQL,
+): Promise<void> => {
+  const flagged = await database
     .update(calendarAccountsTable)
     .set({ needsReauthentication: true })
-    .where(eq(calendarAccountsTable.id, accountId));
+    .where(and(eq(calendarAccountsTable.id, accountId), credentialIsUnchanged))
+    .returning({ id: calendarAccountsTable.id });
+
+  if (flagged.length === 0) {
+    widelog.set("failure.reauth_flag_skipped", "credential-changed");
+  }
 };
+
+const flagOAuthAccountReauthentication = (
+  accountId: string,
+  credential: ObservedOAuthCredential,
+): Promise<void> =>
+  flagAccountReauthentication(
+    accountId,
+    sql`${eq(calendarAccountsTable.oauthCredentialId, credential.oauthCredentialId)} and exists (
+      select 1 from ${oauthCredentialsTable}
+      where ${oauthCredentialsTable.id} = ${credential.oauthCredentialId}
+        and ${oauthCredentialsTable.refreshToken} = ${credential.tokenState.refreshToken}
+    )`,
+  );
+
+const flagCalDAVAccountReauthentication = (
+  accountId: string,
+  credential: ObservedCalDAVCredential,
+): Promise<void> =>
+  flagAccountReauthentication(
+    accountId,
+    sql`${eq(calendarAccountsTable.caldavCredentialId, credential.caldavCredentialId)} and exists (
+      select 1 from ${caldavCredentialsTable}
+      where ${caldavCredentialsTable.id} = ${credential.caldavCredentialId}
+        and ${caldavCredentialsTable.updatedAt} = ${credential.credentialUpdatedAt}
+    )`,
+  );
 
 const recordSkippedResources = (skippedResourceCount: number, reasons: string[]): void => {
   if (skippedResourceCount === 0) {
@@ -470,6 +515,8 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
             widelog.set("provider.external_calendar_id", source.externalCalendarId);
           }
 
+          let observedCredential: ObservedOAuthCredential | null = null;
+
           try {
             const result = await widelog.time.measure("duration_ms", () =>
               runSourceIngest(source.calendarId, signal, async (isCurrent) => {
@@ -515,11 +562,18 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
                   accessTokenExpiresAt: currentSource.expiresAt,
                   refreshToken: currentSource.refreshToken,
                 };
+                observedCredential = {
+                  oauthCredentialId: currentSource.oauthCredentialId,
+                  tokenState,
+                };
                 if (rawRefresher) {
                   const tokenRefresher = createCoordinatedRefresher({
                     database,
                     oauthCredentialId: currentSource.oauthCredentialId,
                     calendarAccountId: currentSource.accountId,
+                    onBookkeepingError: (scope, bookkeepingError) => {
+                      widelog.error(scope, bookkeepingError);
+                    },
                     refreshLockStore,
                     rawRefresh: rawRefresher,
                   });
@@ -579,10 +633,10 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
                 };
               }, {
                 onSettledFailure: (error) => {
-                  if (!requiresOAuthReauthentication(error)) {
+                  if (!requiresOAuthReauthentication(error) || !observedCredential) {
                     return;
                   }
-                  return flagAccountReauthentication(source.accountId);
+                  return flagOAuthAccountReauthentication(source.accountId, observedCredential);
                 },
               }),
             );
@@ -698,12 +752,16 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
           widelog.set("provider.account_id", source.accountId);
           widelog.set("provider.calendar_id", source.calendarId);
 
+          let observedCredential: ObservedCalDAVCredential | null = null;
+
           try {
             const result = await widelog.time.measure("duration_ms", () =>
               runSourceIngest(source.calendarId, signal, async (isCurrent) => {
                 const [currentSource] = await database
                   .select({
+                    caldavCredentialId: caldavCredentialsTable.id,
                     calendarUrl: calendarsTable.calendarUrl,
+                    credentialUpdatedAt: caldavCredentialsTable.updatedAt,
                     encryptedPassword: caldavCredentialsTable.encryptedPassword,
                     ingestFutureRange: calendarsTable.ingestFutureRange,
                     ingestHistoricRange: calendarsTable.ingestHistoricRange,
@@ -731,6 +789,10 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                 if (!currentSource) {
                   return createSkippedIngestionResult(source.userId);
                 }
+                observedCredential = {
+                  caldavCredentialId: currentSource.caldavCredentialId,
+                  credentialUpdatedAt: currentSource.credentialUpdatedAt,
+                };
                 const ranges = await getRequiredSourceRanges(source.calendarId);
                 const fetcher = createCalDAVSourceFetcher({
                   calendarUrl: currentSource.calendarUrl ?? currentSource.serverUrl,
@@ -775,10 +837,10 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                 };
               }, {
                 onSettledFailure: (error) => {
-                  if (!isCalDAVAuthenticationError(error)) {
+                  if (!isCalDAVAuthenticationError(error) || !observedCredential) {
                     return;
                   }
-                  return flagAccountReauthentication(source.accountId);
+                  return flagCalDAVAccountReauthentication(source.accountId, observedCredential);
                 },
               }),
             );
