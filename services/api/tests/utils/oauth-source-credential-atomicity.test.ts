@@ -48,11 +48,7 @@ const createChain = (rows: unknown[]): QueryChain => {
   return chain;
 };
 
-/*
- * Applies writes to a snapshot that only replaces the committed state when the
- * whole unit of work returns, so a mid-flight failure reads back as a rollback.
- */
-const createClient = (resolveStaged: () => { credential: CredentialRow; flagged: boolean }) => {
+const createClientWritingTo = (resolveStaged: () => { credential: CredentialRow; flagged: boolean }) => {
   const client = {
     execute: (statement: unknown) => {
       state.advisoryLocks.push(statement);
@@ -95,14 +91,14 @@ const createClient = (resolveStaged: () => { credential: CredentialRow; flagged:
 };
 
 const databaseStub = {
-  ...createClient(() => state.committed),
+  ...createClientWritingTo(() => state.committed),
   transaction: async (callback: (tx: unknown) => Promise<unknown>) => {
     state.transactions += 1;
     const staged = {
       credential: { ...state.committed.credential },
       flagged: state.committed.flagged,
     };
-    const result = await callback(createClient(() => staged));
+    const result = await callback(createClientWritingTo(() => staged));
     state.committed = staged;
     return result;
   },

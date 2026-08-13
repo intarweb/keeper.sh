@@ -29,10 +29,7 @@ const resolveTableName = (table: unknown): string => {
 
 const dialect = new PgDialect();
 
-/*
- * Stands in for the database evaluating the guard the flag write carries: the
- * row is only touched when the credential still holds the token that failed.
- */
+// The flag write is a compare-and-set: it matches only while the credential still holds the failed token.
 const guardMatches = (condition: unknown, storedRefreshToken: string | null): boolean => {
   if (storedRefreshToken === null) {
     return false;

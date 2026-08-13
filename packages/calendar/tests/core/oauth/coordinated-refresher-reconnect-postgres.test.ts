@@ -63,10 +63,6 @@ const seedAccount = async (): Promise<{ accountId: string; credentialId: string 
   return { accountId: account.id, credentialId: credential.id };
 };
 
-/*
- * What services/api writes when the user finishes the OAuth reconnect:
- * fresh tokens on the credential row and the account marker cleared.
- */
 const applyReconnect = async (credentialId: string): Promise<void> => {
   await database
     .update(oauthCredentialsTable)
@@ -151,11 +147,6 @@ const deadRefreshTokenError = (): Error =>
     oauthReauthRequired: true,
   });
 
-/*
- * Delegates every statement to the live database, but lets the reconnect land
- * between the moment the reauthentication flag is decided and the moment it is
- * written, which is the window a check-then-act guard cannot see.
- */
 const withReconnectBeforeAccountWrite = (credentialId: string): BunSQLDatabase => ({
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({

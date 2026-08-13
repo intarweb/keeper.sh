@@ -40,11 +40,6 @@ const withAdministrativeClient = async (statements: string[]): Promise<void> => 
 let client: SQL = new SQL(administrativeUrl ?? "postgres://localhost");
 let database: ReturnType<typeof drizzle> = drizzle(client);
 
-/*
- * A single-holder stand-in for the sync lock's Lua scripts. Every script is
- * answered as "this caller holds the lock and nobody is waiting", which is the
- * situation the worker is in when it picks a destination off the queue.
- */
 const createSingleHolderRedis = () => ({
   get: () => Promise.resolve(null),
   eval: (script: string) => {
@@ -134,11 +129,6 @@ const seedParkedDestination = async (serverUrl: string): Promise<{
   return { accountId: account.id, calendarId: calendar.id };
 };
 
-/*
- * What services/api writes when the user rotates the CalDAV password:
- * RECONNECTED_BACKOFF_STATE across the account's calendars plus the cleared
- * account marker.
- */
 const applyReconnect = async (accountId: string): Promise<void> => {
   await database
     .update(calendarAccountsTable)

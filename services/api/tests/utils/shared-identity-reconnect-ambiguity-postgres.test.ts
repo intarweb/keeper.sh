@@ -168,13 +168,7 @@ interface SeededCalDAVIdentity {
   sourceAccountId: string;
 }
 
-/*
- * The order a real user hits these two screens in: the iCloud identity is added
- * as a source first (calendar_accounts.accountId stays null on that path), then
- * the same identity is connected as a destination, which never matches the
- * source account and therefore opens a second account row over the same
- * serverUrl/username pair.
- */
+// One identity connected as source then destination owns two account rows over the same serverUrl/username.
 const seedCalDAVIdentity = async (): Promise<SeededCalDAVIdentity> => {
   const personal = await createCalDAVSource(
     USER_ID,
@@ -292,12 +286,7 @@ describe.skipIf(!administrativeUrl)(
         .toBe("encrypted:rotated-app-password");
     });
 
-    /*
-     * The ingest cron flags an account once per failing calendar of that account.
-     * Two source calendars and one (pull-capable) destination calendar means the
-     * source account is rewritten twice and the destination account once, which
-     * is enough to put the destination account first in an unordered scan.
-     */
+    // Flagging is per failing calendar; these counts are what put the destination account first in an unordered scan.
     it("still reconnects after the cron flagged both accounts for their failing calendars", async () => {
       const seeded = await seedCalDAVIdentity();
       await armCalendar(seeded.personalCalendarId);
@@ -371,11 +360,6 @@ interface SeededOAuthIdentity {
   sourceCredentialId: string;
 }
 
-/*
- * The same shape on the OAuth side: a Google identity added as a source first
- * owns credential row one, and connecting it as a destination opens credential
- * row two under the same (userId, provider, email) triple.
- */
 const seedOAuthIdentity = async (): Promise<SeededOAuthIdentity> => {
   const [sourceCredential] = await database
     .insert(oauthCredentialsTable)
@@ -435,11 +419,7 @@ const seedOAuthIdentity = async (): Promise<SeededOAuthIdentity> => {
   };
 };
 
-/*
- * What createCoordinatedRefresher writes on every hourly token refresh. expiresAt
- * carries an index, so the write relocates the row's index entry to the end of
- * the credential's scan order.
- */
+// The indexed expiresAt column means this refresh relocates the row's index entry and flips unordered scan order.
 const refreshSourceToken = async (credentialId: string): Promise<void> => {
   await database
     .update(oauthCredentialsTable)

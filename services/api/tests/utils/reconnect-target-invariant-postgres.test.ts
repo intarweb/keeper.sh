@@ -198,11 +198,6 @@ beforeEach(async () => {
   await client.unsafe("delete from oauth_credentials");
 });
 
-/*
- * The destination is connected first under a different Apple ID, so the source
- * opens its own younger account, and the destination is then repointed at the
- * source's username. The older row now matches the reconnect predicate too.
- */
 describe.skipIf(!administrativeUrl)(
   "a CalDAV source whose identity an older destination account also matches",
   () => {
@@ -239,11 +234,6 @@ interface SeededOAuthIdentity {
   sourceCredentialId: string;
 }
 
-/*
- * The destination credential row is the older of the two here, so the target of
- * the reconnect cannot be inferred from row age: it is the credential the source
- * account — the row the ingest cron reads — points at.
- */
 const seedOAuthIdentityWithOlderDestination = async (): Promise<SeededOAuthIdentity> => {
   const [destinationCredential] = await database
     .insert(oauthCredentialsTable)

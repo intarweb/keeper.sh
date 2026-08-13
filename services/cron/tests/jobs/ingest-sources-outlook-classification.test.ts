@@ -194,11 +194,6 @@ const ingestSourcesJob = ingestSourcesModule.default;
 const runTick = (): Promise<unknown> =>
   (ingestSourcesJob.callback() as Promise<void>).catch((error: unknown) => error);
 
-/*
- * The exact value createMicrosoftTokenRefresher throws for a revoked or expired
- * refresh token: a plain Error carrying the provider body, with no
- * oauthReauthRequired or authRequired property.
- */
 const microsoftDeadRefreshTokenError = (): Error =>
   new Error(
     'Token refresh failed (400): {"error":"invalid_grant","error_description":'

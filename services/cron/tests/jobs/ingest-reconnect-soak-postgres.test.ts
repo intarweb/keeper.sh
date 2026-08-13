@@ -195,10 +195,6 @@ const readFlag = async (accountId: string): Promise<boolean | undefined> => {
   return row?.needsReauthentication;
 };
 
-/*
- * Simulates the user completing the OAuth consent screen again: the credential row
- * gets a fresh token pair, then the reconnect helper the API route calls runs.
- */
 const reconnect = async (credentialId: string, token: string): Promise<void> => {
   await database
     .update(oauthCredentialsTable)
