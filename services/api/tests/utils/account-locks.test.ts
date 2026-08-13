@@ -450,7 +450,7 @@ describe("Account locks", () => {
       }),
     };
 
-    const source = await createCalDAVSource("user-1", {
+    const { reconnected, source } = await createCalDAVSource("user-1", {
       authMethod: "basic",
       calendarUrl: "https://caldav.test/team",
       name: "Team CalDAV",
@@ -468,6 +468,7 @@ describe("Account locks", () => {
       provider: "icloud",
       userId: "user-1",
     });
+    expect(reconnected).toBe(false);
     expect(triggerSyncCalls).toEqual(["user-1"]);
   });
 });

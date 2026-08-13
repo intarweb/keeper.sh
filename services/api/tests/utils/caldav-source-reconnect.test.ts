@@ -156,19 +156,44 @@ describe("re-adding a CalDAV source that is already connected", () => {
     state.updates = [];
   });
 
-  it("still reports the duplicate", async () => {
-    await expect(createCalDAVSource(USER_ID, reconnectPayload))
-      .rejects.toBeInstanceOf(DuplicateCalDAVSourceError);
+  it("reports the reconnect as a success against the existing source", async () => {
+    const result = await createCalDAVSource(USER_ID, reconnectPayload);
+
+    expect(result).toMatchObject({
+      reconnected: true,
+      source: { accountId: ACCOUNT_ID, id: SOURCE_ID, userId: USER_ID },
+    });
   });
 
-  it("rotates the credential and clears the backoff before reporting the duplicate", async () => {
-    await createCalDAVSource(USER_ID, reconnectPayload).catch(() => undefined);
+  it("rotates the credential and clears the backoff without inserting a duplicate", async () => {
+    await createCalDAVSource(USER_ID, reconnectPayload);
 
     expect(state.updates.map(({ table }) => table)).toEqual([
       "caldav_credentials",
       "calendar_accounts",
       "calendars",
     ]);
+    expect(state.inserts).toEqual([]);
+  });
+});
+
+describe("re-adding a calendar already connected through a different account", () => {
+  beforeEach(() => {
+    state.existingSource = true;
+    state.inserts = [];
+    state.reusableAccount = null;
+    state.updates = [];
+  });
+
+  it("still reports the duplicate, because no credential was rotated", async () => {
+    await expect(createCalDAVSource(USER_ID, reconnectPayload))
+      .rejects.toBeInstanceOf(DuplicateCalDAVSourceError);
+  });
+
+  it("writes nothing when it reports the duplicate", async () => {
+    await createCalDAVSource(USER_ID, reconnectPayload).catch(() => undefined);
+
+    expect(state.updates).toEqual([]);
     expect(state.inserts).toEqual([]);
   });
 });

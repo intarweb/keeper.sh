@@ -138,6 +138,10 @@ const credentialError = (): Error =>
     oauthReauthRequired: true,
   });
 
+const unstartedGate = (): never => {
+  throw new Error("The gated ingest was never started");
+};
+
 describe("runSourceIngest under contention", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -151,7 +155,7 @@ describe("runSourceIngest under contention", () => {
   it("runs the work once when two scheduler ticks overlap on the same calendar", async () => {
     const fleet = createFleet({ [CALENDAR_A]: freshRow() });
     const started: number[] = [];
-    let resolveWork: ((value: string) => void) | null = null;
+    let resolveWork: (value: string) => void = unstartedGate;
     const gated = (): Promise<string> => {
       started.push(started.length);
       return new Promise<string>((resolve) => {
@@ -167,7 +171,7 @@ describe("runSourceIngest under contention", () => {
     expect(started).toHaveLength(1);
     expect(await second).toBeNull();
 
-    resolveWork?.("ingested");
+    resolveWork("ingested");
     expect(await first).toBe("ingested");
     expect(fleet.releases).toBe(1);
     expect(fleet.writes).toEqual([]);
@@ -176,7 +180,7 @@ describe("runSourceIngest under contention", () => {
   it("arms the backoff once when two overlapping ticks hit a dead credential", async () => {
     const fleet = createFleet({ [CALENDAR_A]: freshRow() });
     const failure = credentialError();
-    let rejectWork: ((error: Error) => void) | null = null;
+    let rejectWork: (error: Error) => void = unstartedGate;
     const gated = (): Promise<never> =>
       new Promise<never>((_resolve, reject) => {
         rejectWork = reject;
@@ -188,7 +192,7 @@ describe("runSourceIngest under contention", () => {
     await Promise.resolve();
 
     expect(await second).toBeNull();
-    rejectWork?.(failure);
+    rejectWork(failure);
     expect(await first).toBe(failure);
 
     expect(fleet.writes).toEqual([{ calendarId: CALENDAR_A, kind: "apply" }]);

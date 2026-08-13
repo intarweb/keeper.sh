@@ -43,6 +43,11 @@ interface CalDAVSource {
   createdAt: Date;
 }
 
+interface CreateCalDAVSourceResult {
+  reconnected: boolean;
+  source: CalDAVSource;
+}
+
 interface CreateCalDAVSourceData {
   authMethod: string;
   calendarUrl: string;
@@ -205,7 +210,7 @@ const countUserAccountsWithDatabase = async (
 const createCalDAVSource = async (
   userId: string,
   data: CreateCalDAVSourceData,
-): Promise<CalDAVSource> => {
+): Promise<CreateCalDAVSourceResult> => {
   if (!encryptionKey) {
     throw new Error("Encryption key not configured");
   }
@@ -223,7 +228,11 @@ const createCalDAVSource = async (
     );
 
     const [existingSource] = await tx
-      .select({ id: calendarsTable.id })
+      .select({
+        createdAt: calendarsTable.createdAt,
+        id: calendarsTable.id,
+        name: calendarsTable.name,
+      })
       .from(calendarsTable)
       .where(
         and(
@@ -247,7 +256,24 @@ const createCalDAVSource = async (
     }
 
     if (existingSource) {
-      return null;
+      if (!existingAccount) {
+        return null;
+      }
+
+      return {
+        reconnected: true,
+        source: {
+          accountId: existingAccount.id,
+          calendarUrl: data.calendarUrl,
+          createdAt: existingSource.createdAt,
+          id: existingSource.id,
+          name: existingSource.name,
+          provider: data.provider,
+          serverUrl: data.serverUrl,
+          userId,
+          username: data.username,
+        },
+      };
     }
 
     if (!existingAccount) {
@@ -280,15 +306,18 @@ const createCalDAVSource = async (
     }
 
     return {
-      accountId,
-      calendarUrl: data.calendarUrl,
-      createdAt: source.createdAt,
-      id: source.id,
-      name: source.name,
-      provider: data.provider,
-      serverUrl: data.serverUrl,
-      userId: source.userId,
-      username: data.username,
+      reconnected: false,
+      source: {
+        accountId,
+        calendarUrl: data.calendarUrl,
+        createdAt: source.createdAt,
+        id: source.id,
+        name: source.name,
+        provider: data.provider,
+        serverUrl: data.serverUrl,
+        userId: source.userId,
+        username: data.username,
+      },
     };
   });
 
@@ -324,3 +353,4 @@ export {
   createCalDAVSource,
   verifyCalDAVSourceOwnership,
 };
+export type { CalDAVSource, CreateCalDAVSourceResult };
