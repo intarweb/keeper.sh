@@ -21,6 +21,18 @@ class OAuthRefreshInProgressError extends Error {
   }
 }
 
+class OAuthRefreshLockUnavailableError extends Error {
+  readonly oauthRefreshLockUnavailable = true;
+
+  constructor(oauthCredentialId: string, options: { cause: unknown }) {
+    super(
+      `Token refresh lock store is unreachable for credential ${oauthCredentialId}`,
+      options,
+    );
+    this.name = "OAuthRefreshLockUnavailableError";
+  }
+}
+
 const inFlightRefreshByCredentialId = new Map<string, Promise<CredentialRefreshResult>>();
 
 const executeWithDistributedLock = async (
@@ -35,7 +47,9 @@ const executeWithDistributedLock = async (
   const lockKey = `${REFRESH_LOCK_PREFIX}${oauthCredentialId}`;
   const acquired = await lockStore
     .tryAcquire(lockKey, REFRESH_LOCK_TTL_SECONDS)
-    .catch(() => false);
+    .catch((error: unknown) => {
+      throw new OAuthRefreshLockUnavailableError(oauthCredentialId, { cause: error });
+    });
 
   if (!acquired) {
     throw new OAuthRefreshInProgressError(oauthCredentialId);
@@ -75,5 +89,9 @@ const runWithCredentialRefreshLock = (
   return refreshTask;
 };
 
-export { OAuthRefreshInProgressError, runWithCredentialRefreshLock };
+export {
+  OAuthRefreshInProgressError,
+  OAuthRefreshLockUnavailableError,
+  runWithCredentialRefreshLock,
+};
 export type { CredentialRefreshResult, RefreshLockStore };

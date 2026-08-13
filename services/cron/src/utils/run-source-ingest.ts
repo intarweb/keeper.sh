@@ -1,6 +1,27 @@
 import type { CalendarBackoffState } from "@keeper.sh/calendar";
-import { isOAuthRefreshInProgressError } from "@keeper.sh/calendar";
+import {
+  isOAuthRefreshInProgressError,
+  isOAuthRefreshLockUnavailableError,
+} from "@keeper.sh/calendar";
 import { widelog } from "@/utils/logging";
+
+const OAUTH_REFRESH_CONTENTION_SKIP_LIMIT = 5;
+
+const oauthRefreshSkipStreakByCalendarId = new Map<string, number>();
+
+const recordOAuthRefreshSkip = (calendarId: string): number => {
+  const streak = (oauthRefreshSkipStreakByCalendarId.get(calendarId) ?? 0) + 1;
+  oauthRefreshSkipStreakByCalendarId.set(calendarId, streak);
+  return streak;
+};
+
+const forgetOAuthRefreshSkips = (calendarId: string): void => {
+  oauthRefreshSkipStreakByCalendarId.delete(calendarId);
+};
+
+const isOAuthRefreshContentionStalled = (calendarId: string): boolean =>
+  (oauthRefreshSkipStreakByCalendarId.get(calendarId) ?? 0)
+    >= OAUTH_REFRESH_CONTENTION_SKIP_LIMIT;
 
 interface SourceIngestAttempt {
   failureCount: number;
@@ -108,11 +129,19 @@ const runWork = async <TResult>(
   try {
     return await work(lease.isCurrent);
   } catch (error) {
-    if (isOAuthRefreshInProgressError(error)) {
-      widelog.set("retry.backoff_skipped", "oauth-refresh-in-progress");
+    if (isOAuthRefreshLockUnavailableError(error)) {
+      forgetOAuthRefreshSkips(calendarId);
+      widelog.set("retry.backoff_skipped", "oauth-refresh-lock-unavailable");
       throw error;
     }
 
+    if (isOAuthRefreshInProgressError(error)) {
+      widelog.set("retry.backoff_skipped", "oauth-refresh-in-progress");
+      widelog.set("oauth.refresh_skip_streak", recordOAuthRefreshSkip(calendarId));
+      throw error;
+    }
+
+    forgetOAuthRefreshSkips(calendarId);
     const settled = await settleFailure(dependencies, calendarId, attempt);
     await runFailureHandler(handlers, settled, error);
     throw error;
@@ -139,6 +168,7 @@ const runSourceIngest = async <TResult>(
     }
 
     const result = await runWork(dependencies, calendarId, attempt, lease, work, handlers);
+    forgetOAuthRefreshSkips(calendarId);
     await settleSuccess(dependencies, calendarId, attempt);
     return result;
   } finally {
@@ -148,7 +178,7 @@ const runSourceIngest = async <TResult>(
   }
 };
 
-export { isAttemptDue, runSourceIngest };
+export { isAttemptDue, isOAuthRefreshContentionStalled, runSourceIngest };
 export type {
   SourceIngestAttempt,
   SourceIngestDependencies,

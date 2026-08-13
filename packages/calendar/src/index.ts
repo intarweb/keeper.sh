@@ -26,12 +26,14 @@ export {
 } from "./core/oauth/ensure-valid-token";
 export {
   OAuthRefreshInProgressError,
+  OAuthRefreshLockUnavailableError,
   runWithCredentialRefreshLock,
   type RefreshLockStore,
 } from "./core/oauth/refresh-coordinator";
 export {
   isOAuthReauthRequiredError,
   isOAuthRefreshInProgressError,
+  isOAuthRefreshLockUnavailableError,
 } from "./core/oauth/error-classification";
 export {
   createCoordinatedRefresher,

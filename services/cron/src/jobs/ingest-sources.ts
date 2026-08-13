@@ -12,6 +12,7 @@ import {
   isTimeoutError,
   isOAuthReauthRequiredError,
   isOAuthRefreshInProgressError,
+  isOAuthRefreshLockUnavailableError,
   buildCalendarBackoffState,
   SOURCE_INGEST_LOCK_NAMESPACE,
   createRequiredSourceRanges,
@@ -49,7 +50,10 @@ import { database, refreshLockRedis, refreshLockStore } from "@/context";
 import env from "@/env";
 import { safeFetchOptions } from "@/utils/safe-fetch-options";
 import { resolveMissingCalendarFailure } from "@/utils/provider-ingest-failure";
-import { runSourceIngest as runSourceIngestWithDependencies } from "@/utils/run-source-ingest";
+import {
+  isOAuthRefreshContentionStalled,
+  runSourceIngest as runSourceIngestWithDependencies,
+} from "@/utils/run-source-ingest";
 import type {
   SourceIngestAttempt,
   SourceIngestDependencies,
@@ -658,7 +662,10 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
 
             return result;
           } catch (error) {
-            if (isOAuthRefreshInProgressError(error)) {
+            if (
+              isOAuthRefreshInProgressError(error)
+              && !isOAuthRefreshContentionStalled(source.calendarId)
+            ) {
               widelog.set("outcome", "skipped");
               widelog.set("skip.reason", "oauth-refresh-in-progress");
 
@@ -666,6 +673,22 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
             }
 
             widelog.set("outcome", "error");
+
+            if (isOAuthRefreshLockUnavailableError(error)) {
+              widelog.errorFields(error, {
+                slug: "oauth-refresh-lock-unavailable",
+                retriable: true,
+              });
+              throw error;
+            }
+
+            if (isOAuthRefreshInProgressError(error)) {
+              widelog.errorFields(error, {
+                slug: "oauth-refresh-contention-stalled",
+                retriable: true,
+              });
+              throw error;
+            }
 
             const missingCalendarFailure = resolveMissingCalendarFailure(error);
             if (missingCalendarFailure) {
