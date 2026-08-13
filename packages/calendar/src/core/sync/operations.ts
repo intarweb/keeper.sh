@@ -465,6 +465,18 @@ const resolveRemoteDecision = (
   };
 };
 
+/*
+ * The read-back a replacement is granted an allowance for. It covers every dimension the
+ * echo carries, because a destination that renders the time or the availability its own
+ * way needs the same one-cycle convergence a content rewrite gets.
+ */
+const resolveRejectedEcho = (decision: RemoteDecision | null): string | null => {
+  if (decision === null || !hasRemoteStateChanged(decision.effective)) {
+    return null;
+  }
+  return decision.observedEcho;
+};
+
 const countStaleReasons = (
   counts: StaleReasonCounts,
   localHashChanged: boolean,
@@ -552,8 +564,14 @@ const identifyStaleMappings = (
 
     if (otherReasonStale || remoteChanges.content) {
       countStaleReasons(staleReasonCounts, localHashChanged, remoteChanges);
-      if (remoteChanges.content && decision.observedEcho !== null) {
-        rejectedContentHashes.set(mapping.id, decision.observedEcho);
+      const rejectedEcho = resolveRejectedEcho(decision);
+      /*
+       * A local edit earns no allowance: the replacement pushes content the destination
+       * has never been handed, so the read-back of the previous content speaks for
+       * nothing, and forgiving it would let a mirror keep its pre-edit rendering forever.
+       */
+      if (!localHashChanged && rejectedEcho !== null) {
+        rejectedContentHashes.set(mapping.id, rejectedEcho);
       }
       staleMappingIds.push(mapping.id);
       staleMappedEventIds.add(syncEventId);
@@ -876,6 +894,7 @@ const computeSyncOperations = (
   const databaseOnlyReassignments: OccurrenceReassignment[] = [];
   const remoteReassignments: OccurrenceReassignment[] = [];
   const reassignmentRejectedEchoes = new Map<string, string>();
+  const reassignmentRetiredEchoes = new Map<string, string>();
   for (const reassignment of occurrenceReassignments) {
     const { mapping } = reassignment;
     const decision = resolveReassignmentDecision(
@@ -885,10 +904,25 @@ const computeSyncOperations = (
     );
     if (canRemapReassignmentInDatabase(reassignment, decision)) {
       databaseOnlyReassignments.push(reassignment);
+      /*
+       * A remap keeps the mapping row, so it is the only write this run makes against it
+       * and therefore the only chance to retire the one-shot allowance the row carries.
+       * Left live it would outlast the read-back it was granted for and accept a
+       * destination-side edit reproducing that read-back as truth.
+       */
+      if (mapping.remoteRejectedContentHash !== null && decision?.observedEcho) {
+        reassignmentRetiredEchoes.set(mapping.id, decision.observedEcho);
+      }
       continue;
     }
-    if (decision?.effective.content && decision.observedEcho !== null) {
-      reassignmentRejectedEchoes.set(mapping.id, decision.observedEcho);
+    /*
+     * No local-edit exclusion here: a re-materialized occurrence is routinely mapped by a
+     * row whose sync hash was written for the series rather than the occurrence, so a hash
+     * mismatch is not evidence that the content being pushed is new.
+     */
+    const rejectedEcho = resolveRejectedEcho(decision);
+    if (rejectedEcho !== null) {
+      reassignmentRejectedEchoes.set(mapping.id, rejectedEcho);
     }
     remoteReassignments.push(reassignment);
   }
@@ -943,11 +977,13 @@ const computeSyncOperations = (
     if (!remoteEvent) {
       continue;
     }
+    const retiredEcho = reassignmentRetiredEchoes.get(mapping.id);
     mappingUpdatesById.set(mapping.id, {
       deleteIdentifier: remoteEvent.deleteId,
       id: mapping.id,
       syncEventHash: createSyncEventContentHash(event),
       syncEventId: event.id,
+      ...(retiredEcho && { remoteEcho: { contentHash: retiredEcho } }),
     });
   }
 
