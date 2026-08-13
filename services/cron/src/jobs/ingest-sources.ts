@@ -11,6 +11,7 @@ import {
   ensureValidToken,
   isTimeoutError,
   isOAuthReauthRequiredError,
+  isOAuthRefreshInProgressError,
   buildCalendarBackoffState,
   SOURCE_INGEST_LOCK_NAMESPACE,
   createRequiredSourceRanges,
@@ -657,6 +658,12 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
 
             return result;
           } catch (error) {
+            if (isOAuthRefreshInProgressError(error)) {
+              widelog.set("outcome", "skipped");
+              widelog.set("skip.reason", "oauth-refresh-in-progress");
+
+              return createSkippedIngestionResult(source.userId);
+            }
 
             widelog.set("outcome", "error");
 

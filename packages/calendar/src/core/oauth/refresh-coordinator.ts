@@ -12,23 +12,33 @@ interface RefreshLockStore {
 const REFRESH_LOCK_PREFIX = "oauth:refresh-lock:";
 const REFRESH_LOCK_TTL_SECONDS = 30;
 
+class OAuthRefreshInProgressError extends Error {
+  readonly oauthRefreshInProgress = true;
+
+  constructor(oauthCredentialId: string) {
+    super(`Token refresh already in progress on another instance for credential ${oauthCredentialId}`);
+    this.name = "OAuthRefreshInProgressError";
+  }
+}
+
 const inFlightRefreshByCredentialId = new Map<string, Promise<CredentialRefreshResult>>();
 
 const executeWithDistributedLock = async (
   lockStore: RefreshLockStore | null,
-  lockKey: string,
+  oauthCredentialId: string,
   runRefresh: () => Promise<CredentialRefreshResult>,
 ): Promise<CredentialRefreshResult> => {
   if (!lockStore) {
     return runRefresh();
   }
 
+  const lockKey = `${REFRESH_LOCK_PREFIX}${oauthCredentialId}`;
   const acquired = await lockStore
     .tryAcquire(lockKey, REFRESH_LOCK_TTL_SECONDS)
     .catch(() => false);
 
   if (!acquired) {
-    throw new Error("Token refresh already in progress on another instance");
+    throw new OAuthRefreshInProgressError(oauthCredentialId);
   }
 
   try {
@@ -50,8 +60,11 @@ const runWithCredentialRefreshLock = (
     return inFlight;
   }
 
-  const lockKey = `${REFRESH_LOCK_PREFIX}${oauthCredentialId}`;
-  const refreshTask = executeWithDistributedLock(lockStore, lockKey, runRefresh).finally(() => {
+  const refreshTask = executeWithDistributedLock(
+    lockStore,
+    oauthCredentialId,
+    runRefresh,
+  ).finally(() => {
     if (inFlightRefreshByCredentialId.get(oauthCredentialId) === refreshTask) {
       inFlightRefreshByCredentialId.delete(oauthCredentialId);
     }
@@ -62,5 +75,5 @@ const runWithCredentialRefreshLock = (
   return refreshTask;
 };
 
-export { runWithCredentialRefreshLock };
+export { OAuthRefreshInProgressError, runWithCredentialRefreshLock };
 export type { CredentialRefreshResult, RefreshLockStore };

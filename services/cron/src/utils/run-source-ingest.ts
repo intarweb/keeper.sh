@@ -1,4 +1,5 @@
 import type { CalendarBackoffState } from "@keeper.sh/calendar";
+import { isOAuthRefreshInProgressError } from "@keeper.sh/calendar";
 import { widelog } from "@/utils/logging";
 
 interface SourceIngestAttempt {
@@ -107,6 +108,11 @@ const runWork = async <TResult>(
   try {
     return await work(lease.isCurrent);
   } catch (error) {
+    if (isOAuthRefreshInProgressError(error)) {
+      widelog.set("retry.backoff_skipped", "oauth-refresh-in-progress");
+      throw error;
+    }
+
     const settled = await settleFailure(dependencies, calendarId, attempt);
     await runFailureHandler(handlers, settled, error);
     throw error;
