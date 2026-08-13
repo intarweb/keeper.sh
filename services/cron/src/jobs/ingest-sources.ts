@@ -74,16 +74,23 @@ const resetIngestBackoff = async (calendarId: string): Promise<void> => {
 const applyIngestBackoff = async (
   calendarId: string,
   currentFailureCount: number,
-): Promise<CalendarBackoffState> => {
+): Promise<CalendarBackoffState | null> => {
   const state = buildCalendarBackoffState(currentFailureCount);
-  await database
+  const updated = await database
     .update(calendarsTable)
     .set({
       ingestFailureCount: state.failureCount,
       ingestLastFailureAt: state.lastFailureAt,
       ingestNextAttemptAt: state.nextAttemptAt,
     })
-    .where(eq(calendarsTable.id, calendarId));
+    .where(and(
+      eq(calendarsTable.id, calendarId),
+      eq(calendarsTable.ingestFailureCount, currentFailureCount),
+    ))
+    .returning({ id: calendarsTable.id });
+  if (updated.length === 0) {
+    return null;
+  }
   return state;
 };
 
