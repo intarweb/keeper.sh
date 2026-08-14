@@ -225,14 +225,16 @@ function MarketingPage() {
             </MarketingFeatureBentoGrid>
           </MarketingFeatureBentoSection>
 
-          <MarketingTestimonialsSection id="testimonials">
-            <Heading2 className="text-center">What people say</Heading2>
-            <MarketingTestimonialsGrid>
-              {TESTIMONIALS.map((testimonial) => (
-                <MarketingTestimonialCard key={`${testimonial.source}-${testimonial.author}`} {...testimonial} />
-              ))}
-            </MarketingTestimonialsGrid>
-          </MarketingTestimonialsSection>
+          {TESTIMONIALS.length > 0 && (
+            <MarketingTestimonialsSection id="testimonials">
+              <Heading2 className="text-center">What people say</Heading2>
+              <MarketingTestimonialsGrid>
+                {TESTIMONIALS.map((testimonial) => (
+                  <MarketingTestimonialCard key={`${testimonial.source}-${testimonial.author}`} {...testimonial} />
+                ))}
+              </MarketingTestimonialsGrid>
+            </MarketingTestimonialsSection>
+          )}
 
           <MarketingPricingSection id="pricing">
             <MarketingPricingIntro>

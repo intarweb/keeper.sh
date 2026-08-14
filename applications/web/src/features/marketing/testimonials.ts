@@ -13,23 +13,7 @@ export const TESTIMONIAL_SOURCE_LABELS: Record<TestimonialSource, string> = {
   email: "Email",
 };
 
-export const TESTIMONIALS: Testimonial[] = [
-  {
-    quote: "PLACEHOLDER — replace with a real quote.",
-    author: "PLACEHOLDER",
-    handle: "u/placeholder",
-    source: "reddit",
-  },
-  {
-    quote: "PLACEHOLDER — replace with a real quote.",
-    author: "PLACEHOLDER",
-    handle: "@placeholder",
-    source: "x",
-  },
-  {
-    quote: "PLACEHOLDER — replace with a real quote.",
-    author: "PLACEHOLDER",
-    handle: null,
-    source: "email",
-  },
-];
+// Real quotes only. Sourced from Reddit, X and user email by the maintainer.
+// The section does not render while this is empty, so an unfinished placeholder
+// can never reach the page.
+export const TESTIMONIALS: Testimonial[] = [];
