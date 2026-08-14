@@ -640,6 +640,12 @@ MCP is **not** bundled in `keeper-services` or the individual service images. To
 2. Set `MCP_PUBLIC_URL` on the `api` service to the same value (e.g. `https://keeper.example.com/mcp`).
 3. Set `VITE_MCP_URL` on the `web` service to the internal URL of the MCP container (e.g. `http://mcp:3002`).
 
+## Registry Manifest
+
+[`server.json`](./server.json) at the repository root describes the hosted server for the [official MCP Registry](https://registry.modelcontextprotocol.io). It carries a single `streamable-http` remote pointing at `https://www.keeper.sh/mcp`, and takes the `sh.keeper` namespace, which is authenticated by proving ownership of `keeper.sh` rather than by a GitHub account.
+
+Publishing is a manual step run with the `mcp-publisher` CLI and is deliberately not automated: a published version is permanent, so the manifest is reviewed here first and the `version` it carries can never be reused. Self-hosted instances do not need this file — it describes the hosted instance only.
+
 # Modules
 
 ## Applications
