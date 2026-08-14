@@ -1,4 +1,5 @@
 import { Children, isValidElement, type JSX, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import { Heading1, Heading2, Heading3 } from "./heading";
 import { ListItem, OrderedList, UnorderedList } from "./list";
 import { Text } from "./text";
@@ -8,16 +9,31 @@ type MarkdownElementProps<Tag extends keyof JSX.IntrinsicElements> =
   node?: unknown;
 };
 
-const SITE_ORIGIN = "https://keeper.sh";
+const SITE_HOSTNAMES = ["keeper.sh", "www.keeper.sh"];
 const HTTP_PROTOCOLS = ["http:", "https:"];
+const LINK_CLASS_NAME = "text-foreground underline underline-offset-2 hover:text-foreground-hover";
 const LABEL_COLUMN_MIN_WIDTH = "18ch";
 const COLUMN_MIN_WIDTH = "13ch";
+
+function isSiteHttpUrl(url: URL): boolean {
+  return HTTP_PROTOCOLS.includes(url.protocol) && SITE_HOSTNAMES.includes(url.hostname);
+}
 
 function isExternalHttpLink(href: string): boolean {
   if (!URL.canParse(href)) return false;
 
   const url = new URL(href);
-  return HTTP_PROTOCOLS.includes(url.protocol) && url.origin !== SITE_ORIGIN;
+  return HTTP_PROTOCOLS.includes(url.protocol) && !isSiteHttpUrl(url);
+}
+
+function toInternalPath(href: string): string | undefined {
+  if (href.startsWith("/")) return href;
+  if (!URL.canParse(href)) return undefined;
+
+  const url = new URL(href);
+  if (!isSiteHttpUrl(url)) return undefined;
+
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function MarkdownHeadingOne({ children }: MarkdownElementProps<"h1">) {
@@ -47,10 +63,19 @@ export function MarkdownLink({
 }: MarkdownElementProps<"a">) {
   const normalizedHref = typeof href === "string" ? href : "#";
   const normalizedTitle = typeof title === "string" ? title : undefined;
+  const internalPath = toInternalPath(normalizedHref);
+
+  if (internalPath) {
+    return (
+      <Link className={LINK_CLASS_NAME} title={normalizedTitle} to={internalPath}>
+        {children}
+      </Link>
+    );
+  }
 
   return (
     <a
-      className="text-foreground underline underline-offset-2 hover:text-foreground-hover"
+      className={LINK_CLASS_NAME}
       href={normalizedHref}
       rel={isExternalHttpLink(normalizedHref) ? "noopener noreferrer" : undefined}
       target={isExternalHttpLink(normalizedHref) ? "_blank" : undefined}
