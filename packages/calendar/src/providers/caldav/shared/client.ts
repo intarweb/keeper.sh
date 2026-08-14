@@ -21,6 +21,13 @@ interface CalendarObject {
   data?: string;
 }
 
+interface CalDAVListingStats {
+  listedCount: number;
+  requestedCount: number;
+  returnedCount: number;
+  unrequestedCount: number;
+}
+
 interface CalDAVIncompleteMultiGetDetails {
   batchCount: number;
   calendarUrl: string;
@@ -156,7 +163,7 @@ const getDisplayName = (name: unknown): string => {
 const toCalendarObjectPath = (href: string, calendarUrl: string): string =>
   new URL(href, calendarUrl).pathname;
 
-const toRequestedPaths = (responses: { href?: string }[], calendarUrl: string): string[] => [
+const toCalendarObjectPaths = (responses: { href?: string }[], calendarUrl: string): string[] => [
   ...new Set(
     responses
       .map(({ href }) => toCalendarObjectPath(href ?? "", calendarUrl))
@@ -262,11 +269,20 @@ class CalDAVClient {
     filename: string;
     etag?: string;
   }): Promise<void> {
+    await this.deleteCalendarObjectByUrl({
+      etag: params.etag,
+      objectUrl: CalDAVClient.normalizeUrl(params.calendarUrl, params.filename),
+    });
+  }
+
+  async deleteCalendarObjectByUrl(params: {
+    objectUrl: string;
+    etag?: string;
+  }): Promise<void> {
     const client = await this.getClient();
-    const objectUrl = CalDAVClient.normalizeUrl(params.calendarUrl, params.filename);
 
     const response = await client.deleteCalendarObject({
-      calendarObject: { url: objectUrl, etag: params.etag },
+      calendarObject: { url: params.objectUrl, etag: params.etag },
     });
 
     await assertSuccessfulResponse(response, "delete");
@@ -290,6 +306,8 @@ class CalDAVClient {
 
   fetchCalendarObjects(params: {
     calendarUrl: string;
+    onListing?: (stats: CalDAVListingStats) => void;
+    pathFilter?: (path: string) => boolean;
     timeRange?: { start: string; end: string };
   }): Promise<CalendarObject[]> {
     return mapAuthenticationFailure(async () => {
@@ -302,8 +320,15 @@ class CalDAVClient {
         url: params.calendarUrl,
       });
 
-      const requestedPaths = toRequestedPaths(queryResponses, params.calendarUrl);
+      const listedPaths = toCalendarObjectPaths(queryResponses, params.calendarUrl);
+      const requestedPaths = listedPaths.filter((path) => params.pathFilter?.(path) ?? true);
       if (requestedPaths.length === 0) {
+        params.onListing?.({
+          listedCount: listedPaths.length,
+          requestedCount: 0,
+          returnedCount: 0,
+          unrequestedCount: 0,
+        });
         return [];
       }
 
@@ -328,6 +353,14 @@ class CalDAVClient {
       );
 
       const missingHrefs = requestedPaths.filter((path) => !objectsByPath.has(path));
+      const requestedPathSet = new Set(requestedPaths);
+      params.onListing?.({
+        listedCount: listedPaths.length,
+        requestedCount: batches.reduce((total, batch) => total + batch.length, 0),
+        returnedCount: requestedPaths.length - missingHrefs.length,
+        unrequestedCount: [...objectsByPath.keys()].filter((path) => !requestedPathSet.has(path)).length,
+      });
+
       if (missingHrefs.length > 0) {
         throw new CalDAVIncompleteMultiGetError({
           batchCount: batches.length,
@@ -374,3 +407,4 @@ export {
   CalDAVWithheldCredentialsError,
   createCalDAVClient,
 };
+export type { CalDAVListingStats };

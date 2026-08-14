@@ -3,6 +3,7 @@ import {
   CalDAVClient,
   CalDAVIncompleteMultiGetError,
 } from "../../../../src/providers/caldav/shared/client";
+import type { CalDAVListingStats } from "../../../../src/providers/caldav/shared/client";
 import { isCalDAVAuthenticationError } from "../../../../src/providers/caldav/source/auth-error-classification";
 
 const davMocks = vi.hoisted(() => ({
@@ -223,6 +224,112 @@ describe("CalDAVClient.fetchCalendarObjects on healthy calendars", () => {
     const objects = await fetchObjects();
 
     expect(pathsOf(objects)).toEqual(paths);
+  });
+});
+
+describe("CalDAVClient.fetchCalendarObjects listing diagnostics", () => {
+  const captureListings = async (): Promise<CalDAVListingStats[]> => {
+    const listings: CalDAVListingStats[] = [];
+    await createClient()
+      .fetchCalendarObjects({
+        calendarUrl: CALENDAR_URL,
+        onListing: (stats) => { listings.push(stats); },
+      })
+      .catch(() => null);
+    return listings;
+  };
+
+  it("reports what the calendar-query listed, what the multiget asked for, and what came back", async () => {
+    answerQueryWith(objectPaths(3));
+
+    await expect(captureListings()).resolves.toEqual([{
+      listedCount: 3,
+      requestedCount: 3,
+      returnedCount: 3,
+      unrequestedCount: 0,
+    }]);
+  });
+
+  it("counts objects the server returned that were never requested", async () => {
+    answerQueryWith(objectPaths(3));
+    answerMultigetWith((objectUrls) => rowsFor([...objectUrls, `${CALENDAR_PATH}surprise.ics`]));
+
+    const [listing] = await captureListings();
+
+    expect(listing).toMatchObject({ requestedCount: 3, returnedCount: 3, unrequestedCount: 1 });
+  });
+
+  it("does not count listed hrefs that are not calendar objects", async () => {
+    answerQueryWith([CALENDAR_PATH, `${CALENDAR_PATH}notes.txt`, objectPath(0)]);
+
+    const [listing] = await captureListings();
+
+    expect(listing).toMatchObject({ listedCount: 1, requestedCount: 1 });
+  });
+
+  it("reports an empty listing when the calendar-query returns no hrefs", async () => {
+    answerQueryWith([]);
+
+    await expect(captureListings()).resolves.toEqual([{
+      listedCount: 0,
+      requestedCount: 0,
+      returnedCount: 0,
+      unrequestedCount: 0,
+    }]);
+  });
+
+  it("reports the listing before rejecting an incomplete multiget", async () => {
+    answerQueryWith(objectPaths(4));
+    answerMultigetWith(respondsWithAtMost(1));
+
+    const [listing] = await captureListings();
+
+    expect(listing).toMatchObject({ listedCount: 4, requestedCount: 4, returnedCount: 1 });
+  });
+});
+
+describe("CalDAVClient.fetchCalendarObjects with a path filter", () => {
+  const acceptedPath = `${CALENDAR_PATH}accepted.ics`;
+  const rejectedPath = `${CALENDAR_PATH}rejected.ics`;
+  const acceptOnly = (path: string): boolean => path === acceptedPath;
+
+  const fetchFilteredObjects = () =>
+    createClient().fetchCalendarObjects({ calendarUrl: CALENDAR_URL, pathFilter: acceptOnly });
+
+  it("downloads only the hrefs the filter accepts", async () => {
+    answerQueryWith([rejectedPath, acceptedPath]);
+
+    const objects = await fetchFilteredObjects();
+
+    expect(requestedBatches()).toEqual([[acceptedPath]]);
+    expect(pathsOf(objects)).toEqual([acceptedPath]);
+  });
+
+  it("issues no multiget when the filter rejects every href", async () => {
+    answerQueryWith([rejectedPath]);
+
+    await expect(fetchFilteredObjects()).resolves.toEqual([]);
+    expect(davMocks.fetchCalendarObjects).not.toHaveBeenCalled();
+  });
+
+  it("does not count filtered-out hrefs as missing", async () => {
+    answerQueryWith([rejectedPath, acceptedPath]);
+    answerMultigetWith((objectUrls) => rowsFor(objectUrls));
+
+    await expect(fetchFilteredObjects()).resolves.toHaveLength(1);
+  });
+
+  it("still rejects when an accepted href is never returned", async () => {
+    answerQueryWith([rejectedPath, acceptedPath]);
+    answerMultigetWith(() => []);
+
+    const error = await captureRejection(fetchFilteredObjects);
+
+    expect(error).toMatchObject({
+      hrefsRequested: 1,
+      name: "CalDAVIncompleteMultiGetError",
+    });
+    expect((error as { missingHrefs: string[] }).missingHrefs).toEqual([acceptedPath]);
   });
 });
 

@@ -12,7 +12,9 @@ import {
 } from "../../../src/core/sync/sync-range";
 import {
   createEditableEventContentHash,
+  createEditableEventContentSnapshot,
   createSyncEventContentHash,
+  hashEditableEventContentSnapshot,
 } from "../../../src/core/events/content-hash";
 import type { EventMapping } from "../../../src/core/events/mappings";
 import type {
@@ -62,6 +64,10 @@ const EMPTY_STALE_REASON_COUNTS = {
   occurrenceReassigned: 0,
   remoteAvailabilityChanged: 0,
   remoteContentChanged: 0,
+  remoteContentAllDayChanged: 0,
+  remoteContentDescriptionChanged: 0,
+  remoteContentLocationChanged: 0,
+  remoteContentSummaryChanged: 0,
   remoteMissing: 0,
   remoteTimeChanged: 0,
 };
@@ -172,6 +178,7 @@ describe("buildRemoveOperations", () => {
     expect(operations).toHaveLength(1);
     expect(operations[0]).toEqual({
       deleteId: "future-delete-id",
+      mappingId: "future-mapping-id",
       startTime: new Date("2026-03-08T13:00:00.000Z"),
       type: "remove",
       uid: "future-uid",
@@ -262,6 +269,7 @@ describe("buildRemoveOperations", () => {
       { syncWindowStart: new Date("2026-03-01T00:00:00.000Z") },
     )).toEqual([{
       deleteId: mapping.deleteIdentifier,
+      mappingId: "mapping-id-1",
       startTime: mapping.startTime,
       type: "remove",
       uid: mapping.destinationEventUid,
@@ -334,6 +342,7 @@ describe("computeSyncOperations", () => {
     expect(operations).toEqual([
       {
         deleteId: "google-event-id",
+        mappingId: "mapping-id-1",
         startTime: mapping.startTime,
         type: "remove",
         uid: "legacy-uid@google.com",
@@ -448,6 +457,7 @@ describe("computeSyncOperations", () => {
       mappingUpdates: [],
       operations: [{
         deleteId: mapping.deleteIdentifier,
+        mappingId: "expired-occurrence-mapping",
         startTime: mapping.startTime,
         type: "remove",
         uid: mapping.destinationEventUid,
@@ -583,6 +593,98 @@ describe("computeSyncOperations", () => {
       type: "replace",
       uid: mapping.destinationEventUid,
     }]);
+  });
+
+  it("attributes a remote content change to the field the provider rewrote", () => {
+    const event = createLocalEvent({ description: "agenda v2", location: "Room 1" });
+    const mapping = createEventMapping({
+      endTime: event.endTime,
+      startTime: event.startTime,
+      syncEventHash: createSyncEventContentHash(event),
+    });
+    const rewrittenContent = createEditableEventContentSnapshot({
+      ...event,
+      description: "agenda v1",
+    });
+    const remoteEvent = createRemoteEvent({
+      deleteId: mapping.deleteIdentifier,
+      editableAvailability: "busy",
+      editableContent: rewrittenContent,
+      editableContentHash: hashEditableEventContentSnapshot(rewrittenContent),
+      endTime: event.endTime,
+      isKeeperEvent: true,
+      startTime: event.startTime,
+      uid: mapping.destinationEventUid,
+    });
+
+    const result = computeSyncOperations([event], [mapping], [remoteEvent]);
+
+    expect(result.staleReasonCounts).toEqual({
+      ...EMPTY_STALE_REASON_COUNTS,
+      remoteContentChanged: 1,
+      remoteContentDescriptionChanged: 1,
+    });
+  });
+
+  it("attributes summary and all-day drift independently", () => {
+    const event = createLocalEvent({ isAllDay: false, summary: "Busy" });
+    const mapping = createEventMapping({
+      endTime: event.endTime,
+      startTime: event.startTime,
+      syncEventHash: createSyncEventContentHash(event),
+    });
+    const rewrittenContent = createEditableEventContentSnapshot({
+      ...event,
+      isAllDay: true,
+      summary: "Busy (copy)",
+    });
+    const remoteEvent = createRemoteEvent({
+      deleteId: mapping.deleteIdentifier,
+      editableAvailability: "busy",
+      editableContent: rewrittenContent,
+      editableContentHash: hashEditableEventContentSnapshot(rewrittenContent),
+      endTime: event.endTime,
+      isKeeperEvent: true,
+      startTime: event.startTime,
+      uid: mapping.destinationEventUid,
+    });
+
+    const result = computeSyncOperations([event], [mapping], [remoteEvent]);
+
+    expect(result.staleReasonCounts).toEqual({
+      ...EMPTY_STALE_REASON_COUNTS,
+      remoteContentChanged: 1,
+      remoteContentAllDayChanged: 1,
+      remoteContentSummaryChanged: 1,
+    });
+  });
+
+  it("counts only the aggregate when a provider reports no content snapshot", () => {
+    const event = createLocalEvent({ description: "agenda v2" });
+    const mapping = createEventMapping({
+      endTime: event.endTime,
+      startTime: event.startTime,
+      syncEventHash: createSyncEventContentHash(event),
+    });
+    const remoteEvent = createRemoteEvent({
+      deleteId: mapping.deleteIdentifier,
+      editableAvailability: "busy",
+      editableContentHash: createEditableEventContentHash({
+        ...event,
+        description: "agenda v1",
+      }),
+      endTime: event.endTime,
+      isKeeperEvent: true,
+      startTime: event.startTime,
+      uid: mapping.destinationEventUid,
+    });
+
+    const result = computeSyncOperations([event], [mapping], [remoteEvent]);
+
+    expect(result.staleReasonCounts).toEqual({
+      ...EMPTY_STALE_REASON_COUNTS,
+      remoteContentChanged: 1,
+    });
   });
 
   it("does not churn when a destination serializes timestamps to whole seconds", () => {
@@ -835,6 +937,7 @@ describe("computeSyncOperations", () => {
     ]);
     expect(result.operations).toEqual([{
       deleteId: "google-provider-id-1",
+      mappingId: "legacy-mapping-1",
       startTime: removedSlot.startTime,
       type: "remove",
       uid: "legacy-1@keeper.sh",
@@ -956,6 +1059,7 @@ describe("computeSyncOperations", () => {
 
     expect(result.operations).toEqual([{
       deleteId: outsideMapping.deleteIdentifier,
+      mappingId: "outside-mapping",
       startTime: outsideMapping.startTime,
       type: "remove",
       uid: outsideMapping.destinationEventUid,
@@ -1049,6 +1153,7 @@ describe("computeSyncOperations", () => {
 
     expect(result.operations).toEqual([{
       deleteId: deletedSourceMapping.deleteIdentifier,
+      mappingId: "deleted-source-mapping",
       startTime: deletedSourceMapping.startTime,
       type: "remove",
       uid: deletedSourceMapping.destinationEventUid,
@@ -1081,6 +1186,7 @@ describe("computeSyncOperations", () => {
 
     expect(result.operations).toEqual([{
       deleteId: deletedSourceMapping.deleteIdentifier,
+      mappingId: "migration-window-tombstone",
       startTime: deletedSourceMapping.startTime,
       type: "remove",
       uid: deletedSourceMapping.destinationEventUid,
@@ -1110,6 +1216,7 @@ describe("computeSyncOperations", () => {
 
     expect(result.operations).toEqual([{
       deleteId: farFutureMapping.deleteIdentifier,
+      mappingId: "far-future-mapping",
       startTime: farFutureMapping.startTime,
       type: "remove",
       uid: farFutureMapping.destinationEventUid,
@@ -1137,6 +1244,7 @@ describe("computeSyncOperations", () => {
 
     expect(result.operations).toEqual([{
       deleteId: beyondEdgeMapping.deleteIdentifier,
+      mappingId: "beyond-edge-mapping",
       startTime: beyondEdgeMapping.startTime,
       type: "remove",
       uid: beyondEdgeMapping.destinationEventUid,
@@ -1186,6 +1294,7 @@ describe("computeSyncOperations", () => {
 
     expect(result.operations).toEqual([{
       deleteId: withheldOutsideMapping.deleteIdentifier,
+      mappingId: "over-budget-outside-mapping",
       startTime: withheldOutsideMapping.startTime,
       type: "remove",
       uid: withheldOutsideMapping.destinationEventUid,
