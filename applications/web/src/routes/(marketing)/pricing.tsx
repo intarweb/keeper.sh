@@ -19,7 +19,7 @@ import {
   MarketingFaqSection,
 } from "@/features/marketing/components/marketing-faq";
 import { Collapsible } from "@/components/ui/primitives/collapsible";
-import { PRICING_FEATURES, PRICING_PLANS } from "@/features/marketing/pricing-plans";
+import { PRICING_FEATURES, PRICING_PLANS, pricingPlanFeatures } from "@/features/marketing/pricing-plans";
 import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, breadcrumbTrail, offerCatalogSchema, faqSchema } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
@@ -107,6 +107,7 @@ function PricingPage() {
               period={plan.period}
               description={plan.description}
               ctaLabel={plan.ctaLabel}
+              features={pricingPlanFeatures(plan.id)}
             />
           ))}
 

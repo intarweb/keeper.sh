@@ -15,6 +15,11 @@ export type MarketingPricingFeatureValueKind =
   | "infinity"
   | (string & {});
 
+export type MarketingPricingPlanFeature = {
+  label: string;
+  value: MarketingPricingFeatureValueKind;
+};
+
 type MarketingPricingPlanCardProps = {
   tone?: "default" | "inverse";
   name: string;
@@ -22,6 +27,7 @@ type MarketingPricingPlanCardProps = {
   period: string;
   description: string;
   ctaLabel: string;
+  features?: MarketingPricingPlanFeature[];
 };
 
 const marketingPricingCard = tv({
@@ -111,6 +117,21 @@ const pricingFeatureValueDisplay = tv({
     tone: {
       default: "text-foreground",
       muted: "text-foreground-muted",
+      inverse: "text-foreground-inverse",
+      inverseMuted: "text-foreground-inverse-muted",
+    },
+  },
+  defaultVariants: {
+    tone: "default",
+  },
+});
+
+const pricingPlanFeatureList = tv({
+  base: "md:hidden flex flex-col gap-2.5 pt-4 pb-5 border-t",
+  variants: {
+    tone: {
+      default: "border-interactive-border",
+      inverse: "border-foreground-inverse-muted",
     },
   },
   defaultVariants: {
@@ -130,6 +151,7 @@ export function MarketingPricingPlanCard({
   period,
   description,
   ctaLabel,
+  features,
 }: MarketingPricingPlanCardProps) {
   const copyTone = resolveCopyTone(tone);
 
@@ -138,7 +160,7 @@ export function MarketingPricingPlanCard({
       <MarketingPricingCardBody>
         <Heading3 className={pricingPlanHeading({ tone })}>{name}</Heading3>
         <div className="flex items-baseline gap-1">
-          <Heading2 className={pricingPlanHeading({ tone })}>{price}</Heading2>
+          <Heading2 as="p" className={pricingPlanHeading({ tone })}>{price}</Heading2>
           <Text size="sm" tone={copyTone} align="left">
             {period}
           </Text>
@@ -148,6 +170,7 @@ export function MarketingPricingPlanCard({
             {description}
           </Text>
         </MarketingPricingCardCopy>
+        {features ? <MarketingPricingPlanFeatureList features={features} tone={tone} /> : null}
       </MarketingPricingCardBody>
       <MarketingPricingCardAction>
         <LinkButton variant="border" className={pricingPlanButton({ tone })} to="/register">
@@ -155,6 +178,33 @@ export function MarketingPricingPlanCard({
         </LinkButton>
       </MarketingPricingCardAction>
     </MarketingPricingCard>
+  );
+}
+
+function MarketingPricingPlanFeatureList({
+  features,
+  tone = "default",
+}: {
+  features: MarketingPricingPlanFeature[];
+  tone?: "default" | "inverse";
+}) {
+  const valueTone = resolveCopyTone(tone);
+
+  return (
+    <dl className={pricingPlanFeatureList({ tone })}>
+      {features.map((feature) => (
+        <div key={feature.label} className="flex items-baseline justify-between gap-3">
+          <dt className="min-w-0">
+            <Text as="span" size="sm" tone={valueTone} align="left">
+              {feature.label}
+            </Text>
+          </dt>
+          <dd className="flex shrink-0 items-center tabular-nums">
+            <MarketingPricingFeatureDisplay value={feature.value} tone={valueTone} />
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -183,7 +233,7 @@ export function MarketingPricingFeatureDisplay({
   tone = "default",
 }: {
   value: MarketingPricingFeatureValueKind;
-  tone?: "muted" | "default";
+  tone?: "muted" | "default" | "inverse" | "inverseMuted";
 }) {
   const className = pricingFeatureValueDisplay({ tone });
 

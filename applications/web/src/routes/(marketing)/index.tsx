@@ -41,7 +41,7 @@ import {
   MarketingPricingPlanCard,
   MarketingPricingSection,
 } from '../../features/marketing/components/marketing-pricing-section'
-import { PRICING_FEATURES, PRICING_PLANS } from '../../features/marketing/pricing-plans'
+import { PRICING_FEATURES, PRICING_PLANS, pricingPlanFeatures } from '../../features/marketing/pricing-plans'
 import { calendarEmphasizedAtom } from '../../state/calendar-emphasized'
 import { ANALYTICS_EVENTS } from '../../lib/analytics'
 import ArrowRightIcon from "lucide-react/dist/esm/icons/arrow-right";
@@ -279,6 +279,7 @@ function MarketingPage() {
                   period={plan.period}
                   description={plan.description}
                   ctaLabel={plan.ctaLabel}
+                  features={pricingPlanFeatures(plan.id)}
                 />
               ))}
 

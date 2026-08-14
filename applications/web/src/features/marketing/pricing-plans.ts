@@ -1,7 +1,12 @@
-import type { MarketingPricingFeatureValueKind } from "./components/marketing-pricing-section";
+import type {
+  MarketingPricingFeatureValueKind,
+  MarketingPricingPlanFeature,
+} from "./components/marketing-pricing-section";
+
+export type PricingPlanId = 'free' | 'pro';
 
 export type PricingPlan = {
-  id: string;
+  id: PricingPlanId;
   name: string;
   price: string;
   period: string;
@@ -49,3 +54,7 @@ export const PRICING_FEATURES: PricingFeature[] = [
   { label: 'API & MCP Access', free: '25 calls/day', pro: 'infinity' },
   { label: 'Priority Support', free: 'minus', pro: 'check' },
 ];
+
+export function pricingPlanFeatures(planId: PricingPlanId): MarketingPricingPlanFeature[] {
+  return PRICING_FEATURES.map((feature) => ({ label: feature.label, value: feature[planId] }));
+}
