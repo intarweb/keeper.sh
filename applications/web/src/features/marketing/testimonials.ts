@@ -13,7 +13,26 @@ export const TESTIMONIAL_SOURCE_LABELS: Record<TestimonialSource, string> = {
   email: "Email",
 };
 
-// Real quotes only. Sourced from Reddit, X and user email by the maintainer.
-// The section does not render while this is empty, so an unfinished placeholder
-// can never reach the page.
-export const TESTIMONIALS: Testimonial[] = [];
+// Placeholders, so the section can be reviewed before real quotes exist. The
+// maintainer replaces each entry with a real quote sourced from Reddit, X or
+// user email. The section does not render while this array is empty.
+export const TESTIMONIALS: Testimonial[] = [
+  {
+    quote: "PLACEHOLDER QUOTE — a real Reddit comment about Keeper.sh goes here.",
+    author: "PLACEHOLDER",
+    handle: "u/placeholder",
+    source: "reddit",
+  },
+  {
+    quote: "PLACEHOLDER QUOTE — a real post from X about Keeper.sh goes here.",
+    author: "PLACEHOLDER",
+    handle: "@placeholder",
+    source: "x",
+  },
+  {
+    quote: "PLACEHOLDER QUOTE — a real line from a user email about Keeper.sh goes here.",
+    author: "PLACEHOLDER",
+    handle: null,
+    source: "email",
+  },
+];
