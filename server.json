@@ -12,15 +12,51 @@
   },
   "icons": [
     {
+      "src": "https://www.keeper.sh/48x48-on-light.png",
+      "mimeType": "image/png",
+      "sizes": ["48x48"],
+      "theme": "light"
+    },
+    {
+      "src": "https://www.keeper.sh/96x96-on-light.png",
+      "mimeType": "image/png",
+      "sizes": ["96x96"],
+      "theme": "light"
+    },
+    {
+      "src": "https://www.keeper.sh/192x192-on-light.png",
+      "mimeType": "image/png",
+      "sizes": ["192x192"],
+      "theme": "light"
+    },
+    {
       "src": "https://www.keeper.sh/512x512-on-light.png",
       "mimeType": "image/png",
       "sizes": ["512x512"],
       "theme": "light"
     },
     {
-      "src": "https://www.keeper.sh/180x180-light-on-dark.png",
+      "src": "https://www.keeper.sh/48x48-on-dark.png",
       "mimeType": "image/png",
-      "sizes": ["180x180"],
+      "sizes": ["48x48"],
+      "theme": "dark"
+    },
+    {
+      "src": "https://www.keeper.sh/96x96-on-dark.png",
+      "mimeType": "image/png",
+      "sizes": ["96x96"],
+      "theme": "dark"
+    },
+    {
+      "src": "https://www.keeper.sh/192x192-on-dark.png",
+      "mimeType": "image/png",
+      "sizes": ["192x192"],
+      "theme": "dark"
+    },
+    {
+      "src": "https://www.keeper.sh/512x512-on-dark.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"],
       "theme": "dark"
     }
   ],
