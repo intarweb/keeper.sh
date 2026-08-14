@@ -2,6 +2,7 @@ import type { PropsWithChildren } from "react";
 import { Link } from "@tanstack/react-router";
 import { LayoutRow } from "@/components/ui/shells/layout";
 import { StaggeredBackdropBlur } from "@/components/ui/primitives/staggered-backdrop-blur";
+import { NAV_ITEMS } from "./nav-items";
 
 export function MarketingHeader({ children }: PropsWithChildren) {
   return (
@@ -18,6 +19,22 @@ export function MarketingHeader({ children }: PropsWithChildren) {
 
 export function MarketingHeaderBranding({ children, label }: PropsWithChildren<{ label?: string }>) {
   return <Link to="/" className="flex items-center text-foreground hover:text-foreground-hover" aria-label={label}>{children}</Link>;
+}
+
+export function MarketingHeaderNav() {
+  return (
+    <nav aria-label="Main" className="hidden sm:flex items-center gap-5">
+      {NAV_ITEMS.map((item) => (
+        <Link
+          key={item.to}
+          to={item.to}
+          className="text-sm tracking-tight font-light text-foreground-muted hover:text-foreground-hover"
+        >
+          {item.label}
+        </Link>
+      ))}
+    </nav>
+  );
 }
 
 export function MarketingHeaderActions({ children }: PropsWithChildren) {

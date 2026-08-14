@@ -7,6 +7,7 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 import { blogPlugin } from "./plugins/blog";
 import { feedPlugin } from "./plugins/feed";
+import { changelogFeedPlugin } from "./plugins/changelog-feed";
 import { sitemapPlugin } from "./plugins/sitemap";
 
 export default defineConfig(({ isSsrBuild }) => ({
@@ -33,6 +34,7 @@ export default defineConfig(({ isSsrBuild }) => ({
     svgr(),
     !isSsrBuild && sitemapPlugin(),
     !isSsrBuild && feedPlugin(),
+    !isSsrBuild && changelogFeedPlugin(),
   ].filter(Boolean),
   build: {
     manifest: !isSsrBuild,

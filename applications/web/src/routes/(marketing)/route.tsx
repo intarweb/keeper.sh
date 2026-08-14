@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { jsonLdScript, organizationSchema } from '../../lib/seo'
 import { Layout, LayoutItem } from '../../components/ui/shells/layout'
-import { MarketingHeader, MarketingHeaderActions, MarketingHeaderBranding } from '../../features/marketing/components/marketing-header'
+import { MarketingHeader, MarketingHeaderActions, MarketingHeaderBranding, MarketingHeaderNav } from '../../features/marketing/components/marketing-header'
 import { MarketingFooter, MarketingFooterTagline, MarketingFooterNav, MarketingFooterNavGroup, MarketingFooterNavGroupLabel, MarketingFooterNavItem } from '../../features/marketing/components/marketing-footer'
 import KeeperLogo from "@/assets/keeper.svg?react";
 import { ButtonText, LinkButton } from '../../components/ui/primitives/button';
@@ -45,6 +45,7 @@ function MarketingLayout() {
         <MarketingHeaderBranding label="Keeper.sh home">
           <KeeperLogo className="w-full max-w-6" aria-hidden="true" />
         </MarketingHeaderBranding>
+        <MarketingHeaderNav />
         <MarketingHeaderActions>
           <SessionSlot
             authenticated={
@@ -97,6 +98,7 @@ function MarketingLayout() {
             <MarketingFooterNavGroup>
               <MarketingFooterNavGroupLabel>Resources</MarketingFooterNavGroupLabel>
               <MarketingFooterNavItem to="/blog">Blog</MarketingFooterNavItem>
+              <MarketingFooterNavItem to="/changelog">Changelog</MarketingFooterNavItem>
               <MarketingFooterNavItem to="/about">About</MarketingFooterNavItem>
               <MarketingFooterNavItem to="/tools/ics-generator">ICS File Generator</MarketingFooterNavItem>
               <MarketingFooterNavItem to="/tools/ics-viewer">ICS File Viewer</MarketingFooterNavItem>

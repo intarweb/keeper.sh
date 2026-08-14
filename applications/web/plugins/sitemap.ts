@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import type { Plugin } from "vite";
 import { XMLBuilder } from "fast-xml-parser";
 import { parse as parseYaml } from "yaml";
+import { changelogReleases } from "../src/lib/changelog";
 
 const SITE_URL = "https://www.keeper.sh";
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---/;
@@ -59,6 +60,27 @@ function buildBlogIndexEntry(blogEntries: SitemapEntry[]): SitemapEntry {
   );
 
   return { loc: `${SITE_URL}/blog`, lastmod };
+}
+
+function buildChangelogEntries(): SitemapEntry[] {
+  const releases = changelogReleases.map((release) => ({
+    loc: `${SITE_URL}/changelog`,
+    lastmod: release.date,
+  }));
+
+  const [newest] = releases;
+  if (!newest) {
+    throw new Error("The changelog sitemap entries cannot be built without a release.");
+  }
+
+  const featureEntries = changelogReleases.flatMap((release) =>
+    release.features.map((feature) => ({
+      loc: `${SITE_URL}/changelog/${feature.slug}`,
+      lastmod: release.date,
+    })),
+  );
+
+  return [newest, ...featureEntries];
 }
 
 function parseFrontmatter(raw: string, file: string): Record<string, unknown> {
@@ -135,6 +157,7 @@ export function sitemapPlugin(): Plugin {
         ...readStaticEntries(pagesFile),
         buildBlogIndexEntry(blogEntries),
         ...blogEntries,
+        ...buildChangelogEntries(),
       ];
 
       this.emitFile({
