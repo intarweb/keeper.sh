@@ -150,7 +150,7 @@ Sync control:
 
 ### Connecting
 
-Point any MCP-compatible client at the `/mcp` endpoint of a Keeper.sh instance. The client will be guided through the OAuth consent flow to authorize read and write access.
+Point any MCP-compatible client at the `/mcp` endpoint of a Keeper.sh instance. The client will be guided through the OAuth consent flow to authorize read and write access. Full documentation for the MCP server and the REST API it wraps lives at https://www.keeper.sh/docs/mcp.
 
 MCP is fully optional — all related environment variables are optional across every service. Existing deployments are unaffected when upgrading.
 
@@ -167,6 +167,7 @@ MCP is fully optional — all related environment variables are optional across 
 - Homepage: https://www.keeper.sh
 - Features: https://www.keeper.sh/features
 - Pricing: https://www.keeper.sh/pricing
+- MCP Server & REST API Documentation: https://www.keeper.sh/docs/mcp
 - Blog: https://www.keeper.sh/blog
 - Privacy Policy: https://www.keeper.sh/privacy
 - Terms & Conditions: https://www.keeper.sh/terms

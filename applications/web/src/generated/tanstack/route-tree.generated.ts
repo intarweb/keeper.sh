@@ -32,6 +32,7 @@ import { Route as dashboardDashboardIndexRouteImport } from './../../routes/(das
 import { Route as oauthOauthConsentRouteImport } from './../../routes/(oauth)/oauth/consent'
 import { Route as oauthAuthOutlookRouteImport } from './../../routes/(oauth)/auth/outlook'
 import { Route as oauthAuthGoogleRouteImport } from './../../routes/(oauth)/auth/google'
+import { Route as marketingDocsMcpRouteImport } from './../../routes/(marketing)/docs/mcp'
 import { Route as marketingBlogSlugRouteImport } from './../../routes/(marketing)/blog/$slug'
 import { Route as dashboardDashboardReportRouteImport } from './../../routes/(dashboard)/dashboard/report'
 import { Route as dashboardDashboardFeedbackRouteImport } from './../../routes/(dashboard)/dashboard/feedback'
@@ -173,6 +174,11 @@ const oauthAuthGoogleRoute = oauthAuthGoogleRouteImport.update({
   id: '/google',
   path: '/google',
   getParentRoute: () => oauthAuthRouteRoute,
+} as any)
+const marketingDocsMcpRoute = marketingDocsMcpRouteImport.update({
+  id: '/docs/mcp',
+  path: '/docs/mcp',
+  getParentRoute: () => marketingRouteRoute,
 } as any)
 const marketingBlogSlugRoute = marketingBlogSlugRouteImport.update({
   id: '/$slug',
@@ -370,6 +376,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/feedback': typeof dashboardDashboardFeedbackRoute
   '/dashboard/report': typeof dashboardDashboardReportRoute
   '/blog/$slug': typeof marketingBlogSlugRoute
+  '/docs/mcp': typeof marketingDocsMcpRoute
   '/auth/google': typeof oauthAuthGoogleRoute
   '/auth/outlook': typeof oauthAuthOutlookRoute
   '/oauth/consent': typeof oauthOauthConsentRoute
@@ -416,6 +423,7 @@ export interface FileRoutesByTo {
   '/dashboard/feedback': typeof dashboardDashboardFeedbackRoute
   '/dashboard/report': typeof dashboardDashboardReportRoute
   '/blog/$slug': typeof marketingBlogSlugRoute
+  '/docs/mcp': typeof marketingDocsMcpRoute
   '/auth/google': typeof oauthAuthGoogleRoute
   '/auth/outlook': typeof oauthAuthOutlookRoute
   '/oauth/consent': typeof oauthOauthConsentRoute
@@ -469,6 +477,7 @@ export interface FileRoutesById {
   '/(dashboard)/dashboard/feedback': typeof dashboardDashboardFeedbackRoute
   '/(dashboard)/dashboard/report': typeof dashboardDashboardReportRoute
   '/(marketing)/blog/$slug': typeof marketingBlogSlugRoute
+  '/(marketing)/docs/mcp': typeof marketingDocsMcpRoute
   '/(oauth)/auth/google': typeof oauthAuthGoogleRoute
   '/(oauth)/auth/outlook': typeof oauthAuthOutlookRoute
   '/(oauth)/oauth/consent': typeof oauthOauthConsentRoute
@@ -520,6 +529,7 @@ export interface FileRouteTypes {
     | '/dashboard/feedback'
     | '/dashboard/report'
     | '/blog/$slug'
+    | '/docs/mcp'
     | '/auth/google'
     | '/auth/outlook'
     | '/oauth/consent'
@@ -566,6 +576,7 @@ export interface FileRouteTypes {
     | '/dashboard/feedback'
     | '/dashboard/report'
     | '/blog/$slug'
+    | '/docs/mcp'
     | '/auth/google'
     | '/auth/outlook'
     | '/oauth/consent'
@@ -618,6 +629,7 @@ export interface FileRouteTypes {
     | '/(dashboard)/dashboard/feedback'
     | '/(dashboard)/dashboard/report'
     | '/(marketing)/blog/$slug'
+    | '/(marketing)/docs/mcp'
     | '/(oauth)/auth/google'
     | '/(oauth)/auth/outlook'
     | '/(oauth)/oauth/consent'
@@ -815,6 +827,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/auth/google'
       preLoaderRoute: typeof oauthAuthGoogleRouteImport
       parentRoute: typeof oauthAuthRouteRoute
+    }
+    '/(marketing)/docs/mcp': {
+      id: '/(marketing)/docs/mcp'
+      path: '/docs/mcp'
+      fullPath: '/docs/mcp'
+      preLoaderRoute: typeof marketingDocsMcpRouteImport
+      parentRoute: typeof marketingRouteRoute
     }
     '/(marketing)/blog/$slug': {
       id: '/(marketing)/blog/$slug'
@@ -1173,6 +1192,7 @@ interface marketingRouteRouteChildren {
   marketingPrivacyRoute: typeof marketingPrivacyRoute
   marketingTermsRoute: typeof marketingTermsRoute
   marketingIndexRoute: typeof marketingIndexRoute
+  marketingDocsMcpRoute: typeof marketingDocsMcpRoute
 }
 
 const marketingRouteRouteChildren: marketingRouteRouteChildren = {
@@ -1182,6 +1202,7 @@ const marketingRouteRouteChildren: marketingRouteRouteChildren = {
   marketingPrivacyRoute: marketingPrivacyRoute,
   marketingTermsRoute: marketingTermsRoute,
   marketingIndexRoute: marketingIndexRoute,
+  marketingDocsMcpRoute: marketingDocsMcpRoute,
 }
 
 const marketingRouteRouteWithChildren = marketingRouteRoute._addFileChildren(

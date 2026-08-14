@@ -21,6 +21,7 @@ Keeper.sh is a calendar synchronization service for people whose commitments are
 - [Homepage](https://www.keeper.sh)
 - [Features](https://www.keeper.sh/features)
 - [Pricing](https://www.keeper.sh/pricing)
+- [MCP Server & REST API Documentation](https://www.keeper.sh/docs/mcp)
 - [Blog](https://www.keeper.sh/blog)
 - [Privacy Policy](https://www.keeper.sh/privacy)
 - [Terms & Conditions](https://www.keeper.sh/terms)
