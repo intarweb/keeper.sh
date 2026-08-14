@@ -18,6 +18,7 @@ import { Route as marketingTermsRouteImport } from './../../routes/(marketing)/t
 import { Route as marketingPrivacyRouteImport } from './../../routes/(marketing)/privacy'
 import { Route as marketingPricingRouteImport } from './../../routes/(marketing)/pricing'
 import { Route as marketingFeaturesRouteImport } from './../../routes/(marketing)/features'
+import { Route as marketingSplatRouteImport } from './../../routes/(marketing)/$'
 import { Route as authVerifyEmailRouteImport } from './../../routes/(auth)/verify-email'
 import { Route as authVerifyAuthenticationRouteImport } from './../../routes/(auth)/verify-authentication'
 import { Route as authResetPasswordRouteImport } from './../../routes/(auth)/reset-password'
@@ -102,6 +103,11 @@ const marketingPricingRoute = marketingPricingRouteImport.update({
 const marketingFeaturesRoute = marketingFeaturesRouteImport.update({
   id: '/features',
   path: '/features',
+  getParentRoute: () => marketingRouteRoute,
+} as any)
+const marketingSplatRoute = marketingSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => marketingRouteRoute,
 } as any)
 const authVerifyEmailRoute = authVerifyEmailRouteImport.update({
@@ -364,6 +370,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof authResetPasswordRoute
   '/verify-authentication': typeof authVerifyAuthenticationRoute
   '/verify-email': typeof authVerifyEmailRoute
+  '/$': typeof marketingSplatRoute
   '/features': typeof marketingFeaturesRoute
   '/pricing': typeof marketingPricingRoute
   '/privacy': typeof marketingPrivacyRoute
@@ -413,6 +420,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof authResetPasswordRoute
   '/verify-authentication': typeof authVerifyAuthenticationRoute
   '/verify-email': typeof authVerifyEmailRoute
+  '/$': typeof marketingSplatRoute
   '/features': typeof marketingFeaturesRoute
   '/pricing': typeof marketingPricingRoute
   '/privacy': typeof marketingPrivacyRoute
@@ -464,6 +472,7 @@ export interface FileRoutesById {
   '/(auth)/reset-password': typeof authResetPasswordRoute
   '/(auth)/verify-authentication': typeof authVerifyAuthenticationRoute
   '/(auth)/verify-email': typeof authVerifyEmailRoute
+  '/(marketing)/$': typeof marketingSplatRoute
   '/(marketing)/features': typeof marketingFeaturesRoute
   '/(marketing)/pricing': typeof marketingPricingRoute
   '/(marketing)/privacy': typeof marketingPrivacyRoute
@@ -517,6 +526,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/verify-authentication'
     | '/verify-email'
+    | '/$'
     | '/features'
     | '/pricing'
     | '/privacy'
@@ -566,6 +576,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/verify-authentication'
     | '/verify-email'
+    | '/$'
     | '/features'
     | '/pricing'
     | '/privacy'
@@ -616,6 +627,7 @@ export interface FileRouteTypes {
     | '/(auth)/reset-password'
     | '/(auth)/verify-authentication'
     | '/(auth)/verify-email'
+    | '/(marketing)/$'
     | '/(marketing)/features'
     | '/(marketing)/pricing'
     | '/(marketing)/privacy'
@@ -728,6 +740,13 @@ declare module '@tanstack/react-router' {
       path: '/features'
       fullPath: '/features'
       preLoaderRoute: typeof marketingFeaturesRouteImport
+      parentRoute: typeof marketingRouteRoute
+    }
+    '/(marketing)/$': {
+      id: '/(marketing)/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof marketingSplatRouteImport
       parentRoute: typeof marketingRouteRoute
     }
     '/(auth)/verify-email': {
@@ -1187,6 +1206,7 @@ const marketingBlogRouteRouteWithChildren =
 
 interface marketingRouteRouteChildren {
   marketingBlogRouteRoute: typeof marketingBlogRouteRouteWithChildren
+  marketingSplatRoute: typeof marketingSplatRoute
   marketingFeaturesRoute: typeof marketingFeaturesRoute
   marketingPricingRoute: typeof marketingPricingRoute
   marketingPrivacyRoute: typeof marketingPrivacyRoute
@@ -1197,6 +1217,7 @@ interface marketingRouteRouteChildren {
 
 const marketingRouteRouteChildren: marketingRouteRouteChildren = {
   marketingBlogRouteRoute: marketingBlogRouteRouteWithChildren,
+  marketingSplatRoute: marketingSplatRoute,
   marketingFeaturesRoute: marketingFeaturesRoute,
   marketingPricingRoute: marketingPricingRoute,
   marketingPrivacyRoute: marketingPrivacyRoute,

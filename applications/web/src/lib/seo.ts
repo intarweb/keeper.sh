@@ -81,6 +81,10 @@ export function seoHead({
   };
 }
 
+export function notFoundHead() {
+  return { meta: [{ title: `Page not found · ${SITE_NAME}` }] };
+}
+
 export const organizationSchema = {
   "@context": "https://schema.org",
   "@graph": [

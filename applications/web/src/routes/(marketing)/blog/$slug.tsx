@@ -4,12 +4,12 @@ import { Heading1 } from "@/components/ui/primitives/heading";
 import { Prose } from "@/components/ui/primitives/prose";
 import { ExternalTextLink } from "@/components/ui/primitives/text-link";
 import { Text } from "@/components/ui/primitives/text";
-import { NotFoundState } from "@/components/ui/shells/not-found";
+import { MarketingNotFound } from "@/features/marketing/components/marketing-not-found";
 import { ArticleCta } from "@/features/marketing/components/article-cta";
 import { MarkdownFaq, MarkdownFaqItem } from "@/features/marketing/components/markdown-faq";
 import { findBlogPostBySlug } from "@/lib/blog-posts";
 import { formatIsoDate } from "@/utils/date";
-import { jsonLdScript, seoHead, blogPostingSchema, breadcrumbSchema, breadcrumbTrail, faqPageSchema } from "@/lib/seo";
+import { jsonLdScript, notFoundHead, seoHead, blogPostingSchema, breadcrumbSchema, breadcrumbTrail, faqPageSchema } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const MARKDOWN_FAQ_TAGS: AllowedTags = {
@@ -32,16 +32,11 @@ export const Route = createFileRoute("/(marketing)/blog/$slug")({
     }
   },
   component: BlogPostPage,
-  notFoundComponent: NotFoundState,
+  notFoundComponent: MarketingNotFound,
   head: ({ params }) => {
     const blogPost = findBlogPostBySlug(params.slug);
     if (!blogPost) {
-      return {
-        meta: [
-          { title: "Blog Post · Keeper.sh" },
-          { content: "noindex", name: "robots" },
-        ],
-      };
+      return notFoundHead();
     }
 
     const postUrl = `/blog/${params.slug}`;
