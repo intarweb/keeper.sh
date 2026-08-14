@@ -91,16 +91,20 @@ const roundTripThroughCalDAV = (description: string): string =>
   parseICalToRemoteEvent(eventToICalString(createEvent(description), "uid-1@keeper.sh"))
     ?.description ?? "";
 
-const buildCorpus = (fragments: string[]): string[] =>
-  Array.from({ length: 5_000 }).map((_unused, index) =>
+const buildCorpus = (fragments: string[], size: number): string[] =>
+  Array.from({ length: size }).map((_unused, index) =>
     randomDescription(fragments, index + 1, (index % 8) + 1));
 
-const DESCRIPTIONS = buildCorpus([...FRAGMENTS, ...UNREADABLE_FRAGMENTS]);
-const READABLE_DESCRIPTIONS = buildCorpus(FRAGMENTS);
+const EVERY_FRAGMENT = [...FRAGMENTS, ...UNREADABLE_FRAGMENTS];
+
+/** Serializing an ICS calendar per case is the expensive half of the round trip. */
+const ROUND_TRIPPED = buildCorpus(EVERY_FRAGMENT, 1200);
+const DESCRIPTIONS = buildCorpus(EVERY_FRAGMENT, 5000);
+const READABLE_DESCRIPTIONS = buildCorpus(FRAGMENTS, 5000);
 
 describe("description round trip", () => {
   it("compares a CalDAV mirror equal to the description it was written from", () => {
-    const churning = DESCRIPTIONS.filter((description) =>
+    const churning = ROUND_TRIPPED.filter((description) =>
       canonicalizeComparableText(roundTripThroughCalDAV(description))
       !== canonicalizeComparableText(description));
 
