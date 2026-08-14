@@ -1,4 +1,4 @@
-import { microsoftTokenResponseSchema, microsoftUserInfoSchema } from "@keeper.sh/data-schemas";
+import { microsoftTokenErrorSchema, microsoftTokenResponseSchema, microsoftUserInfoSchema } from "@keeper.sh/data-schemas";
 import type { MicrosoftTokenResponse, MicrosoftUserInfo } from "@keeper.sh/data-schemas";
 import { generateState, validateState } from "./state";
 import type { ValidatedState, OAuthStateStore } from "./state";
@@ -34,16 +34,13 @@ interface MicrosoftOAuthService {
   refreshAccessToken: (refreshToken: string) => Promise<MicrosoftTokenResponse>;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
 const parseMicrosoftTokenErrorCode = (value: string): string | null => {
   try {
     const parsed: unknown = JSON.parse(value);
-    if (!isRecord(parsed) || typeof parsed.error !== "string") {
+    if (!microsoftTokenErrorSchema.allows(parsed)) {
       return null;
     }
-    return parsed.error.toLowerCase();
+    return microsoftTokenErrorSchema.assert(parsed).error.toLowerCase();
   } catch {
     return null;
   }

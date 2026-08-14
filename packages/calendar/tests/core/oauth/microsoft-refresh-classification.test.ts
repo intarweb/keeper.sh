@@ -56,6 +56,35 @@ describe("classifying a Microsoft token refresh failure", () => {
     expect(thrown).toMatchObject({ oauthErrorCode: null, oauthReauthRequired: false });
   });
 
+  it("does not treat a JSON primitive body as a dead credential", async () => {
+    const thrown = await refreshWith(() =>
+      new Response("\"invalid_grant\"", { status: 400 }));
+
+    expect(thrown).toMatchObject({ oauthErrorCode: null, oauthReauthRequired: false });
+    expect(isOAuthReauthRequiredError(thrown)).toBe(false);
+  });
+
+  it("does not treat a JSON null body as a dead credential", async () => {
+    const thrown = await refreshWith(() => new Response("null", { status: 400 }));
+
+    expect(thrown).toMatchObject({ oauthErrorCode: null, oauthReauthRequired: false });
+  });
+
+  it("does not treat a non-string error property as a dead credential", async () => {
+    const thrown = await refreshWith(() =>
+      Response.json({ error: { code: "invalid_grant" } }, { status: 400 }));
+
+    expect(thrown).toMatchObject({ oauthErrorCode: null, oauthReauthRequired: false });
+    expect(isOAuthReauthRequiredError(thrown)).toBe(false);
+  });
+
+  it("does not treat a body without an error property as a dead credential", async () => {
+    const thrown = await refreshWith(() =>
+      Response.json({ error_description: "invalid_grant" }, { status: 400 }));
+
+    expect(thrown).toMatchObject({ oauthErrorCode: null, oauthReauthRequired: false });
+  });
+
   it("matches the error code regardless of casing", async () => {
     const thrown = await refreshWith(() =>
       Response.json({ error: "Invalid_Grant" }, { status: 400 }));
