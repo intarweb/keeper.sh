@@ -1,6 +1,6 @@
 import { useSetAtom } from 'jotai'
 import { createFileRoute } from '@tanstack/react-router'
-import { BRAND_DISAMBIGUATION, canonicalUrl, faqSchema, jsonLdScript, seoMeta, softwareApplicationSchema } from '../../lib/seo'
+import { canonicalUrl, faqSchema, jsonLdScript, seoMeta, softwareApplicationSchema } from '../../lib/seo'
 import { Heading1, Heading2, Heading3 } from '../../components/ui/primitives/heading'
 import { Text } from '../../components/ui/primitives/text'
 import {
@@ -176,10 +176,6 @@ const FAQ_ITEMS: FaqItem[] = [
     answer:
       'Yes. You can cancel at any time from your account settings. Your access continues until the end of the current billing period.',
   },
-  {
-    question: 'Is Keeper.sh related to Keeper Security, the password manager?',
-    answer: `No. ${BRAND_DISAMBIGUATION}`,
-  },
 ]
 
 export const Route = createFileRoute('/(marketing)/')({
@@ -208,9 +204,6 @@ function MarketingPage() {
       <Heading1 className="text-center">All of your calendars in-sync.</Heading1>
       <Text align="center" className="max-w-[48ch] mx-auto">
         Synchronize events between your personal, work, business and school calendars automatically. Works with Google Calendar, Outlook, iCloud, CalDAV, and ICS/iCal feeds. Open-source under AGPL-3.0.
-      </Text>
-      <Text size="xs" align="center" className="max-w-[48ch] mx-auto">
-        {BRAND_DISAMBIGUATION}
       </Text>
       <div className="contents *:z-20">
         <div className="flex items-center gap-2 mx-auto pt-1">
