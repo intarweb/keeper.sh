@@ -2,7 +2,7 @@ import type { PropsWithChildren } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Heading1, Heading2 } from "@/components/ui/primitives/heading";
 import { Text } from "@/components/ui/primitives/text";
-import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
+import { jsonLdScript, seoHead, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const breadcrumbs = breadcrumbTrail({ name: "Terms & Conditions", path: "/terms" });
@@ -10,14 +10,11 @@ import { pageUpdatedAt, formatMonthYear } from "@/lib/page-metadata";
 
 export const Route = createFileRoute("/(marketing)/terms")({
   component: TermsPage,
-  head: () => ({
-    links: [{ rel: "canonical", href: canonicalUrl("/terms") }],
-    meta: seoMeta({
-      title: "Terms & Conditions",
-      description:
-        "Terms of service for Keeper.sh. Covers account registration, subscription billing, acceptable use, and data ownership for our calendar syncing service.",
-      path: "/terms",
-    }),
+  head: () => seoHead({
+    title: "Terms & Conditions",
+    description:
+      "Terms of service for Keeper.sh. Covers account registration, subscription billing, acceptable use, and data ownership for our calendar syncing service.",
+    path: "/terms",
     scripts: [
       jsonLdScript(webPageSchema("Terms & Conditions", "Terms and conditions for using Keeper.sh, the open-source calendar syncing service.", "/terms")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),

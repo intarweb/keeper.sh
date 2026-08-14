@@ -4,7 +4,9 @@ import {
   blogPostingSchema,
   canonicalUrl,
   collectionPageSchema,
+  jsonLdScript,
   organizationSchema,
+  seoHead,
   seoMeta,
   webPageSchema,
 } from "@/lib/seo";
@@ -118,6 +120,66 @@ describe("seoMeta", () => {
       content: "630",
       property: "og:image:height",
     });
+  });
+});
+
+describe("seoHead", () => {
+  it("derives the canonical link from the page path", () => {
+    const head = seoHead({
+      title: "Pricing",
+      description: "Plans and pricing.",
+      path: "/pricing",
+    });
+
+    expect(head.links).toEqual([
+      { rel: "canonical", href: "https://www.keeper.sh/pricing" },
+    ]);
+  });
+
+  it("keeps the canonical alongside the links a page adds", () => {
+    const head = seoHead({
+      title: "Blog",
+      description: "Posts.",
+      path: "/blog",
+      links: [{ rel: "alternate", href: "https://www.keeper.sh/rss.xml", type: "application/rss+xml" }],
+    });
+
+    expect(head.links.filter((link) => link.rel === "canonical")).toHaveLength(1);
+    expect(head.links).toHaveLength(2);
+  });
+
+  it("appends the page's own meta tags after the shared ones", () => {
+    const head = seoHead({
+      title: "How Calendar Sync Actually Works",
+      description: "A long-form explainer.",
+      path: "/blog/how-calendar-sync-actually-works",
+      type: "article",
+      meta: [{ content: "calendar", property: "article:tag" }],
+    });
+
+    expect(findMeta(head.meta, "og:type")).toEqual({ content: "article", property: "og:type" });
+    expect(head.meta[head.meta.length - 1]).toEqual({
+      content: "calendar",
+      property: "article:tag",
+    });
+  });
+
+  it("passes the page's structured data through untouched", () => {
+    const script = jsonLdScript(webPageSchema("Pricing", "Plans and pricing.", "/pricing"));
+    const head = seoHead({
+      title: "Pricing",
+      description: "Plans and pricing.",
+      path: "/pricing",
+      scripts: [script],
+    });
+
+    expect(head.scripts).toEqual([script]);
+  });
+
+  it("emits no structured data when a page declares none", () => {
+    const head = seoHead({ title: "Terms", description: "Terms.", path: "/terms" });
+
+    expect(head.scripts).toEqual([]);
   });
 });
 

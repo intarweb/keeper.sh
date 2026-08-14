@@ -2,7 +2,7 @@ import type { PropsWithChildren } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Heading1, Heading2, Heading3 } from "@/components/ui/primitives/heading";
 import { Text } from "@/components/ui/primitives/text";
-import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
+import { jsonLdScript, seoHead, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const breadcrumbs = breadcrumbTrail({ name: "Privacy Policy", path: "/privacy" });
@@ -10,14 +10,11 @@ import { pageUpdatedAt, formatMonthYear } from "@/lib/page-metadata";
 
 export const Route = createFileRoute("/(marketing)/privacy")({
   component: PrivacyPage,
-  head: () => ({
-    links: [{ rel: "canonical", href: canonicalUrl("/privacy") }],
-    meta: seoMeta({
-      title: "Privacy Policy",
-      description:
-        "How Keeper.sh collects, uses, and protects your calendar data. Per-calendar controls over what event details are shared, and minimal data retention.",
-      path: "/privacy",
-    }),
+  head: () => seoHead({
+    title: "Privacy Policy",
+    description:
+      "How Keeper.sh collects, uses, and protects your calendar data. Per-calendar controls over what event details are shared, and minimal data retention.",
+    path: "/privacy",
     scripts: [
       jsonLdScript(webPageSchema("Privacy Policy", "Privacy policy for Keeper.sh, the open-source calendar syncing service.", "/privacy")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),

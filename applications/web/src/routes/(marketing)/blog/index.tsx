@@ -3,7 +3,7 @@ import { Heading1, Heading3 } from "@/components/ui/primitives/heading";
 import { Text } from "@/components/ui/primitives/text";
 import { blogPosts } from "@/lib/blog-posts";
 import { formatIsoDate } from "@/utils/date";
-import { canonicalUrl, jsonLdScript, seoMeta, breadcrumbSchema, breadcrumbTrail, collectionPageSchema } from "@/lib/seo";
+import { jsonLdScript, seoHead, breadcrumbSchema, breadcrumbTrail, collectionPageSchema } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const breadcrumbs = breadcrumbTrail({ name: "Blog", path: "/blog" });
@@ -15,13 +15,10 @@ const BLOG_ILLUSTRATION_STYLE = {
 
 export const Route = createFileRoute("/(marketing)/blog/")({
   component: BlogDirectoryPage,
-  head: () => ({
-    links: [{ rel: "canonical", href: canonicalUrl("/blog") }],
-    meta: seoMeta({
-      title: "Blog",
-      description: "Product updates, engineering deep-dives, and calendar syncing tips from the Keeper.sh team.",
-      path: "/blog",
-    }),
+  head: () => seoHead({
+    title: "Blog",
+    description: "Product updates, engineering deep-dives, and calendar syncing tips from the Keeper.sh team.",
+    path: "/blog",
     scripts: [
       jsonLdScript(breadcrumbSchema(breadcrumbs)),
       jsonLdScript(collectionPageSchema(blogPosts)),

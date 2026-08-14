@@ -19,6 +19,15 @@ export function jsonLdScript(data: Record<string, unknown>) {
   return { type: "application/ld+json", children: JSON.stringify(data) };
 }
 
+export interface SeoMetaOptions {
+  title: string;
+  description: string;
+  path: string;
+  type?: string;
+  brandPosition?: "before" | "after";
+  imagePath?: string;
+}
+
 export function seoMeta({
   title,
   description,
@@ -26,14 +35,7 @@ export function seoMeta({
   type = "website",
   brandPosition = "after",
   imagePath = DEFAULT_IMAGE_PATH,
-}: {
-  title: string;
-  description: string;
-  path: string;
-  type?: string;
-  brandPosition?: "before" | "after";
-  imagePath?: string;
-}) {
+}: SeoMetaOptions) {
   const fullTitle = brandPosition === "before"
     ? `${SITE_NAME} — ${title}`
     : `${title} · ${SITE_NAME}`;
@@ -54,6 +56,29 @@ export function seoMeta({
     { content: description, name: "twitter:description" },
     { content: imageUrl, name: "twitter:image" },
   ];
+}
+
+export type SeoMetaTag = ReturnType<typeof seoMeta>[number];
+
+/**
+ * Builds a route `head` from the page's SEO options, so the self-referencing
+ * canonical is derived from `path` rather than restated by every route.
+ */
+export function seoHead({
+  meta = [],
+  links = [],
+  scripts = [],
+  ...seo
+}: SeoMetaOptions & {
+  meta?: SeoMetaTag[];
+  links?: Array<{ rel: string; href: string; type?: string; title?: string }>;
+  scripts?: Array<ReturnType<typeof jsonLdScript>>;
+}) {
+  return {
+    links: [{ rel: "canonical", href: canonicalUrl(seo.path) }, ...links],
+    meta: [...seoMeta(seo), ...meta],
+    scripts,
+  };
 }
 
 export const organizationSchema = {

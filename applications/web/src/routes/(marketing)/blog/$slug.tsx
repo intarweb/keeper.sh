@@ -9,7 +9,7 @@ import { ArticleCta } from "@/features/marketing/components/article-cta";
 import { MarkdownFaq, MarkdownFaqItem } from "@/features/marketing/components/markdown-faq";
 import { findBlogPostBySlug } from "@/lib/blog-posts";
 import { formatIsoDate } from "@/utils/date";
-import { canonicalUrl, jsonLdScript, seoMeta, blogPostingSchema, breadcrumbSchema, breadcrumbTrail, faqPageSchema } from "@/lib/seo";
+import { jsonLdScript, seoHead, blogPostingSchema, breadcrumbSchema, breadcrumbTrail, faqPageSchema } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const MARKDOWN_FAQ_TAGS: AllowedTags = {
@@ -45,16 +45,13 @@ export const Route = createFileRoute("/(marketing)/blog/$slug")({
     }
 
     const postUrl = `/blog/${params.slug}`;
-    return {
-      links: [{ rel: "canonical", href: canonicalUrl(postUrl) }],
+    return seoHead({
+      title: blogPost.metadata.title,
+      description: blogPost.metadata.description,
+      path: postUrl,
+      type: "article",
+      imagePath: blogPost.metadata.image,
       meta: [
-        ...seoMeta({
-          title: blogPost.metadata.title,
-          description: blogPost.metadata.description,
-          path: postUrl,
-          type: "article",
-          imagePath: blogPost.metadata.image,
-        }),
         { content: blogPost.metadata.tags.join(", "), name: "keywords" },
         { content: blogPost.metadata.createdAt, property: "article:published_time" },
         { content: blogPost.metadata.updatedAt, property: "article:modified_time" },
@@ -78,7 +75,7 @@ export const Route = createFileRoute("/(marketing)/blog/$slug")({
           ? [jsonLdScript(faqPageSchema(postUrl, blogPost.faq))]
           : []),
       ],
-    };
+    });
   },
 });
 

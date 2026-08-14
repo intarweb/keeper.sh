@@ -25,7 +25,7 @@ import { MarketingIllustrationSync } from "@/illustrations/marketing-illustratio
 import { HowItWorksConnect } from "@/illustrations/how-it-works-connect";
 import { HowItWorksConfigure } from "@/illustrations/how-it-works-configure";
 import { HowItWorksSync } from "@/illustrations/how-it-works-sync";
-import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
+import { jsonLdScript, seoHead, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 import { ANALYTICS_EVENTS } from "@/lib/analytics";
 import ArrowRightIcon from "lucide-react/dist/esm/icons/arrow-right";
@@ -114,13 +114,10 @@ const UPDATE_STEPS: UpdateStep[] = [
 
 export const Route = createFileRoute("/(marketing)/features")({
   component: FeaturesPage,
-  head: () => ({
-    links: [{ rel: "canonical", href: canonicalUrl("/features") }],
-    meta: seoMeta({
-      title: "Features",
-      description: PAGE_DESCRIPTION,
-      path: "/features",
-    }),
+  head: () => seoHead({
+    title: "Features",
+    description: PAGE_DESCRIPTION,
+    path: "/features",
     scripts: [
       jsonLdScript(webPageSchema("Features", PAGE_DESCRIPTION, "/features")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),

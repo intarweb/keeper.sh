@@ -27,7 +27,7 @@ import {
   REST_ENDPOINTS,
   REST_FREE_TIME_SNIPPET,
 } from "@/features/marketing/mcp-documentation";
-import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
+import { jsonLdScript, seoHead, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
 import { ANALYTICS_EVENTS } from "@/lib/analytics";
 import ArrowRightIcon from "lucide-react/dist/esm/icons/arrow-right";
 import ArrowUpRightIcon from "lucide-react/dist/esm/icons/arrow-up-right";
@@ -77,13 +77,10 @@ const WORKED_EXAMPLES: WorkedExample[] = [
 
 export const Route = createFileRoute("/(marketing)/docs/mcp")({
   component: McpDocumentationPage,
-  head: () => ({
-    links: [{ rel: "canonical", href: canonicalUrl("/docs/mcp") }],
-    meta: seoMeta({
-      title: PAGE_TITLE,
-      description: PAGE_DESCRIPTION,
-      path: "/docs/mcp",
-    }),
+  head: () => seoHead({
+    title: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    path: "/docs/mcp",
     scripts: [
       jsonLdScript(webPageSchema(PAGE_TITLE, PAGE_DESCRIPTION, "/docs/mcp")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),

@@ -20,7 +20,7 @@ import {
 } from "@/features/marketing/components/marketing-faq";
 import { Collapsible } from "@/components/ui/primitives/collapsible";
 import { PRICING_FEATURES, PRICING_PLANS, pricingPlanFeatures } from "@/features/marketing/pricing-plans";
-import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, breadcrumbTrail, offerCatalogSchema, faqSchema } from "@/lib/seo";
+import { jsonLdScript, seoHead, webPageSchema, breadcrumbSchema, breadcrumbTrail, offerCatalogSchema, faqSchema } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const breadcrumbs = breadcrumbTrail({ name: "Pricing", path: "/pricing" });
@@ -62,13 +62,10 @@ const FAQ_ITEMS: FaqItem[] = [
 
 export const Route = createFileRoute("/(marketing)/pricing")({
   component: PricingPage,
-  head: () => ({
-    links: [{ rel: "canonical", href: canonicalUrl("/pricing") }],
-    meta: seoMeta({
-      title: "Pricing",
-      description: PAGE_DESCRIPTION,
-      path: "/pricing",
-    }),
+  head: () => seoHead({
+    title: "Pricing",
+    description: PAGE_DESCRIPTION,
+    path: "/pricing",
     scripts: [
       jsonLdScript(webPageSchema("Pricing", PAGE_DESCRIPTION, "/pricing")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),
