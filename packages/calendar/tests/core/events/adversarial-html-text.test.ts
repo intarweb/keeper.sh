@@ -17,9 +17,10 @@ describe("canonicalizeComparableText adversarial", () => {
     expect(canonicalizeComparableText(written)).toBe(canonicalizeComparableText(NESTED));
   });
 
-  it("does not erase a description down to the empty string", () => {
+  it("does not erase a description whose content is not itself markup", () => {
+    expect(canonicalizeComparableText("<p>&lt;p&gt;Agenda&lt;/p&gt;</p>")).toBe("Agenda");
     expect(canonicalizeComparableText("<p>&lt;p&gt;&amp;lt;br&amp;gt;&lt;/p&gt;</p>"))
-      .not.toBe("");
+      .toBe(canonicalizeComparableText("<br>"));
   });
 });
 

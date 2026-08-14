@@ -59,6 +59,27 @@ describe("htmlToPlainText", () => {
     )).toBe("https://tel.meet/xxx-xxx-xxx?pin=1&hs=2");
   });
 
+  it("returns prose that names elements exactly as it was written", () => {
+    const corpus = [
+      "Set the <input> field before you arrive",
+      "Bring the <source> document and the <link> handout",
+      "Grade a<b or better</blockquote>",
+      "<p>Agenda item one<p>Agenda item two",
+      "value < 3 and value > 1",
+      MEET_BLOCK,
+      OUTLOOK_TEXT_BODY,
+    ];
+
+    for (const value of corpus) {
+      expect(htmlToPlainText(value)).toBe(value);
+    }
+  });
+
+  it("keeps a placeholder token that real markup surrounds", () => {
+    expect(htmlToPlainText("<p>Reply with <name> and <date>.<br>Thanks.</p>"))
+      .toBe("Reply with <name> and <date>.\nThanks.");
+  });
+
   it("preserves an angle-bracketed bare URL nested inside real markup", () => {
     expect(htmlToPlainText("<p>see <https://tel.meet/x?pin=1&hs=2></p>").trim())
       .toBe("see <https://tel.meet/x?pin=1&hs=2>");
@@ -138,6 +159,8 @@ describe("canonicalizeComparableText", () => {
 
     for (const input of inputs) {
       expect(() => canonicalizeComparableText(input)).not.toThrow();
+      expect(() => htmlToPlainText(input)).not.toThrow();
+      expect(() => containsMarkup(input)).not.toThrow();
     }
   });
 
@@ -150,6 +173,27 @@ describe("canonicalizeComparableText", () => {
     canonicalizeComparableText(large);
 
     expect(performance.now() - started).toBeLessThan(2000);
+  });
+
+  it("is escaping-invariant: a description projects like its escaped echo", () => {
+    const corpus = [
+      "Snacks & drinks",
+      "Use <b>bold</b> markers in the doc",
+      "<p>Agenda item one<p>Agenda item two",
+      "Wear a <hat> and bring the <table> printout",
+      MEET_BLOCK,
+      OUTLOOK_TEXT_BODY,
+      "<div>a</div><a href=\"https://x.test/?q=1&y=2\">Join</a>",
+    ];
+
+    for (const value of corpus) {
+      const escaped = value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+
+      expect(canonicalizeComparableText(escaped)).toBe(canonicalizeComparableText(value));
+    }
   });
 
   it("is a refinement: equal inputs project equal", () => {
