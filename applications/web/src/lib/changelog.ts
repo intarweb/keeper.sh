@@ -597,6 +597,25 @@ export function changelogReleaseOf(slug: string): ChangelogRelease | undefined {
   );
 }
 
+/**
+ * The entries either side of one, so a page reached cold from search has
+ * somewhere to go next. `newer` is the entry published after this one.
+ */
+export function changelogFeatureNeighbours(slug: string): {
+  newer: ChangelogFeature | undefined;
+  older: ChangelogFeature | undefined;
+} {
+  const index = changelogFeatures.findIndex((feature) => feature.slug === slug);
+  if (index === -1) {
+    return { newer: undefined, older: undefined };
+  }
+
+  return {
+    newer: changelogFeatures[index - 1],
+    older: changelogFeatures[index + 1],
+  };
+}
+
 export const changelogPaths: string[] = [
   "/changelog",
   ...changelogFeatures.map((feature) => `/changelog/${feature.slug}`),
