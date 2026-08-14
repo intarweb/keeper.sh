@@ -1,0 +1,130 @@
+---
+title: "OGCS Setup Guide: Outlook Google Calendar Sync on Windows"
+description: "How to install and configure OGCS, why v3 no longer needs desktop Outlook, how often it syncs, and what to do when Google's shared API quota runs out."
+blurb: "OGCS is a free, open-source Windows app that syncs Outlook and Google calendars. Here is which version to install, how to set it up, why it sometimes stops with a Google quota error, and when it is the right tool for you."
+createdAt: "2026-08-14"
+slug: "ogcs"
+updatedAt: "2026-08-14"
+tags:
+  - "ogcs"
+  - "outlook"
+  - "google-calendar"
+  - "how-to"
+  - "sync"
+  - "open-source"
+---
+
+OGCS is Outlook Google Calendar Sync: a free Windows application that copies events between an Outlook calendar and a Google one, in either direction or both. It is open source under MPL-2.0, and it is still being developed — the most recent commit on [its repository](https://github.com/phw198/OutlookGoogleCalendarSync) landed on 29 July 2026, checked on 14 August 2026.
+
+This guide covers the parts that trip people up: which of the two version lines to install, how the setup flow actually runs, how often it syncs, and the Google quota message that stops it dead.
+
+## Which version should you install?
+
+There are two lines, and the difference matters more than the version numbers suggest.
+
+**v3** is the one to start with. It [no longer requires the classic Outlook application to be installed](https://www.outlookgooglecalendarsync.com/guide/install.html) and can work directly from Outlook Online, reading and writing your Microsoft calendar over Microsoft's own API rather than by driving a copy of Outlook on your desktop. If Outlook is installed locally, it can still use that instead. This is the line under active development.
+
+**v2** is described by the project as the legacy line, in corrective maintenance only. It has no Outlook Online connectivity and needs the classic Outlook client installed.
+
+The release names look alarming until you read the project's own explanation of them: because the software is open source and has no formal support, it is released as alphas and betas, and the naming is "now simply more to do with the frequency of releases". Alphas are the most recent builds; betas roll several alphas up into a less frequently updated release.
+
+At the time of writing, the newest v3 build is v3.0.3 Alpha from 12 July 2026, and the newest build marked as a full release is v2.12.0 Beta from 18 January 2026. So the version that drops the desktop Outlook requirement is, today, an alpha. That is the trade: take v3 for Outlook Online and accept a faster-moving build, or take v2 and keep a classic Outlook client running.
+
+## Installed or portable?
+
+Both lines ship two ways, with identical functionality.
+
+The **installed** build is an `OGCS_Setup.exe` that puts the application in your local `APPDATA` folder, prompts you when a newer version appears, and handles one Google account.
+
+The **portable** build is a ZIP you extract anywhere, including a USB drive. It upgrades manually, several extracts can coexist, and each extract carries its own settings — which is how you run more than one Google account. Both need no special OS permissions.
+
+Either way, syncing several calendars from one deployment has been supported since v2.9.3.
+
+## How do you set it up?
+
+The project's [quick start](https://www.outlookgooglecalendarsync.com/guide/quickstart.html) is five minutes of work:
+
+1. Download the setup file for the release you picked and run it. It starts the application when it finishes.
+2. On the main screen, open the **Settings** tab.
+3. On the **Outlook** sub-tab, pick the mailbox store and the calendar.
+4. On the **Google** sub-tab, click **Retrieve calendars** and follow the authorisation.
+5. On the **Sync options** sub-tab, choose the direction, set an interval, and pick which attributes travel.
+6. Click **Save**, then **Start Sync** on the **Sync** tab.
+
+Two of those steps deserve more than a line.
+
+**The Outlook mailbox store.** [Three options](https://www.outlookgooglecalendarsync.com/guide/outlook.html) exist. *Default mailbox* is the account you send mail from and is what most people want. *Alternative mailbox* covers a second account configured in the same Outlook. *Shared calendar* covers a colleague's Exchange calendar shared with you, where the permissions you were given may limit you to a one-way sync out of Outlook.
+
+**The Google authorisation.** Clicking **Retrieve calendars** starts an OAuth flow in your browser: you sign in to Google, click Allow, and the code comes back to the application by itself from v2.6.1 onward. Your Google password is never typed into OGCS. The project makes the same point in the other direction, and it is worth repeating: any calendar tool that asks for your Google password in its own window is one to walk away from.
+
+If you ever want the access back, **Revoke Access** in the application does it, or remove it yourself at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+
+## How often does it sync?
+
+OGCS runs on your PC, so it syncs while that machine is on and the application is running, and not otherwise. Within that, the schedule has fixed floors:
+
+- Scheduled syncs run [every 15 minutes at most often](https://www.outlookgooglecalendarsync.com/guide/syncoptions-when.html), or every 2 hours if Push Sync is also enabled.
+- **Push Sync** notices changes you make in Outlook and pushes them within about 2 minutes, which is what makes the slower schedule tolerable.
+- Set the interval to zero and nothing runs automatically; you sync by hand.
+
+Those floors, along with a sync window [limited to one year back and one year forward](https://github.com/phw198/OutlookGoogleCalendarSync/wiki/Is-OGCS-Free%3F#fair-usage), are fair-usage rules rather than technical limits. They exist because of the quota below, and configuring your own quota lifts them.
+
+## Why does it stop with a Google quota error?
+
+This is the least understood part of OGCS, and the explanation is worth reading before you conclude something is broken or dishonest.
+
+Google caps how much calendar traffic an application may make. Every OGCS user shares one pooled quota, so [heavy use across the whole user base can exhaust it](https://github.com/phw198/OutlookGoogleCalendarSync/wiki/Is-OGCS-Free%3F) and temporarily stop the application from working. Google's rate limiting caps calls per minute across everyone using OGCS at once, which is why the failure can arrive on a day you changed nothing.
+
+You have three ways out.
+
+**Wait.** The pool refills. If your calendar is not urgent, this costs nothing.
+
+**Subscribe.** For £12 a year the maintainer moves you into a different quota that does not get exhausted. Sync features are identical; you are paying for quota, not for the software. The option is only offered to people who have actually been hit by the exhausted pool.
+
+That offer appears in the application as a yellow box, and clicking it goes to PayPal — which looked enough like an ad injection that a user [opened an issue asking whether it was phishing](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2228). The maintainer confirmed it is genuine, the reporter agreed, and the issue is closed. It is a real subscription from the project, and the price is what it says.
+
+**Bring your own quota.** Under **Settings** > **Google** > [Advanced/developer options](https://www.outlookgooglecalendarsync.com/guide/google.html), you can supply a client ID and secret from your own Google developer console, with the APIs the guide names enabled. Then you are only sharing a quota pool with yourself, and the fair-usage floors lift. The project is explicit that configuring OAuth credentials is beyond the scope of its support, so this route means reading Google's documentation rather than the OGCS guide.
+
+## When is OGCS the right answer?
+
+Plainly: when you are on Windows, you sync Outlook and Google, and you want no third party in the middle.
+
+Nothing about OGCS is hosted. The events move between Microsoft's servers and Google's, arranged by a program on your own machine, and no other company holds a token or sees a title. The code is open under MPL-2.0 and free, without a functionality-limited tier. For a Windows user who wants exactly that, it is the correct tool, and the years of maintenance behind it show.
+
+## Where it stops
+
+Three limits are worth knowing before you commit.
+
+It is a **Windows application** — there is no macOS or Linux build, and the project lists Windows as the operating system it targets. It syncs while **your machine is on**, so a laptop that sleeps overnight syncs nothing overnight. And it connects **Outlook and Google**, not iCloud, Fastmail, Nextcloud or another CalDAV server.
+
+If those limits are the problem rather than the setup, [Keeper.sh](/) is the hosted, cross-platform, AGPL-3.0 option: it runs on a server rather than your desktop, covers more providers, and can be self-hosted if you would rather no third party held the tokens either.
+
+## FAQ
+
+### Is OGCS free?
+
+Yes, fully, with no restricted features. Donations of £10 or more unlock hiding the splash screen, and the separate £12-a-year subscription buys API quota rather than functionality.
+
+### Does OGCS still need desktop Outlook installed?
+
+Not on v3, which works directly from Outlook Online. v2 does need the classic Outlook client, and it is the legacy line.
+
+### Does OGCS run on a Mac?
+
+No. It is a Windows application, and there is no macOS build.
+
+### How many calendars can one copy of OGCS sync?
+
+Multiple calendars have been supported since v2.9.3. One Google account per installed copy; the portable build keeps settings per extract, so several extracts cover several accounts.
+
+## Where these facts come from
+
+Everything above about OGCS comes from the project's own guide, wiki and repository, checked on 14 August 2026. An actively developed project changes, so follow the links if a detail matters to your setup.
+
+- Version lines, release naming, installed versus portable: [outlookgooglecalendarsync.com/guide/install.html](https://www.outlookgooglecalendarsync.com/guide/install.html)
+- Setup steps: [outlookgooglecalendarsync.com/guide/quickstart.html](https://www.outlookgooglecalendarsync.com/guide/quickstart.html)
+- Outlook mailbox stores and filtering: [outlookgooglecalendarsync.com/guide/outlook.html](https://www.outlookgooglecalendarsync.com/guide/outlook.html)
+- Google authorisation and Advanced/developer options: [outlookgooglecalendarsync.com/guide/google.html](https://www.outlookgooglecalendarsync.com/guide/google.html)
+- Sync intervals and Push Sync: [outlookgooglecalendarsync.com/guide/syncoptions-when.html](https://www.outlookgooglecalendarsync.com/guide/syncoptions-when.html)
+- Pooled API quota, the subscription and fair usage: [Is OGCS Free?](https://github.com/phw198/OutlookGoogleCalendarSync/wiki/Is-OGCS-Free%3F)
+- Licence, activity and releases: [github.com/phw198/OutlookGoogleCalendarSync](https://github.com/phw198/OutlookGoogleCalendarSync)
