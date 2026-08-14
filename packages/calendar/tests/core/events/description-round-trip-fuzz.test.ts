@@ -43,6 +43,8 @@ const FRAGMENTS = [
   "Note <!important> stuff",
   "<p>A</p>\n<p>B</p>",
   "&lt",
+  "&lt;br&gt;",
+  "&lt;p&gt;",
 ];
 
 /*
@@ -102,11 +104,31 @@ const ROUND_TRIPPED = buildCorpus(EVERY_FRAGMENT, 1200);
 const DESCRIPTIONS = buildCorpus(EVERY_FRAGMENT, 5000);
 const READABLE_DESCRIPTIONS = buildCorpus(FRAGMENTS, 5000);
 
+const escapeOnce = (value: string): string =>
+  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+const escapeTimes = (value: string, times: number): string => {
+  if (times === 0) {
+    return value;
+  }
+
+  return escapeTimes(escapeOnce(value), times - 1);
+};
+
 describe("description round trip", () => {
   it("compares a CalDAV mirror equal to the description it was written from", () => {
     const churning = ROUND_TRIPPED.filter((description) =>
       canonicalizeComparableText(roundTripThroughCalDAV(description))
       !== canonicalizeComparableText(description));
+
+    expect(churning).toEqual([]);
+  });
+
+  it("compares a mirror equal to its source however often the destination escaped it", () => {
+    const churning = DESCRIPTIONS.filter((description) =>
+      [1, 2, 3].some((times) =>
+        canonicalizeComparableText(escapeTimes(htmlToPlainText(description), times))
+        !== canonicalizeComparableText(description)));
 
     expect(churning).toEqual([]);
   });

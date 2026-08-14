@@ -103,7 +103,4 @@ export {
   hasRawEditableContentChange,
   hashEditableEventContentSnapshot,
 };
-export type {
-  EditableEventContentSnapshot,
-  SyncableEventContent,
-};
+export type { EditableEventContentSnapshot, SyncableEventContent };

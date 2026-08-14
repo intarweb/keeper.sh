@@ -125,6 +125,20 @@ describe("CalDAV create conflict recovery for HTML descriptions", () => {
     expect(clientMocks.createCalendarObject).toHaveBeenCalledTimes(2);
   });
 
+  it("recreates when the existing object says something different after <style>", async () => {
+    mockConflictWith(createEvent({
+      description: "Use the <style> attribute\nEVENT CANCELLED, do not attend",
+    }));
+    const event = createEvent({
+      description: "<div>Use the &lt;style&gt; attribute<br>Ship by Friday</div>",
+    });
+
+    await createProvider().pushEvents([event]);
+
+    expect(clientMocks.deleteCalendarObject).toHaveBeenCalledTimes(1);
+    expect(clientMocks.createCalendarObject).toHaveBeenCalledTimes(2);
+  });
+
   it("still recreates when the existing object differs in availability", async () => {
     mockConflictWith(createEvent({ availability: "free" }));
     const busy = createEvent({ availability: "busy" });

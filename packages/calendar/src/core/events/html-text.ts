@@ -9,7 +9,7 @@ type MarkupPredicate = (node: ElementNode, closedElements: ReadonlySet<ChildNode
 interface ParsedDescription {
   readonly children: ChildNode[];
   readonly closedElements: ReadonlySet<ChildNode>;
-  readonly isComplete: boolean;
+  readonly isReadable: boolean;
 }
 
 const DISCARDED_ELEMENTS = new Set([
@@ -69,6 +69,9 @@ const PARAGRAPH_ELEMENTS = new Set([
   "ul",
 ]);
 
+/** Deeper than any real description nests, and shallow enough for the render recursion. */
+const MAX_RENDERED_DEPTH = 1000;
+
 const PARSE_OPTIONS = {
   lowerCaseAttributeNames: false,
   lowerCaseTags: false,
@@ -81,18 +84,23 @@ const SENTINEL_PATTERN = /[\uE000-\uE002]/g;
 const SEPARATOR_RUN_PATTERN = /[ \t\n]*(?:[\uE000-\uE002][ \t\n]*)+/g;
 
 const TAG_NAME = String.raw`[a-zA-Z][a-zA-Z\d]*(?:-[a-zA-Z\d]+)*(?::[a-zA-Z][a-zA-Z\d]*)?`;
-const TAG_OPENER_PATTERN = new RegExp(String.raw`<(?![!?]|/?${TAG_NAME}[\s/>])`, "g");
+const TAG_OPENER_PATTERN = new RegExp(
+  String.raw`<(?![!?]|/?${TAG_NAME}(?=[\s/>])[^<>]*>)`,
+  "g",
+);
 const TAG_TOKEN_PATTERN = new RegExp(String.raw`</?${TAG_NAME}(?:\s[^<>]*)?/?>`, "g");
 const LINK_SCHEME_PATTERN = /^(?:[a-z][a-z\d+.-]*:\/\/|mailto:|tel:)/i;
 const TRAILING_SLASH_PATTERN = /\/+$/;
 const TRUNCATION_MARKER_PATTERN = /(?:…|\.{2,})$/;
 const URL_SHAPED_PATTERN =
   /^(?:[a-z][a-z\d+.-]*:\/\/\S+|[a-z\d-]+(?:\.[a-z\d-]+)+(?:[/?#]\S*)?)$/i;
+/** The lookbehind keeps the host alternation from being retried inside a word it already failed on. */
 const URL_TOKEN_PATTERN =
-  /(?:[a-z][a-z\d+.-]*:\/\/)?(?:[a-z\d-]+\.)+[a-z][a-z\d-]*(?::\d+)?(?:[/?#]\S*)?/gi;
+  /(?<![a-z\d.+-])(?:[a-z][a-z\d+.-]*:\/\/)?(?:[a-z\d-]+\.)+[a-z][a-z\d-]*(?::\d+)?(?:[/?#]\S*)?/gi;
 const INLINE_WHITESPACE_PATTERN = /[ \t]+/g;
 const NON_BREAKING_SPACE_PATTERN = /\u00A0/g;
 const SURROUNDING_BLANK_LINE_PATTERN = /^\n+|\n+$/g;
+const BLANK_LINE_RUN_PATTERN = /\n{2,}/g;
 const CARRIAGE_RETURN_PATTERN = /\r\n?/g;
 
 /*
@@ -134,6 +142,12 @@ const resolveSeparators = (value: string): string =>
  */
 class DescriptionHandler extends DomHandler {
   readonly closedElements = new Set<ChildNode>();
+  maxDepth = 0;
+
+  override onopentag(name: string, attribs: Record<string, string>): void {
+    super.onopentag(name, attribs);
+    this.maxDepth = Math.max(this.maxDepth, this.tagStack.length);
+  }
 
   override onclosetag(name?: string, isImplied?: boolean): void {
     const element = this.tagStack.at(-1);
@@ -146,8 +160,10 @@ class DescriptionHandler extends DomHandler {
 
 /*
  * A tag left unterminated at end of input takes the rest of the document into
- * itself and htmlparser2 then drops both, so the parse is only usable when the
- * parser reports having read as far as the last character of its source.
+ * itself and htmlparser2 then drops both. Nesting deeper than the render
+ * recursion can descend overflows the stack, and a description projection that
+ * throws costs the whole calendar its remote listing. Neither document is one
+ * this can walk, so both take the token-stripping path instead.
  */
 const parseDescription = (source: string): ParsedDescription => {
   const handler = new DescriptionHandler();
@@ -157,7 +173,7 @@ const parseDescription = (source: string): ParsedDescription => {
   return {
     children: handler.dom,
     closedElements: handler.closedElements,
-    isComplete: parser.endIndex >= source.length - 1,
+    isReadable: parser.endIndex >= source.length - 1 && handler.maxDepth <= MAX_RENDERED_DEPTH,
   };
 };
 
@@ -272,7 +288,7 @@ const stripMarkupTokens = (source: string): string =>
 const renderDescription = (value: string, isMarkup: MarkupPredicate): string => {
   const source = escapeStrayAngles(normalizeLineEndings(value));
   const parsed = parseDescription(source);
-  if (!parsed.isComplete) {
+  if (!parsed.isReadable) {
     return stripMarkupTokens(source);
   }
 
@@ -292,6 +308,9 @@ const containsMarkup = (value: string): boolean => {
     return false;
   }
   const parsed = parseDescription(escapeStrayAngles(normalizeLineEndings(value)));
+  if (!parsed.isReadable) {
+    return true;
+  }
 
   return hasWrittenMarkup(parsed.children, parsed.closedElements);
 };
@@ -308,13 +327,20 @@ const htmlToPlainText = (value: string): string => {
   return renderDescription(value, isWrittenAsMarkup).trim();
 };
 
+/*
+ * How many blank lines a break is worth depends on whether the side that drew
+ * it still had the markup: a `<br>` before a heading is one separator to the
+ * writer that has already flattened the heading and two to the reader that has
+ * not. Comparison keeps the sequence of lines and drops the gaps between them.
+ */
 const collapseComparableWhitespace = (value: string): string =>
   value
     .replaceAll(NON_BREAKING_SPACE_PATTERN, " ")
     .split("\n")
     .map((line) => line.replaceAll(INLINE_WHITESPACE_PATTERN, " ").trim())
     .join("\n")
-    .replaceAll(SURROUNDING_BLANK_LINE_PATTERN, "");
+    .replaceAll(SURROUNDING_BLANK_LINE_PATTERN, "")
+    .replaceAll(BLANK_LINE_RUN_PATTERN, "\n");
 
 /*
  * Whether a URL carries its scheme and its trailing slash is decided by
@@ -324,16 +350,34 @@ const collapseComparableWhitespace = (value: string): string =>
 const normalizeComparableUrls = (value: string): string =>
   value.replaceAll(URL_TOKEN_PATTERN, normalizeLinkTarget);
 
+/*
+ * A destination that escapes what Keeper wrote hides its markup behind
+ * entities, and how many times it has done so is not knowable, so every layer
+ * comes off before anything is parsed. Uncovering markup one render at a time
+ * instead would let the same `<br>` land in a separator run on one side and
+ * beside one on the other, which counts different numbers of lines.
+ */
+const decodeEntitiesToFixedPoint = (value: string): string => {
+  const decoded = decodeHTML(value);
+
+  if (decoded === value) {
+    return decoded;
+  }
+
+  return decodeEntitiesToFixedPoint(decoded);
+};
+
 const reduceComparableText = (value: string): string =>
   collapseComparableWhitespace(
-    normalizeComparableUrls(renderDescription(value, isComparedAsMarkup)),
+    normalizeComparableUrls(
+      renderDescription(decodeEntitiesToFixedPoint(value), isComparedAsMarkup),
+    ),
   );
 
 /*
- * Each pass consumes markup and entities and creates neither, so repeating it
+ * A pass consumes markup and entities and creates neither, so repeating it
  * reaches a value it leaves alone rather than a value it has run out of turns
- * to reduce. A destination that re-escapes what Keeper wrote costs one more
- * pass, however many times it has done so.
+ * to reduce.
  */
 const reduceToComparableFixedPoint = (value: string): string => {
   const reduced = reduceComparableText(value);
@@ -346,22 +390,12 @@ const reduceToComparableFixedPoint = (value: string): string => {
 };
 
 /*
- * Rendering a description to plain text can uncover markup an entity was
- * hiding, so comparison repeats the write path until it uncovers nothing.
- * Writing a mirror and reading it back is then one of those passes, which is
- * what makes the mirror and the description it was written from compare equal.
+ * What a destination echoes is the mirror, not the description it was written
+ * from, so comparison writes the mirror first and reduces that. Reducing the
+ * description directly would compare a paragraph the write path kept as text
+ * against one the destination never saw.
  */
-const reduceToWrittenFixedPoint = (value: string): string => {
-  const written = htmlToPlainText(value);
-
-  if (written === value) {
-    return written;
-  }
-
-  return reduceToWrittenFixedPoint(written);
-};
-
 const canonicalizeComparableText = (value?: string): string =>
-  reduceToComparableFixedPoint(reduceToWrittenFixedPoint(normalizeLineEndings(value ?? "")));
+  reduceToComparableFixedPoint(htmlToPlainText(normalizeLineEndings(value ?? "")));
 
 export { canonicalizeComparableText, containsMarkup, htmlToPlainText };
