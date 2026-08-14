@@ -31,7 +31,7 @@ import {
   MarketingPricingPlanCard,
   MarketingPricingSection,
 } from '../../features/marketing/components/marketing-pricing-section'
-import { PRICING_PLANS } from '../../features/marketing/pricing-plans'
+import { PRICING_PLANS, pricingPlanHighlights } from '../../features/marketing/pricing-plans'
 import { TESTIMONIALS } from '../../features/marketing/testimonials'
 import { GithubStarButton } from '../../components/ui/primitives/github-star-button'
 import { calendarEmphasizedAtom } from '../../state/calendar-emphasized'
@@ -242,9 +242,6 @@ function MarketingPage() {
           <MarketingPricingSection id="pricing">
             <MarketingPricingIntro>
               <Heading2 className="text-center">Pricing</Heading2>
-              <Text size='sm' align="center">
-                Free covers two calendar accounts and three connections, updating every 30 minutes. Pro is $5 a month for unlimited connections and updates every minute.
-              </Text>
               <TextLink to="/pricing" size="sm" tone="muted">
                 Compare Free and Pro in full
               </TextLink>
@@ -262,6 +259,7 @@ function MarketingPage() {
                   period={plan.period}
                   description={plan.description}
                   ctaLabel={plan.ctaLabel}
+                  features={pricingPlanHighlights(plan.id)}
                 />
               ))}
             </MarketingPricingComparisonGrid>
