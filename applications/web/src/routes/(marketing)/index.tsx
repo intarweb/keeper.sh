@@ -97,7 +97,7 @@ const MARKETING_FEATURES: MarketingFeature[] = [
   },
   {
     id: 4,
-    title: 'Works with AI assistants',
+    title: 'Let AI agents view and manage your calendar',
     description:
       'Connect Claude or any MCP client and let it check your week, book events and reschedule.',
     gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-3',
