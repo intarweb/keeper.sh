@@ -6,7 +6,7 @@ import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, b
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const breadcrumbs = breadcrumbTrail({ name: "Terms & Conditions", path: "/terms" });
-import { termsPageMetadata, formatMonthYear } from "@/lib/page-metadata";
+import { pageUpdatedAt, formatMonthYear } from "@/lib/page-metadata";
 
 export const Route = createFileRoute("/(marketing)/terms")({
   component: TermsPage,
@@ -31,7 +31,7 @@ function TermsPage() {
       <Breadcrumb items={breadcrumbs} />
       <div className="flex flex-col gap-1">
         <Heading1>Terms &amp; Conditions</Heading1>
-        <Text size="sm" tone="muted">Last updated: {formatMonthYear(termsPageMetadata.updatedAt)}</Text>
+        <Text size="sm" tone="muted">Last updated: {formatMonthYear(pageUpdatedAt("/terms"))}</Text>
       </div>
       <div className="flex flex-col gap-8">
         <Section title="Agreement to Terms">

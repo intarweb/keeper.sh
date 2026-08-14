@@ -6,7 +6,7 @@ import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, b
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 
 const breadcrumbs = breadcrumbTrail({ name: "Privacy Policy", path: "/privacy" });
-import { privacyPageMetadata, formatMonthYear } from "@/lib/page-metadata";
+import { pageUpdatedAt, formatMonthYear } from "@/lib/page-metadata";
 
 export const Route = createFileRoute("/(marketing)/privacy")({
   component: PrivacyPage,
@@ -31,7 +31,7 @@ function PrivacyPage() {
       <Breadcrumb items={breadcrumbs} />
       <div className="flex flex-col gap-1">
         <Heading1>Privacy Policy</Heading1>
-        <Text size="sm" tone="muted">Last updated: {formatMonthYear(privacyPageMetadata.updatedAt)}</Text>
+        <Text size="sm" tone="muted">Last updated: {formatMonthYear(pageUpdatedAt("/privacy"))}</Text>
       </div>
       <div className="flex flex-col gap-8">
         <Section title="Overview">

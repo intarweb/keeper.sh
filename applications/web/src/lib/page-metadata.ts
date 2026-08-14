@@ -13,13 +13,21 @@ export interface PageMetadata {
   updatedAt: string;
 }
 
-export const privacyPageMetadata: PageMetadata = {
-  path: "/privacy",
-  updatedAt: "2025-12-01",
-};
+const STATIC_PAGE_UPDATED_AT = {
+  "/": "2026-08-11",
+  "/features": "2026-08-11",
+  "/pricing": "2026-08-11",
+  "/docs/mcp": "2026-08-14",
+  "/privacy": "2025-12-01",
+  "/terms": "2025-12-01",
+} as const satisfies Record<string, string>;
 
-export const termsPageMetadata: PageMetadata = {
-  path: "/terms",
-  updatedAt: "2025-12-01",
-};
+export type StaticPagePath = keyof typeof STATIC_PAGE_UPDATED_AT;
 
+export const staticPageMetadata: PageMetadata[] = Object.entries(
+  STATIC_PAGE_UPDATED_AT,
+).map(([path, updatedAt]) => ({ path, updatedAt }));
+
+export function pageUpdatedAt(path: StaticPagePath): string {
+  return STATIC_PAGE_UPDATED_AT[path];
+}

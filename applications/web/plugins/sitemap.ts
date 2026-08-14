@@ -3,47 +3,31 @@ import { join, resolve } from "node:path";
 import type { Plugin } from "vite";
 import { XMLBuilder } from "fast-xml-parser";
 import { parse as parseYaml } from "yaml";
+import { staticPageMetadata } from "../src/lib/page-metadata";
+import {
+  assertIndexableRoutesCovered,
+  parseIndexableRoutePaths,
+} from "../src/lib/indexable-routes";
 
 const SITE_URL = "https://www.keeper.sh";
+const BLOG_BASE_PATH = "/blog";
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 interface SitemapEntry {
-  loc: string;
+  path: string;
   lastmod: string;
 }
 
-interface StaticPage {
-  path: string;
-  updatedAt: string;
-}
-
-function isStaticPage(value: unknown): value is StaticPage {
-  if (typeof value !== "object" || value === null) return false;
-  const { path, updatedAt } = value as Record<string, unknown>;
-  return (
-    typeof path === "string" &&
-    path.startsWith("/") &&
-    typeof updatedAt === "string" &&
-    ISO_DATE_PATTERN.test(updatedAt)
-  );
-}
-
-function readStaticEntries(pagesFile: string): SitemapEntry[] {
-  const pages: unknown = parseYaml(readFileSync(pagesFile, "utf-8"));
-
-  if (!Array.isArray(pages)) {
-    throw new Error(`Static page content at "${pagesFile}" must be a list of pages.`);
-  }
-
-  return pages.map((page: unknown) => {
-    if (!isStaticPage(page)) {
+function readStaticEntries(): SitemapEntry[] {
+  return staticPageMetadata.map(({ path, updatedAt }) => {
+    if (!ISO_DATE_PATTERN.test(updatedAt)) {
       throw new Error(
-        `Static page entry in "${pagesFile}" needs a "/" path and a YYYY-MM-DD updatedAt, received ${JSON.stringify(page)}.`,
+        `Static page "${path}" needs a YYYY-MM-DD updatedAt, received ${JSON.stringify(updatedAt)}.`,
       );
     }
 
-    return { loc: `${SITE_URL}${page.path}`, lastmod: page.updatedAt };
+    return { path, lastmod: updatedAt };
   });
 }
 
@@ -58,7 +42,7 @@ function buildBlogIndexEntry(blogEntries: SitemapEntry[]): SitemapEntry {
     first.lastmod,
   );
 
-  return { loc: `${SITE_URL}/blog`, lastmod };
+  return { path: BLOG_BASE_PATH, lastmod };
 }
 
 function parseFrontmatter(raw: string, file: string): Record<string, unknown> {
@@ -89,7 +73,7 @@ function discoverContentEntries(
     }
 
     return {
-      loc: `${SITE_URL}${basePath}/${frontmatter.slug}`,
+      path: `${basePath}/${frontmatter.slug}`,
       lastmod: frontmatter.updatedAt.slice(0, 10),
     };
   });
@@ -107,7 +91,7 @@ function buildSitemapXml(entries: SitemapEntry[]): string {
     urlset: {
       "@_xmlns": "http://www.sitemaps.org/schemas/sitemap/0.9",
       url: entries.map((entry) => ({
-        loc: entry.loc,
+        loc: `${SITE_URL}${entry.path}`,
         lastmod: entry.lastmod,
       })),
     },
@@ -118,7 +102,7 @@ function buildSitemapXml(entries: SitemapEntry[]): string {
 
 export function sitemapPlugin(): Plugin {
   let blogDir: string;
-  let pagesFile: string;
+  let routeTreeFile: string;
 
   return {
     name: "keeper-sitemap",
@@ -126,21 +110,23 @@ export function sitemapPlugin(): Plugin {
 
     configResolved(config) {
       blogDir = resolve(config.root, "src/content/blog");
-      pagesFile = resolve(config.root, "src/content/pages.yaml");
+      routeTreeFile = resolve(config.root, "src/generated/tanstack/route-tree.generated.ts");
     },
 
     generateBundle() {
-      const blogEntries = discoverContentEntries(blogDir, "/blog", "Blog post");
-      const entries = [
-        ...readStaticEntries(pagesFile),
-        buildBlogIndexEntry(blogEntries),
-        ...blogEntries,
-      ];
+      const staticEntries = readStaticEntries();
+      const blogEntries = discoverContentEntries(blogDir, BLOG_BASE_PATH, "Blog post");
+      const blogIndexEntry = buildBlogIndexEntry(blogEntries);
+
+      assertIndexableRoutesCovered(
+        [...staticEntries, blogIndexEntry].map((entry) => entry.path),
+        parseIndexableRoutePaths(readFileSync(routeTreeFile, "utf-8")),
+      );
 
       this.emitFile({
         type: "asset",
         fileName: "sitemap.xml",
-        source: buildSitemapXml(entries),
+        source: buildSitemapXml([...staticEntries, blogIndexEntry, ...blogEntries]),
       });
     },
   };

@@ -7,6 +7,7 @@ import {
   MCP_TOOL_GROUPS,
   REST_ENDPOINTS,
 } from "@/features/marketing/mcp-documentation";
+import { staticPageMetadata } from "@/lib/page-metadata";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -91,7 +92,6 @@ describe("REST API documentation", () => {
 
 describe("sitemap registration", () => {
   it("includes the documentation page in the static page list", () => {
-    const pages = readRepositoryFile("applications/web/src/content/pages.yaml");
-    expect(pages).toContain("- path: /docs/mcp");
+    expect(staticPageMetadata.map((page) => page.path)).toContain("/docs/mcp");
   });
 });
