@@ -93,7 +93,7 @@ const UPDATE_STEPS: UpdateStep[] = [
   },
   {
     title: "Choose what each calendar shows",
-    body: "You set this per calendar. A work calendar can carry the title, description, and location while a shared one shows a plain block. On Pro you can also filter out events you would rather not copy at all.",
+    body: "By default a copied event shows only the name of the calendar it came from. On Pro you set this per calendar, so a work calendar can carry the title, description, and location while a shared one stays a plain block. Pro also lets you filter out events you would rather not copy at all.",
   },
   {
     title: "Keeper.sh takes it from there",

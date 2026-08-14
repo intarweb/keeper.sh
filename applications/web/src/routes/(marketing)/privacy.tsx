@@ -82,10 +82,13 @@ function PrivacyPage() {
         <Section title="Controlling What Is Shared">
           <Text size="sm">
             Your shared iCal feed hides event names, descriptions, and locations by default, showing
-            only time blocks labelled &ldquo;Busy&rdquo;. Events copied to your own destination calendars keep
-            their original name, description, and location unless you turn those off, which you can do
-            for each source calendar. Attendee lists are never copied to your destination calendars or
-            your shared feed.
+            only time blocks labelled &ldquo;Busy&rdquo;. Events copied to your own destination calendars carry the source
+            calendar&rsquo;s name in place of the event title, and leave the description and location
+            behind.
+          </Text>
+          <Text size="sm">
+            Turning those details back on for a source calendar requires a Pro plan. Attendee lists
+            are never copied to your destination calendars or your shared feed.
           </Text>
         </Section>
 

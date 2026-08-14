@@ -78,9 +78,9 @@ type MarketingFeature = {
 const MARKETING_FEATURES: MarketingFeature[] = [
   {
     id: 1,
-    title: 'Privacy-First & Open Source',
+    title: 'You can check what it does with your calendars',
     description:
-      'Open-source, released under an AGPL-3.0 license. Community driven, and anyone can read the code to check what it does with your calendars. Here are some of the latest contributors.',
+      'Anyone can read the code that touches your calendars and see exactly what it sends where. Keeper.sh is open-source under an AGPL-3.0 license and community driven. Here are some of the latest contributors.',
     gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-1',
     illustration: <MarketingIllustrationContributors />,
   },
@@ -94,9 +94,9 @@ const MARKETING_FEATURES: MarketingFeature[] = [
   },
   {
     id: 3,
-    title: 'Simple Synchronization Engine',
+    title: 'Your other calendars stay right on their own',
     description:
-      'Your events are aggregated and synced across all linked calendars. Keeper tracks every copy it creates and checks them on each run, updating and removing them as the original changes.',
+      'Move an event and its copies move. Delete it and the copies go too. Keeper.sh tracks every copy it makes and checks them on each run, so your other calendars get corrected instead of collecting duplicates.',
     gridClassName: 'lg:col-start-1 lg:col-span-6 lg:row-start-2',
     illustration: <MarketingIllustrationSync />,
   },
@@ -129,7 +129,7 @@ const HOW_IT_WORKS_STEPS: HowItWorksStep[] = [
   {
     title: 'Stay in sync',
     description:
-      'Events are aggregated and pushed out across all your linked calendars on a schedule. Discrepancies are reconciled.',
+      'Your events are copied out to the calendars you chose, on a schedule. If something has drifted out of step, Keeper.sh fixes it on the next run.',
   },
 ]
 
@@ -141,9 +141,9 @@ type FaqItem = {
 
 const FAQ_ITEMS: FaqItem[] = [
   {
-    question: 'Can I use ICS or iCal links as a source?',
+    question: 'Can I add a calendar that only gives me a link?',
     answer:
-      'Yes. Any publicly accessible ICS or iCal link can be used as a calendar source in Keeper.sh. This means you can pull events from services that only offer read-only calendar feeds.',
+      'Yes. Paste any public calendar link — the kind ending in .ics — and Keeper.sh copies those events into your other calendars. That covers calendars you can only view and never edit, like a school timetable or a league schedule.',
   },
   {
     question: 'Which calendar providers does Keeper.sh support?',
@@ -159,17 +159,17 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'How often do calendars sync?',
     answer:
-      'Keeper reads your calendars every minute on both plans. What differs is how often it writes those changes back out to your other calendars: every 30 minutes on the free plan, and every minute on Pro.',
+      'Keeper.sh reads your calendars every minute on both plans. What differs is how often it writes those changes back out to your other calendars: every 30 minutes on the free plan, and every minute on Pro.',
   },
   {
     question: 'Are my event details visible to others?',
     answer:
-      'Only if you want them to be. You can choose whether events display details, or just show a generic event summary. You can customize the title, and choose to hide the details you want to keep private. These are configurable per-calendar.',
+      'Only if you want them to be. By default a copied event shows only the name of the calendar it came from, and its description and location are left behind. On Pro you set this per calendar, choosing which details come across and what the stand-in title reads.',
   },
   {
     question: 'Can I control how synced events appear?',
     answer:
-      'Yes. You configure how events are displayed on each destination calendar. Titles, descriptions, and other details can be customized or stripped entirely.',
+      'Yes, on Pro. You set it on the calendar the events are copied from, so a work calendar can carry the title, description, and location while a shared one stays a plain block.',
   },
   {
     question: 'Can I cancel my subscription anytime?',
@@ -183,11 +183,10 @@ export const Route = createFileRoute('/(marketing)/')({
   head: () => ({
     links: [{ rel: "canonical", href: canonicalUrl("/") }],
     meta: seoMeta({
-      title: "Open-Source Calendar Syncing for Google, Outlook & iCloud",
+      title: "Sync Google Calendar with Outlook & iCloud",
       description:
-        "Keep your personal, work, and school calendars in sync automatically. Open source, and works with Google Calendar, Outlook, iCloud, Fastmail and more.",
+        "Keeper.sh syncs busy time across Google, Outlook, iCloud and Fastmail so you never double-book, without sharing event titles, locations or attendees.",
       path: "/",
-      brandPosition: "before",
     }),
     scripts: [
       jsonLdScript(softwareApplicationSchema()),
@@ -201,9 +200,9 @@ function MarketingPage() {
 
   return (
     <div className="flex flex-col gap-2 pt-8">
-      <Heading1 className="text-center">All of your calendars in-sync.</Heading1>
+      <Heading1 className="text-center">Every calendar knows when you're busy. None of them know why.</Heading1>
       <Text align="center" className="max-w-[48ch] mx-auto">
-        Synchronize events between your personal, work, business and school calendars automatically. Works with Google Calendar, Outlook, iCloud, CalDAV, and ICS/iCal feeds. Open-source under AGPL-3.0.
+        Keeper.sh copies your events between your personal, work and school calendars, so all of them show you as busy at the same times. Copied events carry the name of the calendar they came from in place of the event title, and their description and location are left behind by default. Attendee lists are never copied at all, and the code is open source, so you can check what it sends for yourself.
       </Text>
       <div className="contents *:z-20">
         <div className="flex items-center gap-2 mx-auto pt-1">
@@ -263,7 +262,7 @@ function MarketingPage() {
             <MarketingPricingIntro>
               <Heading2 className="text-center">Hosted Pricing</Heading2>
               <Text size='sm' align="center">
-                Keeper.sh uses a low-cost freemium model to give you a solid range of choice. Check the GitHub repository for self-hosting options.
+                Start free with two calendar accounts and three connections. Pro is $5 a month, or $42 a year, for as many calendars as you want and changes reaching your other calendars every minute. Self-hosting is free and includes every Pro feature, if you are happy to run the server and keep it updated.
               </Text>
             </MarketingPricingIntro>
 

@@ -1,8 +1,8 @@
 # Keeper.sh
 
-> Open-source calendar event syncing. Synchronize events between your personal, work, business and school calendars.
+> Keep your personal, work, business and school calendars in sync automatically, so a booking on one shows up as busy on the others. Open source, and yours to self-host.
 
-Keeper.sh is an open-source (AGPL-3.0) calendar synchronization service that keeps time slots aligned across multiple calendar providers. It uses a pull-compare-push architecture to sync events between Google Calendar, Outlook, FastMail, iCloud, CalDAV, and iCal feeds.
+Keeper.sh keeps your calendars in step with each other. Connect the calendars you already use — Google Calendar, Outlook, FastMail, iCloud, CalDAV, and iCal feeds. Then pick which calendar's events get copied onto which. You also choose how much detail travels with them: your work calendar can show a personal commitment as busy without showing what it is. Pro is $5 a month however many calendars you connect, and there is a free tier. Keeper.sh is open source (AGPL-3.0), so you can run it on your own server instead.
 
 ## Key Features
 

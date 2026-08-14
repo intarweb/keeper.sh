@@ -20,19 +20,15 @@ export function seoMeta({
   description,
   path,
   type = "website",
-  brandPosition = "after",
   imagePath = DEFAULT_IMAGE_PATH,
 }: {
   title: string;
   description: string;
   path: string;
   type?: string;
-  brandPosition?: "before" | "after";
   imagePath?: string;
 }) {
-  const fullTitle = brandPosition === "before"
-    ? `${SITE_NAME} — ${title}`
-    : `${title} · ${SITE_NAME}`;
+  const fullTitle = `${title} · ${SITE_NAME}`;
   const imageUrl = canonicalUrl(imagePath);
   return [
     { title: fullTitle },
@@ -133,7 +129,7 @@ export function softwareApplicationSchema() {
     "@id": `${SITE_URL}/#software`,
     name: SITE_NAME,
     description:
-      "Open-source calendar event syncing tool. Synchronize events between your personal, work, business and school calendars.",
+      "Keep your personal, work, business and school calendars in sync automatically — a booking on one shows up as busy on the others. Open source and self-hostable.",
     url: SITE_URL,
     image: `${SITE_URL}/open-graph.png`,
     applicationCategory: "BusinessApplication",
