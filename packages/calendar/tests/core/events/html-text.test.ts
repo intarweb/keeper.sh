@@ -439,6 +439,25 @@ describe("canonicalizeComparableText", () => {
     }
   });
 
+  /*
+   * The projection runs inside `listRemoteEvents`, so a throw here costs the
+   * calendar its whole remote listing and every mapping reads as missing.
+   */
+  it("keeps the words of a document nested deeper than the render recursion", () => {
+    const deep = `${"<div>".repeat(50_000)}Team offsite${"</div>".repeat(50_000)}`;
+
+    expect(canonicalizeComparableText(deep)).toContain("Team offsite");
+    expect(htmlToPlainText(deep)).toContain("Team offsite");
+  });
+
+  it("stays bounded on a long hyphenated run that is not a host name", () => {
+    const started = performance.now();
+
+    canonicalizeComparableText("a-".repeat(30_000));
+
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("stays linear enough on a large nested document", () => {
     const paragraph = "<p>lorem &amp; ipsum "
       + "<a href=\"https://x.test/a?b=1\">https://x.test/a?b=1</a></p>";
