@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { handleInternalRoute, resolveInternalProxyPath } from "../../src/server/internal-routes";
 import type { ServerConfig } from "../../src/server/types";
@@ -104,6 +105,54 @@ describe("/mcp/server-card", () => {
       remotes: [{ url: "https://www.keeper.sh/mcp" }],
       websiteUrl: "https://www.keeper.sh",
     });
+  });
+
+  it("serves its icons from the requested origin, which a consumer already trusts", async () => {
+    const response = await handleInternalRoute(
+      serverCardRequest({ "x-forwarded-proto": "https", "x-forwarded-host": "www.keeper.sh" }),
+      serverConfig,
+    );
+    const card = await response?.json();
+
+    expect(card.icons.length).toBeGreaterThan(0);
+    for (const icon of card.icons) {
+      expect(icon.src.startsWith("https://www.keeper.sh/")).toBe(true);
+      expect(icon.src.length).toBeLessThanOrEqual(255);
+      expect(icon.mimeType).toBe("image/png");
+      expect(icon.sizes).toHaveLength(1);
+      expect(icon.sizes[0]).toMatch(/^\d+x\d+$/);
+    }
+  });
+
+  /* The card and server.json describe one server, so an agent that reads both
+     should not find them disagreeing about what this server looks like. */
+  it("declares the same icons the registry manifest publishes", async () => {
+    const response = await handleInternalRoute(
+      serverCardRequest({ "x-forwarded-proto": "https", "x-forwarded-host": "www.keeper.sh" }),
+      serverConfig,
+    );
+    const card = await response?.json();
+
+    const manifest = JSON.parse(
+      readFileSync(new URL("../../../../server.json", import.meta.url), "utf8"),
+    );
+
+    expect(card.icons).toEqual(manifest.icons);
+  });
+
+  it("names a background for every icon, because the mark is monochrome", async () => {
+    const response = await handleInternalRoute(serverCardRequest(), serverConfig);
+    const card = await response?.json();
+
+    for (const icon of card.icons) {
+      expect(["light", "dark"]).toContain(icon.theme);
+      /* `theme` is the background, not the ink: the icon for a light
+         background is the one drawn in dark ink. */
+      expect(icon.src.endsWith(`-on-${icon.theme}.png`)).toBe(true);
+    }
+    expect(new Set(card.icons.map((icon: { theme: string }) => icon.theme))).toEqual(
+      new Set(["light", "dark"]),
+    );
   });
 
   it("leaves the primitives it serves to runtime listing", async () => {

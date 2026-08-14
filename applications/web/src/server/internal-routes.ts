@@ -57,6 +57,24 @@ const MCP_SERVER_NAMESPACE = "sh.keeper";
 const MCP_SERVER_NAME = "keeper";
 const MCP_SERVER_VERSION = "1.0.0";
 
+/* The same icon set server.json publishes to the registry, so the two
+   descriptions of this server agree. SEP-2127 types `sizes` and `mimeType`
+   loosely, but the registry schema constrains both, so these stay in the
+   stricter shape rather than drifting into one the registry would reject.
+   `theme` is the background the icon is drawn on, not the colour of the
+   mark: the "light" icons are the dark-ink ones. */
+const MCP_SERVER_ICON_SIZES = [48, 96, 192, 512] as const;
+
+const buildMcpServerIcons = (requestOrigin: string) =>
+  (["light", "dark"] as const).flatMap((theme) =>
+    MCP_SERVER_ICON_SIZES.map((size) => ({
+      src: `${requestOrigin}/${size}x${size}-on-${theme}.png`,
+      mimeType: "image/png",
+      sizes: [`${size}x${size}`],
+      theme,
+    })),
+  );
+
 const buildMcpServerCard = (requestOrigin: string) => ({
   $schema: MCP_SERVER_CARD_SCHEMA,
   name: `${MCP_SERVER_NAMESPACE}/${MCP_SERVER_NAME}`,
@@ -68,6 +86,7 @@ const buildMcpServerCard = (requestOrigin: string) => ({
     url: "https://github.com/ridafkih/keeper.sh",
     source: "github",
   },
+  icons: buildMcpServerIcons(requestOrigin),
   remotes: [
     {
       type: "streamable-http",
