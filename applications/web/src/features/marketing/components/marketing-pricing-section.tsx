@@ -22,8 +22,6 @@ type MarketingPricingPlanCardProps = {
   period: string;
   description: string;
   ctaLabel: string;
-  /** Short differentiating bullets. Omit to render the card without a list. */
-  features?: string[];
 };
 
 const marketingPricingCard = tv({
@@ -108,19 +106,6 @@ const pricingPlanButton = tv({
   },
 });
 
-const pricingPlanFeatureIcon = tv({
-  base: "shrink-0 mt-[3px]",
-  variants: {
-    tone: {
-      default: "text-foreground-muted",
-      inverse: "text-foreground-inverse-muted",
-    },
-  },
-  defaultVariants: {
-    tone: "default",
-  },
-});
-
 const pricingFeatureValueDisplay = tv({
   variants: {
     tone: {
@@ -145,7 +130,6 @@ export function MarketingPricingPlanCard({
   period,
   description,
   ctaLabel,
-  features,
 }: MarketingPricingPlanCardProps) {
   const copyTone = resolveCopyTone(tone);
 
@@ -164,22 +148,6 @@ export function MarketingPricingPlanCard({
             {description}
           </Text>
         </MarketingPricingCardCopy>
-        {features && features.length > 0 && (
-          <ul className="flex flex-col gap-2 pb-6">
-            {features.map((feature) => (
-              <li key={feature} className="flex items-start gap-2">
-                <CheckIcon
-                  size={14}
-                  aria-hidden="true"
-                  className={pricingPlanFeatureIcon({ tone: tone === "inverse" ? "inverse" : "default" })}
-                />
-                <Text as="span" size="sm" tone={copyTone} align="left">
-                  {feature}
-                </Text>
-              </li>
-            ))}
-          </ul>
-        )}
       </MarketingPricingCardBody>
       <MarketingPricingCardAction>
         <LinkButton variant="border" className={pricingPlanButton({ tone })} to="/register">

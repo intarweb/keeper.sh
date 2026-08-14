@@ -27,11 +27,16 @@ import { MarketingIllustrationSync } from '../../illustrations/marketing-illustr
 import {
   MarketingPricingComparisonGrid,
   MarketingPricingComparisonSpacer,
+  MarketingPricingFeatureDisplay,
+  MarketingPricingFeatureLabel,
+  MarketingPricingFeatureMatrix,
+  MarketingPricingFeatureRow,
+  MarketingPricingFeatureValue,
   MarketingPricingIntro,
   MarketingPricingPlanCard,
   MarketingPricingSection,
 } from '../../features/marketing/components/marketing-pricing-section'
-import { PRICING_PLANS, pricingPlanHighlights } from '../../features/marketing/pricing-plans'
+import { PRICING_FEATURE_DIFFERENCES, PRICING_PLANS } from '../../features/marketing/pricing-plans'
 import { TESTIMONIALS } from '../../features/marketing/testimonials'
 import { GithubStarButton } from '../../components/ui/primitives/github-star-button'
 import { calendarEmphasizedAtom } from '../../state/calendar-emphasized'
@@ -231,6 +236,9 @@ function MarketingPage() {
           {TESTIMONIALS.length > 0 && (
             <MarketingTestimonialsSection id="testimonials">
               <Heading2 className="text-center">What people say</Heading2>
+              <Text size="sm" align="center" tone="muted" className="mt-2">
+                Quotes from Reddit, X and email, each shown with who wrote it.
+              </Text>
               <MarketingTestimonialsGrid>
                 {TESTIMONIALS.map((testimonial) => (
                   <MarketingTestimonialCard key={`${testimonial.source}-${testimonial.author}`} {...testimonial} />
@@ -242,9 +250,10 @@ function MarketingPage() {
           <MarketingPricingSection id="pricing">
             <MarketingPricingIntro>
               <Heading2 className="text-center">Pricing</Heading2>
-              <TextLink to="/pricing" size="sm" tone="muted">
-                Compare Free and Pro in full
-              </TextLink>
+              <Text size="sm" align="center" tone="muted">
+                Not sure which you need?{' '}
+                <TextLink to="/pricing" size="sm" tone="default">See what each plan includes</TextLink>.
+              </Text>
             </MarketingPricingIntro>
 
             <MarketingPricingComparisonGrid>
@@ -259,9 +268,24 @@ function MarketingPage() {
                   period={plan.period}
                   description={plan.description}
                   ctaLabel={plan.ctaLabel}
-                  features={pricingPlanHighlights(plan.id)}
                 />
               ))}
+
+              <MarketingPricingFeatureMatrix>
+                {PRICING_FEATURE_DIFFERENCES.map((feature) => (
+                  <MarketingPricingFeatureRow key={feature.label}>
+                    <MarketingPricingFeatureLabel>
+                      <Text size="sm" className="text-left text-nowrap">{feature.label}</Text>
+                    </MarketingPricingFeatureLabel>
+                    <MarketingPricingFeatureValue>
+                      <MarketingPricingFeatureDisplay value={feature.free} tone="muted" />
+                    </MarketingPricingFeatureValue>
+                    <MarketingPricingFeatureValue>
+                      <MarketingPricingFeatureDisplay value={feature.pro} tone="muted" />
+                    </MarketingPricingFeatureValue>
+                  </MarketingPricingFeatureRow>
+                ))}
+              </MarketingPricingFeatureMatrix>
             </MarketingPricingComparisonGrid>
           </MarketingPricingSection>
 
