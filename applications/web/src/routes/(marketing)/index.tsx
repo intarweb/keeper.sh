@@ -33,7 +33,7 @@ import {
 } from '../../features/marketing/components/marketing-pricing-section'
 import { PRICING_PLANS } from '../../features/marketing/pricing-plans'
 import { TESTIMONIALS } from '../../features/marketing/testimonials'
-import { formatStarCount } from '../../features/marketing/github-stars'
+import { GithubStarButton } from '../../components/ui/primitives/github-star-button'
 import { calendarEmphasizedAtom } from '../../state/calendar-emphasized'
 import { ANALYTICS_EVENTS } from '../../lib/analytics'
 import ArrowRightIcon from "lucide-react/dist/esm/icons/arrow-right";
@@ -74,35 +74,42 @@ type MarketingFeature = {
 const MARKETING_FEATURES: MarketingFeature[] = [
   {
     id: 1,
-    title: 'Every calendar knows what the others are doing',
+    title: 'One booking blocks every calendar',
     description:
-      'Book a dentist appointment in your personal calendar and the slot goes busy on your work one. Change the time and both change.',
+      'Book something in one calendar and that time shows as busy in all the others.',
     gridClassName: 'lg:col-start-1 lg:col-span-6 lg:row-start-1',
     illustration: <MarketingIllustrationSync />,
   },
   {
     id: 2,
-    title: 'Works with the calendar you already use',
+    title: 'Works with the calendars you already use',
     description:
-      'Sign in to Google, Outlook or iCloud and Keeper.sh is connected. If your calendar is somewhere else, paste a calendar link instead.',
+      'Google, Outlook, iCloud and Fastmail sign in directly. For anything else, paste a calendar link.',
     gridClassName: 'lg:col-start-7 lg:col-span-4 lg:row-start-1',
     illustration: <MarketingIllustrationProviders />,
   },
   {
     id: 3,
-    title: 'Your colleagues see that you are busy, not why',
+    title: 'Synced events stay private by default',
     description:
-      'A copied event is titled after the calendar it came from. The description, the location and the guest list are left behind.',
-    gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-2',
+      'Copies show the calendar name, not your event title. No description, location or guest list.',
+    gridClassName: 'lg:col-start-1 lg:col-span-10 lg:row-start-2',
   },
   {
     id: 4,
+    title: 'Works with AI assistants',
+    description:
+      'Connect Claude or any MCP client and let it check your week, book events and reschedule.',
+    gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-3',
+  },
+  {
+    id: 5,
     title: 'Anyone can read the code',
     description:
-      'Keeper.sh is open source, so you can check for yourself what it sends to your calendars. Or run it on a server of your own.',
-    gridClassName: 'lg:col-start-5 lg:col-span-6 lg:row-start-2',
+      'Check exactly what Keeper.sh sends to your calendars, or run it on your own server.',
+    gridClassName: 'lg:col-start-5 lg:col-span-6 lg:row-start-3',
     illustration: <MarketingIllustrationContributors />,
-    link: { to: '/about', label: 'Who builds Keeper.sh, and why AGPL-3.0' },
+    link: { to: '/about', label: 'Who builds Keeper.sh' },
   },
 ]
 
@@ -116,33 +123,33 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'My calendar only gives me a link, not a login. Does that work?',
     answer:
-      'Yes. Paste the link and Keeper.sh will copy those events onto your other calendars. It works one way only: you will see the events, but nothing you change in Keeper.sh reaches the original calendar.',
+      'Yes. Paste the link and those events copy to your other calendars. It goes one way only, so nothing you change reaches the original calendar.',
   },
   {
     question: 'Which calendars does Keeper.sh work with?',
     answer:
-      'Keeper.sh works with Google Calendar, Microsoft Outlook, Apple iCloud and Fastmail. Beyond those, most calendars work too — if yours can give you a calendar link, or a username and password for a calendar app, you are covered.',
+      'Google Calendar, Outlook, iCloud and Fastmail sign in directly. Most others work too, as long as yours gives you a calendar link or a login.',
   },
   {
     question: 'Can my colleagues see what my personal events are?',
     answer:
-      'No. By default the copy is titled after the calendar it came from, with no description, location or guest list. On Pro you can give it a title of your own — "Personal", say — and your colleagues see only that.',
+      'No. The copy is titled after the calendar it came from, with no description, location or guest list. Pro lets you set your own title instead.',
   },
   {
     question: 'How often do calendars update?',
     answer:
-      'Keeper.sh reads your calendars every minute on both plans. Changes reach your other calendars every 30 minutes on Free, and every minute on Pro. If people book you through a scheduling link, pay for the faster one.',
+      'Keeper.sh reads every calendar every minute. Your changes reach the other calendars every 30 minutes on Free, and every minute on Pro.',
   },
   {
     question: 'Can I run Keeper.sh myself?',
     answer:
-      'Yes. Keeper.sh is open source under the AGPL-3.0 license, and the README on GitHub has the setup steps. You will need a server, a domain, and the patience to keep both updated and backed up.',
-    content: <>Yes. Keeper.sh is open source under the AGPL-3.0 license, and the <a href="https://github.com/ridafkih/keeper.sh#readme" target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">README on GitHub</a> has the setup steps. You will need a server, a domain, and the patience to keep both updated and backed up.</>,
+      'Yes. Keeper.sh is open source under AGPL-3.0, and the README on GitHub has the setup steps. You will need a server, a domain and backups.',
+    content: <>Yes. Keeper.sh is open source under AGPL-3.0, and the <a href="https://github.com/ridafkih/keeper.sh#readme" target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">README on GitHub</a> has the setup steps. You will need a server, a domain and backups.</>,
   },
   {
     question: 'Can I cancel any time?',
     answer:
-      'Yes. Cancel from your account settings, and your access continues until the end of the period you have paid for.',
+      'Yes. Cancel in your account settings and keep access until the period you paid for ends.',
   },
 ]
 
@@ -167,11 +174,6 @@ function MarketingPage() {
   const setEmphasized = useSetAtom(calendarEmphasizedAtom)
   const githubStars = useLoaderData({ from: '/(marketing)' })
 
-  const githubLabel =
-    typeof githubStars.count === 'number'
-      ? `GitHub · ${formatStarCount(githubStars.count)}`
-      : 'GitHub'
-
   return (
     <div className="flex flex-col gap-2 pt-8">
       <Heading1 className="text-center">Stop double-booking yourself.</Heading1>
@@ -193,6 +195,7 @@ function MarketingPage() {
               <ArrowRightIcon size={16} />
             </ButtonIcon>
           </LinkButton>
+          <GithubStarButton starCount={githubStars.count} />
         </div>
       </div>
       <div className="contents *:z-10">
@@ -240,7 +243,7 @@ function MarketingPage() {
             <MarketingPricingIntro>
               <Heading2 className="text-center">Pricing</Heading2>
               <Text size='sm' align="center">
-                Free covers two calendar accounts and three connections between them, updating every 30 minutes. That is fine for blocking out your evenings, too slow if people book you through a scheduling link. Pro is $5 a month for unlimited connections and updates every minute.
+                Free covers two calendar accounts and three connections, updating every 30 minutes. Pro is $5 a month for unlimited connections and updates every minute.
               </Text>
               <TextLink to="/pricing" size="sm" tone="muted">
                 Compare Free and Pro in full
@@ -303,7 +306,7 @@ function MarketingPage() {
                   size="compact"
                   variant="inverse-ghost"
                 >
-                  <ButtonText>{githubLabel}</ButtonText>
+                  <ButtonText>GitHub</ButtonText>
                   <ButtonIcon>
                     <ArrowUpRightIcon size={16} />
                   </ButtonIcon>
