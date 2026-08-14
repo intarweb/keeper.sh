@@ -10,6 +10,8 @@ export const staticPagePaths: string[] = [
   "/pricing",
   "/self-hosting",
   "/about",
+  "/tools/ics-generator",
+  "/tools/ics-viewer",
   "/privacy",
   "/terms",
 ];
