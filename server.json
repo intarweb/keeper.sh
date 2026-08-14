@@ -4,7 +4,7 @@
   "title": "Keeper.sh",
   "description": "Read and manage calendars synced from Google, Outlook, iCloud, Fastmail, CalDAV, and iCal feeds.",
   "version": "1.0.0",
-  "websiteUrl": "https://www.keeper.sh",
+  "websiteUrl": "https://www.keeper.sh/docs/mcp",
   "repository": {
     "url": "https://github.com/ridafkih/keeper.sh",
     "source": "github",

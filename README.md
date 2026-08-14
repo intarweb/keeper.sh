@@ -646,6 +646,8 @@ MCP is **not** bundled in `keeper-services` or the individual service images. To
 
 Publishing is a manual step run with the `mcp-publisher` CLI and is deliberately not automated: a published version is permanent, so the manifest is reviewed here first and the `version` it carries can never be reused. Self-hosted instances do not need this file — it describes the hosted instance only.
 
+Because the entry is permanent, publish only after every URL it names resolves in production — `websiteUrl`, both `icons[].src`, and the `streamable-http` remote. A `websiteUrl` pointing at a page that has not shipped yet is stuck at a 404 until the next version bump.
+
 # Modules
 
 ## Applications

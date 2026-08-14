@@ -4,6 +4,11 @@ import { z } from "zod";
 import { createKeeperMcpHandler } from "../src/mcp-handler";
 import { createKeeperMcpToolset } from "../src/toolset";
 
+/* The www host, which serves directly. The apex redirects, and a registry
+   entry cannot be edited once published, so both the endpoint and the
+   documentation URL have to sit on this origin. */
+const CANONICAL_ORIGIN = "https://www.keeper.sh";
+
 const REGISTRY_NAME_PATTERN = /^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+$/;
 const REGISTRY_DESCRIPTION_MAX_LENGTH = 100;
 const REGISTRY_TITLE_MAX_LENGTH = 100;
@@ -93,7 +98,11 @@ describe("registry manifest", () => {
   });
 
   it("advertises the hosted endpoint on the canonical host, which does not redirect", () => {
-    expect(manifest.remotes[0]?.url).toBe(`${manifest.websiteUrl}/mcp`);
+    expect(manifest.remotes[0]?.url).toBe(`${CANONICAL_ORIGIN}/mcp`);
+  });
+
+  it("documents itself on the canonical host", () => {
+    expect(manifest.websiteUrl.startsWith(`${CANONICAL_ORIGIN}/`)).toBe(true);
   });
 
   it("carries the name and version the server announces on initialize", async () => {
