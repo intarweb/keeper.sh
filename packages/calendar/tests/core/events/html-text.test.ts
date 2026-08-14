@@ -75,6 +75,23 @@ describe("htmlToPlainText", () => {
     }
   });
 
+  it("keeps every word when an attribute quote is never terminated", () => {
+    const truncated = "<p>Agenda</p><p>Join <a href=\"https://x.test/j>here</a> at noon</p>"
+      + "<p>Bye</p>";
+    const written = htmlToPlainText(truncated);
+
+    for (const word of ["Agenda", "Join", "here", "at noon", "Bye"]) {
+      expect(written).toContain(word);
+    }
+    expect(written).not.toContain("<p>");
+  });
+
+  it("reads a document whose only fault is an unmatched end tag", () => {
+    expect(htmlToPlainText("<blockquote><name>Agenda</blockquote><hr></blockquote>"))
+      .toBe("<name>Agenda");
+    expect(htmlToPlainText("<p>Agenda</p></div>")).toBe("Agenda");
+  });
+
   it("keeps a placeholder token that real markup surrounds", () => {
     expect(htmlToPlainText("<p>Reply with <name> and <date>.<br>Thanks.</p>"))
       .toBe("Reply with <name> and <date>.\nThanks.");

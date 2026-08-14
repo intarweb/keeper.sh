@@ -1,153 +1,16 @@
-import { DomUtils, Parser, parseDocument } from "htmlparser2";
-import { decodeHTMLStrict } from "entities";
+import { DomHandler, DomUtils, ElementType, Parser } from "htmlparser2";
+import { decodeHTML } from "entities";
 
-type ChildNode = ReturnType<typeof parseDocument>["children"][number];
+type ChildNode = InstanceType<typeof DomHandler>["dom"][number];
 type ElementNode = Extract<ChildNode, { attribs: Record<string, string> }>;
-type MarkupPredicate = (node: ElementNode, facts: MarkupFacts) => boolean;
 
-interface MarkupFacts {
-  readonly closedElements: ReadonlySet<number>;
-  readonly openTags: ReadonlyMap<number, string>;
-}
+type MarkupPredicate = (node: ElementNode, closedElements: ReadonlySet<ChildNode>) => boolean;
 
 interface ParsedDescription {
   readonly children: ChildNode[];
-  readonly facts: MarkupFacts;
+  readonly closedElements: ReadonlySet<ChildNode>;
+  readonly isComplete: boolean;
 }
-
-const VOID_ELEMENTS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "link",
-  "meta",
-  "param",
-  "source",
-  "track",
-  "wbr",
-]);
-
-const HTML_ELEMENTS = new Set([
-  ...VOID_ELEMENTS,
-  "a",
-  "abbr",
-  "acronym",
-  "address",
-  "article",
-  "aside",
-  "audio",
-  "b",
-  "basefont",
-  "bdi",
-  "bdo",
-  "big",
-  "blockquote",
-  "body",
-  "button",
-  "canvas",
-  "caption",
-  "center",
-  "cite",
-  "code",
-  "colgroup",
-  "data",
-  "datalist",
-  "dd",
-  "del",
-  "details",
-  "dfn",
-  "dialog",
-  "dir",
-  "div",
-  "dl",
-  "dt",
-  "em",
-  "fieldset",
-  "figcaption",
-  "figure",
-  "font",
-  "footer",
-  "form",
-  "frame",
-  "frameset",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "head",
-  "header",
-  "hgroup",
-  "html",
-  "i",
-  "iframe",
-  "ins",
-  "kbd",
-  "label",
-  "legend",
-  "li",
-  "main",
-  "map",
-  "mark",
-  "marquee",
-  "menu",
-  "meter",
-  "nav",
-  "nobr",
-  "noembed",
-  "noframes",
-  "noscript",
-  "object",
-  "ol",
-  "optgroup",
-  "option",
-  "output",
-  "p",
-  "picture",
-  "pre",
-  "progress",
-  "q",
-  "rp",
-  "rt",
-  "ruby",
-  "s",
-  "samp",
-  "script",
-  "search",
-  "section",
-  "select",
-  "slot",
-  "small",
-  "span",
-  "strike",
-  "strong",
-  "style",
-  "sub",
-  "summary",
-  "sup",
-  "table",
-  "tbody",
-  "td",
-  "template",
-  "textarea",
-  "tfoot",
-  "th",
-  "thead",
-  "time",
-  "title",
-  "tr",
-  "tt",
-  "u",
-  "ul",
-  "var",
-  "video",
-]);
 
 const DISCARDED_ELEMENTS = new Set([
   "head",
@@ -162,20 +25,36 @@ const DISCARDED_ELEMENTS = new Set([
 
 const BREAK_ELEMENTS = new Set(["br", "hr"]);
 
-const BLOCK_ELEMENTS = new Set([
+const CELL_ELEMENTS = new Set(["td", "th"]);
+
+const LINE_ELEMENTS = new Set([
   "address",
   "article",
   "aside",
-  "blockquote",
   "body",
+  "caption",
   "dd",
   "div",
-  "dl",
   "dt",
-  "fieldset",
   "figcaption",
-  "figure",
   "footer",
+  "header",
+  "html",
+  "li",
+  "main",
+  "nav",
+  "section",
+  "tbody",
+  "tfoot",
+  "thead",
+  "tr",
+]);
+
+const PARAGRAPH_ELEMENTS = new Set([
+  "blockquote",
+  "dl",
+  "fieldset",
+  "figure",
   "form",
   "h1",
   "h2",
@@ -183,38 +62,30 @@ const BLOCK_ELEMENTS = new Set([
   "h4",
   "h5",
   "h6",
-  "header",
-  "html",
-  "li",
-  "main",
-  "nav",
   "ol",
   "p",
   "pre",
-  "section",
   "table",
-  "tbody",
-  "tfoot",
-  "thead",
-  "tr",
   "ul",
 ]);
 
-const CELL_ELEMENTS = new Set(["td", "th"]);
+const PARSE_OPTIONS = {
+  lowerCaseAttributeNames: false,
+  lowerCaseTags: false,
+} as const;
 
-const PARSE_OPTIONS = { withStartIndices: true } as const;
-const COMPARISON_PASS_LIMIT = 16;
-
-const BLOCK_BOUNDARY = "\uE000";
-const LINE_BREAK = "\uE001";
-const SENTINEL_PATTERN = /[\uE000\uE001]/g;
-const SENTINEL_RUN_PATTERN = /[\uE000\uE001]+/g;
-const LINE_BREAK_PATTERN = /\uE001/g;
+const LINE_BREAK = "\uE000";
+const LINE_BOUNDARY = "\uE001";
+const PARAGRAPH_BOUNDARY = "\uE002";
+const SENTINEL_PATTERN = /[\uE000-\uE002]/g;
+const SEPARATOR_RUN_PATTERN = /[ \t\n]*(?:[\uE000-\uE002][ \t\n]*)+/g;
 
 const TAG_NAME = String.raw`[a-zA-Z][a-zA-Z\d]*(?:-[a-zA-Z\d]+)*(?::[a-zA-Z][a-zA-Z\d]*)?`;
-const STRAY_ANGLE_PATTERN = new RegExp(String.raw`<(?![!?]|/?${TAG_NAME}[\s/>])`, "g");
+const TAG_OPENER_PATTERN = new RegExp(String.raw`<(?![!?]|/?${TAG_NAME}[\s/>])`, "g");
+const TAG_TOKEN_PATTERN = new RegExp(String.raw`</?${TAG_NAME}(?:\s[^<>]*)?/?>`, "g");
 const LINK_SCHEME_PATTERN = /^(?:[a-z][a-z\d+.-]*:\/\/|mailto:|tel:)/i;
 const TRAILING_SLASH_PATTERN = /\/+$/;
+const TRUNCATION_MARKER_PATTERN = /(?:…|\.{2,})$/;
 const URL_SHAPED_PATTERN =
   /^(?:[a-z][a-z\d+.-]*:\/\/\S+|[a-z\d-]+(?:\.[a-z\d-]+)+(?:[/?#]\S*)?)$/i;
 const URL_TOKEN_PATTERN =
@@ -229,53 +100,66 @@ const CARRIAGE_RETURN_PATTERN = /\r\n?/g;
  * opener keeps its angle bracket before the document is parsed.
  */
 const escapeStrayAngles = (value: string): string =>
-  value.replaceAll(STRAY_ANGLE_PATTERN, "&lt;");
+  value.replaceAll(TAG_OPENER_PATTERN, "&lt;");
+
+const normalizeLineEndings = (value: string): string =>
+  value.replaceAll(CARRIAGE_RETURN_PATTERN, "\n");
 
 const stripSentinels = (value: string): string => value.replaceAll(SENTINEL_PATTERN, "");
 
-const resolveBreaks = (value: string): string =>
-  value.replaceAll(SENTINEL_RUN_PATTERN, (run) =>
-    "\n".repeat(Math.max(1, run.match(LINE_BREAK_PATTERN)?.length ?? 0)));
+/*
+ * Whitespace between two tags is insignificant in HTML, so it joins the
+ * separator run rather than splitting it. A paragraph is worth the blank line
+ * every renderer draws around it, which is also what a destination that
+ * rewrites paragraphs as `<br><br>` hands back.
+ */
+const countSeparatorLines = (run: string): number => {
+  const breaks = run.split(LINE_BREAK).length - 1;
+  if (run.includes(PARAGRAPH_BOUNDARY)) {
+    return breaks + 2;
+  }
+  if (run.includes(LINE_BOUNDARY)) {
+    return breaks + 1;
+  }
+  return breaks;
+};
+
+const resolveSeparators = (value: string): string =>
+  value.replaceAll(SEPARATOR_RUN_PATTERN, (run) => "\n".repeat(countSeparatorLines(run)));
 
 /*
- * Whether each end tag was written or inferred is htmlparser2's answer to
- * give, not something to grep back out of the source it just parsed. The open
- * tag is kept verbatim so a token that turns out not to be markup can be
- * written back exactly as its author typed it.
+ * Whether an end tag was written or inferred is htmlparser2's answer to give,
+ * and it is recorded against the element itself so nothing has to be matched
+ * back up by source offset afterwards.
  */
-const readMarkupFacts = (source: string): MarkupFacts => {
-  const closedElements = new Set<number>();
-  const openTags = new Map<number, string>();
-  const openStarts: number[] = [];
-  let parser: Parser | undefined = globalThis.undefined;
-  const collector = new Parser({
-    onopentag: () => {
-      const start = parser?.startIndex ?? 0;
-      openStarts.push(start);
-      openTags.set(start, source.slice(start, (parser?.endIndex ?? start) + 1));
-    },
-    onparserinit: (instance) => {
-      parser = instance;
-    },
-    onclosetag: (name, isImplied) => {
-      const start = openStarts.pop();
-      if (start !== globalThis.undefined && !isImplied && !VOID_ELEMENTS.has(name)) {
-        closedElements.add(start);
-      }
-    },
-  });
-  collector.end(source);
+class DescriptionHandler extends DomHandler {
+  readonly closedElements = new Set<ChildNode>();
 
-  return { closedElements, openTags };
+  override onclosetag(name?: string, isImplied?: boolean): void {
+    const element = this.tagStack.at(-1);
+    if (isImplied !== true && element !== globalThis.undefined && DomUtils.isTag(element)) {
+      this.closedElements.add(element);
+    }
+    super.onclosetag();
+  }
+}
+
+/*
+ * A tag left unterminated at end of input takes the rest of the document into
+ * itself and htmlparser2 then drops both, so the parse is only usable when the
+ * parser reports having read as far as the last character of its source.
+ */
+const parseDescription = (source: string): ParsedDescription => {
+  const handler = new DescriptionHandler();
+  const parser = new Parser(handler, PARSE_OPTIONS);
+  parser.end(source);
+
+  return {
+    children: handler.dom,
+    closedElements: handler.closedElements,
+    isComplete: parser.endIndex >= source.length - 1,
+  };
 };
-
-const readDescription = (value: string): ParsedDescription => {
-  const source = escapeStrayAngles(value);
-  return { children: parseDocument(source, PARSE_OPTIONS).children, facts: readMarkupFacts(source) };
-};
-
-const wasExplicitlyClosed = (node: ElementNode, facts: MarkupFacts): boolean =>
-  facts.closedElements.has(node.startIndex ?? -1);
 
 const hasValuedAttribute = (node: ElementNode): boolean =>
   Object.values(node.attribs).some((value) => value.length > 0);
@@ -286,53 +170,51 @@ const hasValuedAttribute = (node: ElementNode): boolean =>
  * only a closed element, a line break or an attribute someone wrote a value
  * for is confident enough to be read as structure.
  */
-const isWrittenAsMarkup: MarkupPredicate = (node, facts) =>
-  BREAK_ELEMENTS.has(node.name) || hasValuedAttribute(node) || wasExplicitlyClosed(node, facts);
+const isWrittenAsMarkup: MarkupPredicate = (node, closedElements) =>
+  BREAK_ELEMENTS.has(node.name.toLowerCase())
+  || hasValuedAttribute(node)
+  || closedElements.has(node);
 
 /*
- * Comparison only has to answer "did this event change", so it reads every
- * element the HTML vocabulary defines as structure — a destination that closes
- * `<p>Agenda<p>Agenda` for us then compares equal. A name outside the
- * vocabulary is a placeholder like `<date>`, and stays visible to comparison.
+ * Comparison only has to answer "did this event change", so it reads every tag
+ * as structure and no vocabulary of element names decides which ones count: a
+ * destination that closes `<p>Agenda<p>Agenda` for us then compares equal.
  */
-const isComparedAsMarkup: MarkupPredicate = (node, facts) =>
-  HTML_ELEMENTS.has(node.name) || isWrittenAsMarkup(node, facts);
+const isComparedAsMarkup: MarkupPredicate = () => true;
 
-const readOpenTag = (node: ElementNode, facts: MarkupFacts): string => {
-  const source = facts.openTags.get(node.startIndex ?? -1);
-  if (source === globalThis.undefined) {
-    throw new Error(`Unparsed open tag for <${node.name}> at ${node.startIndex}`);
-  }
-  return decodeHTMLStrict(stripSentinels(source));
-};
+/** Only an element with no attribute value is text, so there is no value to quote. */
+const readOpenTag = (node: ElementNode): string =>
+  `<${node.name}${Object.keys(node.attribs).map((name) => ` ${name}`).join("")}>`;
 
 const normalizeLinkTarget = (value: string): string =>
   value.replace(LINK_SCHEME_PATTERN, "").replace(TRAILING_SLASH_PATTERN, "");
 
 /*
  * A provider that linkifies `support.google.com` invents both the scheme and
- * the trailing slash, so an anchor whose text is its own destination projects
- * to that text alone. A labelled anchor keeps its destination beside the
+ * the trailing slash, and one that renders a long URL shortens it to a prefix
+ * with an ellipsis, so an anchor whose text is its own destination projects to
+ * that destination alone. A labelled anchor keeps its destination beside the
  * label: readable in a CalDAV client, and still sensitive to a repointed link.
  */
 const renderAnchor = (element: ElementNode, inner: string): string => {
   const href = element.attribs["href"]?.trim() ?? "";
-  const text = resolveBreaks(inner).trim();
+  const text = resolveSeparators(inner).trim();
   if (href.length === 0) {
     return inner;
   }
   if (text.length === 0) {
     return href;
   }
-  if (DomUtils.findOne((node) => node.name === "a", element.children, true) !== null) {
+  if (DomUtils.findOne((node) => node.name.toLowerCase() === "a", element.children, true) !== null) {
     return inner;
   }
   const target = normalizeLinkTarget(href);
   const label = normalizeLinkTarget(text);
-  if (label === target || text.includes(href)) {
+  if (label === target) {
     return inner;
   }
-  if (URL_SHAPED_PATTERN.test(text) && target.startsWith(label)) {
+  const shownPrefix = label.replace(TRUNCATION_MARKER_PATTERN, "");
+  if (URL_SHAPED_PATTERN.test(text) && shownPrefix.length > 0 && target.startsWith(shownPrefix)) {
     return href;
   }
   return `${text} (${href})`;
@@ -340,70 +222,90 @@ const renderAnchor = (element: ElementNode, inner: string): string => {
 
 const renderNode = (
   node: ChildNode,
-  facts: MarkupFacts,
+  closedElements: ReadonlySet<ChildNode>,
   isMarkup: MarkupPredicate,
 ): string => {
   if (DomUtils.isText(node)) {
     return stripSentinels(node.data);
   }
+  if (node.type === ElementType.Directive) {
+    return `<${stripSentinels(node.data)}>`;
+  }
   if (!DomUtils.isTag(node)) {
     return "";
   }
   const children = (): string =>
-    node.children.map((child) => renderNode(child, facts, isMarkup)).join("");
-  if (!isMarkup(node, facts)) {
-    return readOpenTag(node, facts) + children();
+    node.children.map((child) => renderNode(child, closedElements, isMarkup)).join("");
+  if (!isMarkup(node, closedElements)) {
+    return readOpenTag(node) + children();
   }
-  if (DISCARDED_ELEMENTS.has(node.name)) {
+  const name = node.name.toLowerCase();
+  if (DISCARDED_ELEMENTS.has(name) && closedElements.has(node)) {
     return "";
   }
-  if (BREAK_ELEMENTS.has(node.name)) {
+  if (BREAK_ELEMENTS.has(name)) {
     return LINE_BREAK;
   }
   const inner = children();
-  if (node.name === "a") {
+  if (name === "a") {
     return renderAnchor(node, inner);
   }
-  if (CELL_ELEMENTS.has(node.name)) {
+  if (CELL_ELEMENTS.has(name)) {
     return ` ${inner} `;
   }
-  if (BLOCK_ELEMENTS.has(node.name)) {
-    return `${BLOCK_BOUNDARY}${inner}${BLOCK_BOUNDARY}`;
+  if (PARAGRAPH_ELEMENTS.has(name)) {
+    return `${PARAGRAPH_BOUNDARY}${inner}${PARAGRAPH_BOUNDARY}`;
+  }
+  if (LINE_ELEMENTS.has(name)) {
+    return `${LINE_BOUNDARY}${inner}${LINE_BOUNDARY}`;
   }
   return inner;
 };
 
-const renderNodes = (
-  nodes: ChildNode[],
-  facts: MarkupFacts,
-  isMarkup: MarkupPredicate,
-): string => nodes.map((node) => renderNode(node, facts, isMarkup)).join("");
+/*
+ * Markup a parser cannot finish reading is markup that would take the author's
+ * words with it, so the tags come off as text and every word survives.
+ */
+const stripMarkupTokens = (source: string): string =>
+  decodeHTML(source.replaceAll(TAG_TOKEN_PATTERN, " "));
 
-const renderDescription = (parsed: ParsedDescription, isMarkup: MarkupPredicate): string =>
-  resolveBreaks(renderNodes(parsed.children, parsed.facts, isMarkup));
+const renderDescription = (value: string, isMarkup: MarkupPredicate): string => {
+  const source = escapeStrayAngles(normalizeLineEndings(value));
+  const parsed = parseDescription(source);
+  if (!parsed.isComplete) {
+    return stripMarkupTokens(source);
+  }
 
-const hasWrittenMarkup = (nodes: ChildNode[], facts: MarkupFacts): boolean =>
+  return resolveSeparators(
+    parsed.children.map((node) => renderNode(node, parsed.closedElements, isMarkup)).join(""),
+  );
+};
+
+const hasWrittenMarkup = (nodes: ChildNode[], closedElements: ReadonlySet<ChildNode>): boolean =>
   nodes.some((node) =>
     DomUtils.isTag(node)
-    && (isWrittenAsMarkup(node, facts) || hasWrittenMarkup(node.children, facts)));
+    && (isWrittenAsMarkup(node, closedElements)
+      || hasWrittenMarkup(node.children, closedElements)));
 
 const containsMarkup = (value: string): boolean => {
   if (!value.includes("<")) {
     return false;
   }
-  const parsed = readDescription(value);
-  return hasWrittenMarkup(parsed.children, parsed.facts);
+  const parsed = parseDescription(escapeStrayAngles(normalizeLineEndings(value)));
+
+  return hasWrittenMarkup(parsed.children, parsed.closedElements);
 };
 
+/*
+ * Entities stay encoded in a description that carries no markup: `A &amp; B`
+ * is then the sentence its author typed, not an escape of one.
+ */
 const htmlToPlainText = (value: string): string => {
-  if (!value.includes("<")) {
+  if (!containsMarkup(value)) {
     return value;
   }
-  const parsed = readDescription(value);
-  if (!hasWrittenMarkup(parsed.children, parsed.facts)) {
-    return value;
-  }
-  return renderDescription(parsed, isWrittenAsMarkup).trim();
+
+  return renderDescription(value, isWrittenAsMarkup).trim();
 };
 
 const collapseComparableWhitespace = (value: string): string =>
@@ -422,31 +324,44 @@ const collapseComparableWhitespace = (value: string): string =>
 const normalizeComparableUrls = (value: string): string =>
   value.replaceAll(URL_TOKEN_PATTERN, normalizeLinkTarget);
 
-/*
- * Rendering strictly consumes markup and entities, so repeating it terminates,
- * and its fixed point is the same value for a description, for that
- * description escaped, and for it escaped twice — which is what a destination
- * that re-escapes what Keeper wrote hands back on the next sync.
- */
-const reduceToComparableFixedPoint = (value: string, remaining: number): string => {
-  const reduced = collapseComparableWhitespace(
-    renderDescription(readDescription(value), isComparedAsMarkup),
+const reduceComparableText = (value: string): string =>
+  collapseComparableWhitespace(
+    normalizeComparableUrls(renderDescription(value, isComparedAsMarkup)),
   );
-  if (reduced === value || remaining === 0) {
+
+/*
+ * Each pass consumes markup and entities and creates neither, so repeating it
+ * reaches a value it leaves alone rather than a value it has run out of turns
+ * to reduce. A destination that re-escapes what Keeper wrote costs one more
+ * pass, however many times it has done so.
+ */
+const reduceToComparableFixedPoint = (value: string): string => {
+  const reduced = reduceComparableText(value);
+
+  if (reduced === value) {
     return reduced;
   }
-  return reduceToComparableFixedPoint(reduced, remaining - 1);
+
+  return reduceToComparableFixedPoint(reduced);
 };
 
 /*
- * Comparison starts from the plain text the write path would have produced, so
- * a mirror Keeper wrote and the description it was written from land on the
- * same value however the two projections read the markup between them.
+ * Rendering a description to plain text can uncover markup an entity was
+ * hiding, so comparison repeats the write path until it uncovers nothing.
+ * Writing a mirror and reading it back is then one of those passes, which is
+ * what makes the mirror and the description it was written from compare equal.
  */
+const reduceToWrittenFixedPoint = (value: string): string => {
+  const written = htmlToPlainText(value);
+
+  if (written === value) {
+    return written;
+  }
+
+  return reduceToWrittenFixedPoint(written);
+};
+
 const canonicalizeComparableText = (value?: string): string =>
-  collapseComparableWhitespace(normalizeComparableUrls(reduceToComparableFixedPoint(
-    htmlToPlainText(value?.replaceAll(CARRIAGE_RETURN_PATTERN, "\n") ?? ""),
-    COMPARISON_PASS_LIMIT,
-  )));
+  reduceToComparableFixedPoint(reduceToWrittenFixedPoint(normalizeLineEndings(value ?? "")));
 
 export { canonicalizeComparableText, containsMarkup, htmlToPlainText };

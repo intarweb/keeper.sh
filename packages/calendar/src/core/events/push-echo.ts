@@ -17,12 +17,17 @@ interface PushEchoObservation {
 const isSameSerializedSecond = (first: Date, second: Date): boolean =>
   Math.trunc(first.getTime() / 1000) === Math.trunc(second.getTime() / 1000);
 
+/*
+ * A push echo measures what the provider rewrote, not whether Keeper has to
+ * act, so the description is read unprojected: a linkified URL the comparison
+ * projection is built to absorb is exactly the rewrite this counts.
+ */
 const comparePushEchoObservations = (
   sent: PushEchoObservation,
   echo: PushEchoObservation,
 ): PushEchoFieldDivergence => ({
   allDay: sent.content.isAllDay !== echo.content.isAllDay,
-  description: sent.content.description !== echo.content.description,
+  description: sent.content.rawDescription !== echo.content.rawDescription,
   end: !isSameSerializedSecond(sent.endTime, echo.endTime),
   location: sent.content.location !== echo.content.location,
   start: !isSameSerializedSecond(sent.startTime, echo.startTime),

@@ -40,16 +40,38 @@ const FRAGMENTS = [
   "\n",
   "  ",
   "Q&A; then demo",
+  "Note <!important> stuff",
+  "<p>A</p>\n<p>B</p>",
+  "&lt",
+];
+
+/*
+ * A closed raw-text container is real markup and its contents are not prose,
+ * and an unterminated attribute quote leaves a document no parser can finish
+ * reading. Both are in the corpus the round trip has to survive, and neither
+ * belongs in the corpus that promises to keep every word.
+ */
+const UNREADABLE_FRAGMENTS = [
+  "&lt;style&gt;",
+  "<style>",
+  "</style>",
+  "<title>",
+  "<script>",
+  "<head>",
+  "</head>",
+  "<a href=\"https://x.test/j>",
 ];
 
 const nextSeed = (seed: number): number => (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
 
-const randomDescription = (seed: number, remaining: number): string => {
+const randomDescription = (fragments: string[], seed: number, remaining: number): string => {
   if (remaining === 0) {
     return "";
   }
   const advanced = nextSeed(seed);
-  return FRAGMENTS[advanced % FRAGMENTS.length] + randomDescription(advanced, remaining - 1);
+
+  return fragments[advanced % fragments.length]
+    + randomDescription(fragments, advanced, remaining - 1);
 };
 
 const createEvent = (description: string): MaterializedSyncableEvent => ({
@@ -69,8 +91,12 @@ const roundTripThroughCalDAV = (description: string): string =>
   parseICalToRemoteEvent(eventToICalString(createEvent(description), "uid-1@keeper.sh"))
     ?.description ?? "";
 
-const DESCRIPTIONS = Array.from({ length: 4000 }).map((_unused, index) =>
-  randomDescription(index + 1, (index % 6) + 1));
+const buildCorpus = (fragments: string[]): string[] =>
+  Array.from({ length: 5_000 }).map((_unused, index) =>
+    randomDescription(fragments, index + 1, (index % 8) + 1));
+
+const DESCRIPTIONS = buildCorpus([...FRAGMENTS, ...UNREADABLE_FRAGMENTS]);
+const READABLE_DESCRIPTIONS = buildCorpus(FRAGMENTS);
 
 describe("description round trip", () => {
   it("compares a CalDAV mirror equal to the description it was written from", () => {
@@ -91,7 +117,7 @@ describe("description round trip", () => {
   });
 
   it("never deletes a word the description did not mark up", () => {
-    const swallowed = DESCRIPTIONS.filter((description) =>
+    const swallowed = READABLE_DESCRIPTIONS.filter((description) =>
       description.includes("<name>") && !htmlToPlainText(description).includes("<name>"));
 
     expect(swallowed).toEqual([]);

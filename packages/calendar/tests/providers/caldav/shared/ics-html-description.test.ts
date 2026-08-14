@@ -37,7 +37,7 @@ describe("eventToICalString with an HTML description", () => {
 
     expect(getPropertyValue(ics, "DESCRIPTION:")).toBe(
       String.raw`Agenda\; item one\, item two \\ three`
-      + String.raw`\nJoin https://tel.meet/xxx?pin=1&hs=2`,
+      + String.raw`\n\nJoin https://tel.meet/xxx?pin=1&hs=2`,
     );
   });
 
@@ -81,7 +81,7 @@ describe("eventToICalString with an HTML description", () => {
 
     expect(parsed?.description).not.toContain("<p>");
     expect(parsed?.description).toBe(
-      `Agenda; item one, item two ${"\u005C"} three\nJoin https://tel.meet/xxx?pin=1&hs=2`,
+      `Agenda; item one, item two ${"\u005C"} three\n\nJoin https://tel.meet/xxx?pin=1&hs=2`,
     );
   });
 

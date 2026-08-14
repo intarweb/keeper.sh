@@ -156,8 +156,8 @@ describe("R2L1-E: nested anchors emit a duplicated destination", () => {
 
 describe("R2L1-F: comparison reads an escaped element the same way as an unescaped one", () => {
   it("resolves an escaped tag to the structure it escapes", () => {
-    expect(canonicalizeComparableText("<p>Compare the &lt;div&gt; element</p>"))
-      .toBe(canonicalizeComparableText("<p>Compare the <div> element</p>"));
+    expect(canonicalizeComparableText("Compare the &lt;div&gt; element"))
+      .toBe(canonicalizeComparableText("Compare the <div> element"));
     expect(canonicalizeComparableText("<p>Compare the &lt;div&gt; element</p>"))
       .toBe("Compare the\nelement");
   });

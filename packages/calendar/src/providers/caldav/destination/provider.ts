@@ -86,17 +86,16 @@ const createFailureResult = (error: unknown): {
 };
 
 /*
- * Both operands are computed here and neither is persisted, so the text fields
- * can be compared markup-canonically: the write path serializes HTML
- * descriptions as plain text, and a raw comparison would recreate every such
- * mirror forever. Time, timezone, availability and recurrence stay exact.
+ * Both operands are computed here and neither is persisted, so the description
+ * can be compared markup-canonically: the write path serializes an HTML
+ * description as plain text, and a raw comparison would recreate every such
+ * mirror forever. Every other field, summary and location included, stays
+ * exact.
  */
 const hashConflictComparisonContent = (event: SyncableEventContent): string =>
   createSyncEventContentHash({
     ...event,
     description: canonicalizeComparableText(event.description),
-    location: canonicalizeComparableText(event.location),
-    summary: canonicalizeComparableText(event.summary),
   });
 
 const recoverCreateConflict = async (

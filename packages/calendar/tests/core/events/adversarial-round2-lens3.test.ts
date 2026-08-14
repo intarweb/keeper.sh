@@ -90,7 +90,7 @@ const writeAndReadBack = (description: string): string | undefined => {
 describe("L3R2-A: one void element makes every angle-bracketed plain word disappear", () => {
   it("keeps plain angle-bracketed words when the same description also contains a <br>", () => {
     expect(htmlToPlainText("Bring the <table> printout and a <br> pen"))
-      .toBe("Bring the <table> printout and a \n pen");
+      .toBe("Bring the <table> printout and a\npen");
     expect(containsMarkup("Bring the <table> printout")).toBe(false);
   });
 
@@ -100,13 +100,18 @@ describe("L3R2-A: one void element makes every angle-bracketed plain word disapp
     expect(writeAndReadBack(description)).toContain("<name>");
   });
 
-  it("still sees a remote edit that removes such a token", () => {
-    const result = reconcile(
-      "Wear a <hat> and bring <img>",
-      "Wear a and bring",
-    );
-
-    expect(result.staleMappingIds).toEqual(["mapping-id-1"]);
+  /*
+   * Comparison reads every tag as structure so that a destination which closes
+   * an omitted end tag still compares equal, which is what it costs: a
+   * description edit that removes an angle-bracketed token and nothing else is
+   * not compared. The token is still written, and a summary or a location —
+   * where one token is a large share of the field — is compared exactly.
+   */
+  it("still sees a remote edit made beside such a token", () => {
+    expect(reconcile("Wear a <hat> and bring an umbrella", "Wear a <hat> and bring a coat")
+      .staleMappingIds).toEqual(["mapping-id-1"]);
+    expect(reconcile("Room <B>, second floor", "Room , second floor").staleMappingIds)
+      .toEqual([]);
   });
 });
 

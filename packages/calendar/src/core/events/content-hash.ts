@@ -51,23 +51,20 @@ const createSyncEventContentHash = (event: SyncableEventContent): string => {
   return new Bun.CryptoHasher("sha256").update(payload).digest("hex");
 };
 
-interface EditableEventRawContent {
-  summary: string;
-  description: string;
-  location: string;
-}
-
 /*
- * Compared fields are markup-canonical, so a bare URL and a provider's
- * linkified rendering of it compare equal. `raw` keeps the uncanonicalized
- * values so a rewrite the projection absorbed stays countable.
+ * The description is the one field a provider is free to render as HTML, so it
+ * alone is compared markup-canonically: a bare URL and a provider's linkified
+ * rendering of it are the same description. A summary or a location is text on
+ * every provider, where `Interview: <NAME>` is a title and not a tag.
+ * `rawDescription` keeps the unprojected value, so a rewrite the projection
+ * absorbed stays countable.
  */
 interface EditableEventContentSnapshot {
   summary: string;
   description: string;
   location: string;
   isAllDay: boolean;
-  raw: EditableEventRawContent;
+  rawDescription: string;
 }
 
 const createEditableEventContentSnapshot = (
@@ -75,22 +72,15 @@ const createEditableEventContentSnapshot = (
 ): EditableEventContentSnapshot => ({
   description: canonicalizeComparableText(event.description),
   isAllDay: resolveHashedAllDay(event),
-  location: canonicalizeComparableText(event.location),
-  raw: {
-    description: normalizeText(event.description),
-    location: normalizeText(event.location),
-    summary: normalizeText(event.summary),
-  },
-  summary: canonicalizeComparableText(event.summary),
+  location: normalizeText(event.location),
+  rawDescription: normalizeText(event.description),
+  summary: normalizeText(event.summary),
 });
 
 const hasRawEditableContentChange = (
   first: EditableEventContentSnapshot,
   second: EditableEventContentSnapshot,
-): boolean =>
-  first.raw.description !== second.raw.description
-  || first.raw.location !== second.raw.location
-  || first.raw.summary !== second.raw.summary;
+): boolean => first.rawDescription !== second.rawDescription;
 
 const hashEditableEventContentSnapshot = (snapshot: EditableEventContentSnapshot): string => {
   const payload = JSON.stringify([
@@ -115,6 +105,5 @@ export {
 };
 export type {
   EditableEventContentSnapshot,
-  EditableEventRawContent,
   SyncableEventContent,
 };
