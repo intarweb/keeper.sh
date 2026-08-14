@@ -699,6 +699,10 @@ const appendStaleReasonFields = (
       counts.remoteContentDescriptionChanged,
     ],
     ["stale_mappings.remote_content_location_changed_count", counts.remoteContentLocationChanged],
+    [
+      "stale_mappings.remote_content_markup_only_changed_count",
+      counts.remoteContentMarkupOnlyChanged,
+    ],
     ["stale_mappings.remote_content_summary_changed_count", counts.remoteContentSummaryChanged],
     ["stale_mappings.remote_missing_count", counts.remoteMissing],
     ["stale_mappings.remote_time_changed_count", counts.remoteTimeChanged],

@@ -5,9 +5,10 @@ import type {
   SyncOperation,
 } from "../types";
 import {
-  createEditableEventContentHash,
   createEditableEventContentSnapshot,
   createSyncEventContentHash,
+  hasRawEditableContentChange,
+  hashEditableEventContentSnapshot,
 } from "../events/content-hash";
 import { overlapsTimeWindow } from "../events/time-range";
 import type { SyncWindow } from "./sync-range";
@@ -42,6 +43,7 @@ interface StaleReasonCounts {
   remoteContentAllDayChanged: number;
   remoteContentDescriptionChanged: number;
   remoteContentLocationChanged: number;
+  remoteContentMarkupOnlyChanged: number;
   remoteContentSummaryChanged: number;
   remoteMissing: number;
   remoteTimeChanged: number;
@@ -58,6 +60,7 @@ interface RemoteStateChanges {
   availability: boolean;
   content: boolean;
   contentFields: RemoteContentFieldChanges | null;
+  contentMarkupOnly: boolean;
   time: boolean;
 }
 
@@ -81,6 +84,7 @@ const createStaleReasonCounts = (): StaleReasonCounts => ({
   remoteContentAllDayChanged: 0,
   remoteContentDescriptionChanged: 0,
   remoteContentLocationChanged: 0,
+  remoteContentMarkupOnlyChanged: 0,
   remoteContentSummaryChanged: 0,
   remoteMissing: 0,
   remoteTimeChanged: 0,
@@ -259,11 +263,15 @@ const getRemoteStateChanges = (
   localEvent: MaterializedSyncableEvent,
   remoteEvent: RemoteEvent,
 ): RemoteStateChanges => {
+  const localContent = createEditableEventContentSnapshot(localEvent);
   const remoteContentChanged = typeof remoteEvent.editableContentHash === "string"
-    && remoteEvent.editableContentHash !== createEditableEventContentHash(localEvent);
+    && remoteEvent.editableContentHash !== hashEditableEventContentSnapshot(localContent);
+  const remoteContent = remoteEvent.editableContent;
+  const contentMarkupOnly = !remoteContentChanged
+    && remoteContent !== globalThis.undefined
+    && hasRawEditableContentChange(localContent, remoteContent);
   let contentFields: RemoteContentFieldChanges | null = null;
   if (remoteContentChanged && remoteEvent.editableContent) {
-    const localContent = createEditableEventContentSnapshot(localEvent);
     contentFields = {
       allDay: remoteEvent.editableContent.isAllDay !== localContent.isAllDay,
       description: remoteEvent.editableContent.description !== localContent.description,
@@ -286,6 +294,7 @@ const getRemoteStateChanges = (
     availability: remoteAvailabilityChanged,
     content: remoteContentChanged,
     contentFields,
+    contentMarkupOnly,
     time: remoteTimeChanged,
   };
 };
@@ -368,6 +377,10 @@ const identifyStaleMappings = (
     const remoteStateChanged = remoteChanges.availability
       || remoteChanges.content
       || remoteChanges.time;
+
+    if (remoteChanges.contentMarkupOnly) {
+      staleReasonCounts.remoteContentMarkupOnlyChanged += 1;
+    }
 
     if (localHashChanged || remoteStateChanged) {
       recordStaleReasons(staleReasonCounts, localHashChanged, remoteChanges);

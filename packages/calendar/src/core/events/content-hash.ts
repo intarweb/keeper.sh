@@ -1,5 +1,6 @@
 import type { SyncableEvent } from "../types";
 import { resolveIsAllDayEvent } from "./all-day";
+import { canonicalizeComparableText } from "./html-text";
 import stringify from "fast-json-stable-stringify";
 
 type SyncableEventContent = Pick<SyncableEvent, "summary" | "description" | "location">
@@ -50,21 +51,46 @@ const createSyncEventContentHash = (event: SyncableEventContent): string => {
   return new Bun.CryptoHasher("sha256").update(payload).digest("hex");
 };
 
+interface EditableEventRawContent {
+  summary: string;
+  description: string;
+  location: string;
+}
+
+/*
+ * Compared fields are markup-canonical, so a bare URL and a provider's
+ * linkified rendering of it compare equal. `raw` keeps the uncanonicalized
+ * values so a rewrite the projection absorbed stays countable.
+ */
 interface EditableEventContentSnapshot {
   summary: string;
   description: string;
   location: string;
   isAllDay: boolean;
+  raw: EditableEventRawContent;
 }
 
 const createEditableEventContentSnapshot = (
   event: SyncableEventContent,
 ): EditableEventContentSnapshot => ({
-  description: normalizeText(event.description),
+  description: canonicalizeComparableText(event.description),
   isAllDay: resolveHashedAllDay(event),
-  location: normalizeText(event.location),
-  summary: normalizeText(event.summary),
+  location: canonicalizeComparableText(event.location),
+  raw: {
+    description: normalizeText(event.description),
+    location: normalizeText(event.location),
+    summary: normalizeText(event.summary),
+  },
+  summary: canonicalizeComparableText(event.summary),
 });
+
+const hasRawEditableContentChange = (
+  first: EditableEventContentSnapshot,
+  second: EditableEventContentSnapshot,
+): boolean =>
+  first.raw.description !== second.raw.description
+  || first.raw.location !== second.raw.location
+  || first.raw.summary !== second.raw.summary;
 
 const hashEditableEventContentSnapshot = (snapshot: EditableEventContentSnapshot): string => {
   const payload = JSON.stringify([
@@ -84,6 +110,11 @@ export {
   createEditableEventContentHash,
   createEditableEventContentSnapshot,
   createSyncEventContentHash,
+  hasRawEditableContentChange,
   hashEditableEventContentSnapshot,
 };
-export type { EditableEventContentSnapshot, SyncableEventContent };
+export type {
+  EditableEventContentSnapshot,
+  EditableEventRawContent,
+  SyncableEventContent,
+};

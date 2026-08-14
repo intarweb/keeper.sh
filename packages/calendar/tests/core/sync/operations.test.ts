@@ -67,6 +67,7 @@ const EMPTY_STALE_REASON_COUNTS = {
   remoteContentAllDayChanged: 0,
   remoteContentDescriptionChanged: 0,
   remoteContentLocationChanged: 0,
+  remoteContentMarkupOnlyChanged: 0,
   remoteContentSummaryChanged: 0,
   remoteMissing: 0,
   remoteTimeChanged: 0,

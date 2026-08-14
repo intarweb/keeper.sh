@@ -8,6 +8,7 @@ import {
   parseIcsEventsWithDiagnostics,
 } from "../../../ics";
 import type {
+  GenerateNonStandardValues,
   IcsCalendar,
   IcsEvent,
   IcsExceptionDates,
@@ -17,6 +18,8 @@ import type {
 import type { MaterializedSyncableEvent, SyncableEvent } from "../../../core/types";
 import { isKeeperEvent } from "../../../core/events/identity";
 import { resolveIsAllDayEvent } from "../../../core/events/all-day";
+import { containsRenderableHtml, htmlToPlainText } from "../../../core/events/html-text";
+import { escapeIcsText } from "../../../ics/utils/escape-ics-text";
 import {
   assertNoUnsupportedRecurrenceDates,
   collectUnsupportedRecurrenceTimeZones,
@@ -25,6 +28,36 @@ import type { UnsupportedRecurrenceEvent } from "../../../ics/utils/validate-rec
 
 const normalizeIcsText = (value: string | undefined): string | undefined =>
   value?.replaceAll(/\r\n?/g, "\n");
+
+interface IcsEventNonStandardValues {
+  altDesc: string;
+}
+
+/*
+ * DESCRIPTION is a text property, so HTML placed in it renders as literal
+ * markup. X-ALT-DESC carries the original for clients that read it.
+ */
+const NON_STANDARD_GENERATORS: GenerateNonStandardValues<IcsEventNonStandardValues> = {
+  altDesc: {
+    name: "X-ALT-DESC",
+    generate: (value) => ({
+      options: { FMTTYPE: "text/html" },
+      value: escapeIcsText(value),
+    }),
+  },
+};
+
+const resolveDescription = (
+  description: string | undefined,
+): Pick<IcsEvent<IcsEventNonStandardValues>, "description" | "nonStandard"> => {
+  if (description === globalThis.undefined || !containsRenderableHtml(description)) {
+    return { description: normalizeIcsText(description) };
+  }
+  return {
+    description: normalizeIcsText(htmlToPlainText(description)),
+    nonStandard: { altDesc: description },
+  };
+};
 
 /*
  * A TZID-qualified DTSTART is only interpretable against a VTIMEZONE. Omitting
@@ -49,8 +82,8 @@ const resolveEventTimezones = (
 const eventToICalString = (event: MaterializedSyncableEvent, uid: string): string => {
   const isAllDay = resolveIsAllDayEvent(event);
   const timezones = resolveEventTimezones(event, isAllDay);
-  const icsEvent: IcsEvent = {
-    description: normalizeIcsText(event.description),
+  const icsEvent: IcsEvent<IcsEventNonStandardValues> = {
+    ...resolveDescription(event.description),
     end: buildZonedIcsDate(event.endTime, event.startTimeZone, isAllDay),
     location: normalizeIcsText(event.location),
     stamp: { date: new Date() },
@@ -67,7 +100,7 @@ const eventToICalString = (event: MaterializedSyncableEvent, uid: string): strin
     ...(timezones.length > 0 && { timezones }),
   };
 
-  return generateIcsCalendar(calendar);
+  return generateIcsCalendar(calendar, { nonStandard: NON_STANDARD_GENERATORS });
 };
 
 interface ParsedCalendarEvent {

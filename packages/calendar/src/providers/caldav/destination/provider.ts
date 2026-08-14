@@ -5,6 +5,8 @@ import {
   createSyncEventContentHash,
   hashEditableEventContentSnapshot,
 } from "../../../core/events/content-hash";
+import type { SyncableEventContent } from "../../../core/events/content-hash";
+import { canonicalizeComparableText } from "../../../core/events/html-text";
 import { getErrorMessage } from "../../../core/utils/error";
 import { resolveTimeRangeEnd } from "../../../core/events/time-range";
 import type {
@@ -83,6 +85,20 @@ const createFailureResult = (error: unknown): {
   };
 };
 
+/*
+ * Both operands are computed here and neither is persisted, so the text fields
+ * can be compared markup-canonically: the write path serializes HTML
+ * descriptions as plain text, and a raw comparison would recreate every such
+ * mirror forever. Time, timezone, availability and recurrence stay exact.
+ */
+const hashConflictComparisonContent = (event: SyncableEventContent): string =>
+  createSyncEventContentHash({
+    ...event,
+    description: canonicalizeComparableText(event.description),
+    location: canonicalizeComparableText(event.location),
+    summary: canonicalizeComparableText(event.summary),
+  });
+
 const recoverCreateConflict = async (
   client: CalDAVClient,
   calendarUrl: string,
@@ -102,7 +118,7 @@ const recoverCreateConflict = async (
   const remoteEvent = parseICalToRemoteEvent(existing.data);
   let remoteEventHash: string | null = null;
   if (remoteEvent) {
-    remoteEventHash = createSyncEventContentHash({
+    remoteEventHash = hashConflictComparisonContent({
       availability: remoteEvent.availability,
       description: remoteEvent.description,
       endTime: remoteEvent.endTime,
@@ -114,7 +130,7 @@ const recoverCreateConflict = async (
     });
   }
 
-  if (remoteEvent?.uid === uid && remoteEventHash === createSyncEventContentHash(event)) {
+  if (remoteEvent?.uid === uid && remoteEventHash === hashConflictComparisonContent(event)) {
     return;
   }
 
