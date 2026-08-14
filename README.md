@@ -144,7 +144,7 @@ The two limits that bite first are counted separately. A linked account is one c
 
 # Self Hosted
 
-By hosting Keeper.sh yourself, you get all premium features for free, can guarantee data governance and autonomy, and it's fun. What it costs instead is a server, a domain, upgrades, backups, your own Google and Microsoft OAuth apps, and being the person paged when it stops. If you'll be self-hosting, please consider supporting me and development of the project by sponsoring me on GitHub.
+By hosting Keeper.sh yourself, you are on the Pro tier by default — every Pro feature, no subscription — and you can guarantee data governance and autonomy, and it's fun. What it costs instead is a server, a domain, upgrades, backups, your own Google and Microsoft OAuth apps, and being the person paged when it stops. If you'll be self-hosting, please consider supporting me and development of the project by sponsoring me on GitHub.
 
 There are seven images currently available: two designed for convenience, and five that serve the granular underlying services. If you have no reason to prefer otherwise, start with `keeper-standalone` behind a reverse proxy — it is the path with the fewest moving parts to get wrong.
 
