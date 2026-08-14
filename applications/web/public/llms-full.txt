@@ -119,7 +119,7 @@ MCP is fully optional — all related environment variables are optional across 
 ## Technical Architecture
 
 - **CalDAV as universal protocol**: RFC 4791 as the common layer for FastMail, iCloud, and standards-compliant servers
-- **Encrypted credentials at rest**: CalDAV passwords and OAuth tokens encrypted with configurable key
+- **Encrypted credentials at rest**: iCloud, Fastmail and CalDAV app-specific passwords are encrypted with a server-held key and decrypted only at sync time
 - **Content hashing for iCal feeds**: Skips processing if feed content unchanged, keeps snapshots for 6 hours
 - **Real-time sync status**: WebSocket endpoint broadcasts sync progress to dashboard
 - **MCP via OAuth 2.1**: Separate MCP server with JWT-based session resolution, proxied through the web service at `/mcp`
