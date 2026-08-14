@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { jsonLdScript, organizationSchema } from '../../lib/seo'
 import { Layout, LayoutItem } from '../../components/ui/shells/layout'
-import { MarketingHeader, MarketingHeaderActions, MarketingHeaderBranding } from '../../features/marketing/components/marketing-header'
+import { MarketingHeader, MarketingHeaderActions, MarketingHeaderBranding, MarketingHeaderMenu, MarketingHeaderNav } from '../../features/marketing/components/marketing-header'
 import { MarketingFooter, MarketingFooterTagline, MarketingFooterNav, MarketingFooterNavGroup, MarketingFooterNavGroupLabel, MarketingFooterNavItem } from '../../features/marketing/components/marketing-footer'
 import KeeperLogo from "@/assets/keeper.svg?react";
 import { ButtonText, LinkButton } from '../../components/ui/primitives/button';
@@ -48,6 +48,7 @@ function MarketingLayout() {
         <MarketingHeaderBranding label="Keeper.sh home">
           <KeeperLogo className="w-full max-w-6" aria-hidden="true" />
         </MarketingHeaderBranding>
+        <MarketingHeaderNav />
         <MarketingHeaderActions>
           <GithubStarButton initialStarCount={githubStars.count} />
           <SessionSlot
@@ -67,6 +68,7 @@ function MarketingLayout() {
               </>
             }
           />
+          <MarketingHeaderMenu />
         </MarketingHeaderActions>
       </MarketingHeader>
       <Layout>
