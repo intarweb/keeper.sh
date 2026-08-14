@@ -18,7 +18,7 @@ import type {
 import type { MaterializedSyncableEvent, SyncableEvent } from "../../../core/types";
 import { isKeeperEvent } from "../../../core/events/identity";
 import { resolveIsAllDayEvent } from "../../../core/events/all-day";
-import { containsRenderableHtml, htmlToPlainText } from "../../../core/events/html-text";
+import { containsMarkup, htmlToPlainText } from "../../../core/events/html-text";
 import { escapeIcsText } from "../../../ics/utils/escape-ics-text";
 import {
   assertNoUnsupportedRecurrenceDates,
@@ -50,7 +50,7 @@ const NON_STANDARD_GENERATORS: GenerateNonStandardValues<IcsEventNonStandardValu
 const resolveDescription = (
   description: string | undefined,
 ): Pick<IcsEvent<IcsEventNonStandardValues>, "description" | "nonStandard"> => {
-  if (description === globalThis.undefined || !containsRenderableHtml(description)) {
+  if (description === globalThis.undefined || !containsMarkup(description)) {
     return { description: normalizeIcsText(description) };
   }
   return {

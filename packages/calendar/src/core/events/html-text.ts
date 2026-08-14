@@ -1,156 +1,230 @@
 import { DomUtils, parseDocument } from "htmlparser2";
+import { decodeHTMLStrict } from "entities";
 
 type ChildNode = ReturnType<typeof parseDocument>["children"][number];
 type ElementNode = Extract<ChildNode, { attribs: Record<string, string> }>;
+type Segment = { readonly text: string } | { readonly breaks: number };
 
-/*
- * A rendering contract, not a claim of exhaustiveness: anything outside this
- * set is reproduced verbatim, so an angle-bracketed bare URL survives instead
- * of being tokenized away as a tag named `https:`.
- */
-const RENDERABLE_ELEMENTS = new Set([
-  "a",
-  "b",
-  "blockquote",
+interface TextAccumulator {
+  readonly parts: readonly string[];
+  readonly breaks: number | null;
+}
+
+const VOID_ELEMENTS = new Set([
+  "area",
+  "base",
   "br",
-  "div",
-  "em",
-  "font",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
+  "col",
+  "embed",
   "hr",
-  "i",
-  "li",
-  "ol",
-  "p",
-  "span",
-  "strong",
-  "table",
-  "td",
-  "th",
-  "tr",
-  "u",
-  "ul",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
 ]);
 
-const NEWLINE_ELEMENTS = new Set(["br", "hr"]);
+const DISCARDED_ELEMENTS = new Set([
+  "head",
+  "link",
+  "meta",
+  "noscript",
+  "script",
+  "style",
+  "template",
+  "title",
+]);
+
+const LINE_BREAK_ELEMENTS = new Set(["br", "hr"]);
 
 const BLOCK_ELEMENTS = new Set([
+  "address",
+  "article",
+  "aside",
   "blockquote",
+  "body",
+  "dd",
   "div",
+  "dl",
+  "dt",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
   "h1",
   "h2",
   "h3",
   "h4",
   "h5",
   "h6",
+  "header",
+  "html",
   "li",
+  "main",
+  "nav",
   "ol",
   "p",
+  "pre",
+  "section",
   "table",
+  "tbody",
+  "tfoot",
+  "thead",
   "tr",
   "ul",
 ]);
 
-const BREAK_MARKER = "\uE000";
-const BREAK_RUN_PATTERN = /[\n\uE000]+/g;
-const NEWLINE_PATTERN = /\n/g;
+const CELL_ELEMENTS = new Set(["td", "th"]);
+
+const TAG_NAME = String.raw`[a-zA-Z][a-zA-Z\d]*(?:-[a-zA-Z\d]+)*(?::[a-zA-Z][a-zA-Z\d]*)?`;
+const TAG_OPENER_PATTERN = new RegExp(String.raw`<(?=[!?]|/?${TAG_NAME}[\s/>])`, "g");
+const STRAY_ANGLE_PATTERN = new RegExp(String.raw`<(?![!?]|/?${TAG_NAME}[\s/>])`, "g");
+const TAG_TOKEN_PATTERN = new RegExp(String.raw`<(/?${TAG_NAME}(?:[\s/][^<>]*)?)>`, "g");
+const ENTITY_AMPERSAND_PATTERN = /&(?=(?:[a-zA-Z][a-zA-Z\d]*|#\d+|#[xX][\da-fA-F]+);)/g;
+const LINK_SCHEME_PATTERN = /^(?:[a-z][a-z\d+.-]*:\/\/|mailto:|tel:)/i;
+const TRAILING_SLASH_PATTERN = /\/+$/;
+const URL_SHAPED_PATTERN =
+  /^(?:[a-z][a-z\d+.-]*:\/\/\S+|[a-z\d-]+(?:\.[a-z\d-]+)+(?:[/?#]\S*)?)$/i;
+const URL_TOKEN_PATTERN =
+  /(?:[a-z][a-z\d+.-]*:\/\/)?(?:[a-z\d-]+\.)+[a-z][a-z\d-]*(?::\d+)?(?:[/?#]\S*)?/gi;
 const INLINE_WHITESPACE_PATTERN = /[ \t]+/g;
 const NON_BREAKING_SPACE_PATTERN = /\u00A0/g;
 const SURROUNDING_BLANK_LINE_PATTERN = /^\n+|\n+$/g;
 const CARRIAGE_RETURN_PATTERN = /\r\n?/g;
-const URL_SHAPED_PATTERN =
-  /^(?:[a-z][a-z0-9+.-]*:\/\/\S+|[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:[/?#]\S*)?)$/i;
-const CANONICALIZATION_PASS_LIMIT = 3;
-
-const hasRenderableElement = (nodes: ChildNode[]): boolean =>
-  nodes.some((node) =>
-    DomUtils.isTag(node)
-    && (RENDERABLE_ELEMENTS.has(node.name) || hasRenderableElement(node.children)));
-
-const containsRenderableHtml = (value: string): boolean =>
-  value.includes("<") && hasRenderableElement(parseDocument(value).children);
 
 /*
- * An unrecognized tag keeps its literal source. Its range can run past its own
- * markup when the parser closes it on an ancestor's end tag, so the opening tag
- * is taken up to its own `>` and the closing tag only when the range ends in it.
+ * `<https://tel.meet/x?pin=1&hs=2>` is text, not a tag: only a well-formed tag
+ * opener keeps its angle bracket before the document is parsed.
  */
-const readUnrenderableElement = (
-  source: string,
-  element: ElementNode,
-  inner: string,
-): string => {
-  const { endIndex, startIndex } = element;
-  if (startIndex === null || endIndex === null) {
-    throw new TypeError("htmlparser2 returned an element without source indices");
+const escapeStrayAngles = (value: string): string =>
+  value.replaceAll(STRAY_ANGLE_PATTERN, "&lt;");
+
+/*
+ * Escaping every construct the projection would otherwise re-read makes it a
+ * fixed point, so a value Keeper has already projected and written projects
+ * again to itself instead of decaying one level per sync.
+ */
+const neutralizeMarkup = (value: string): string =>
+  value
+    .replaceAll(ENTITY_AMPERSAND_PATTERN, "&amp;")
+    .replaceAll(TAG_TOKEN_PATTERN, (tag, token: string) => `&lt;${token}&gt;`)
+    .replaceAll(TAG_OPENER_PATTERN, "&lt;");
+
+const hasMarkupElement = (nodes: ChildNode[], closingTags: string): boolean =>
+  nodes.some((node) =>
+    DomUtils.isTag(node)
+    && (VOID_ELEMENTS.has(node.name)
+      || closingTags.includes(`</${node.name}`)
+      || hasMarkupElement(node.children, closingTags)));
+
+/*
+ * An element counts as markup only when it is void or explicitly closed, so
+ * `Bring the <table> layout printout` stays the plain text it is.
+ */
+const containsMarkup = (value: string): boolean => {
+  if (!value.includes("<")) {
+    return false;
   }
-  const tagEnd = source.indexOf(">", startIndex) + 1;
-  if (tagEnd <= startIndex) {
-    return `${source.slice(startIndex, endIndex + 1)}${inner}`;
-  }
-  const openTag = source.slice(startIndex, tagEnd);
-  const closeTag = `</${element.name}>`;
-  if (source.slice(startIndex, endIndex + 1).toLowerCase().endsWith(closeTag)) {
-    return `${openTag}${inner}${closeTag}`;
-  }
-  return `${openTag}${inner}`;
+  const source = escapeStrayAngles(value);
+  return hasMarkupElement(parseDocument(source).children, source.toLowerCase());
 };
 
-const renderAnchor = (element: ElementNode, text: string): string => {
-  const href = element.attribs["href"] ?? "";
-  const trimmed = text.trim();
+const renderBreaks = (breaks: number | null): string[] => {
+  if (breaks === null) {
+    return [];
+  }
+  return ["\n".repeat(Math.max(1, breaks))];
+};
+
+/*
+ * A block boundary asks for at least one line break; the explicit breaks in
+ * the same run decide how many there actually are.
+ */
+const appendSegment = (accumulator: TextAccumulator, segment: Segment): TextAccumulator => {
+  if ("text" in segment) {
+    return {
+      breaks: null,
+      parts: [...accumulator.parts, ...renderBreaks(accumulator.breaks), segment.text],
+    };
+  }
+  return {
+    breaks: (accumulator.breaks ?? 0) + segment.breaks,
+    parts: accumulator.parts,
+  };
+};
+
+const segmentsToText = (segments: Segment[]): string => {
+  let accumulator: TextAccumulator = { breaks: null, parts: [] };
+  for (const segment of segments) {
+    accumulator = appendSegment(accumulator, segment);
+  }
+  return accumulator.parts.join("");
+};
+
+const normalizeLinkTarget = (value: string): string =>
+  value.replace(LINK_SCHEME_PATTERN, "").replace(TRAILING_SLASH_PATTERN, "");
+
+/*
+ * A provider that linkifies `support.google.com` invents both the scheme and
+ * the trailing slash, so an anchor whose text is its own destination projects
+ * to that text alone. A labelled anchor keeps its destination beside the
+ * label: readable in a CalDAV client, and still sensitive to a repointed link.
+ */
+const renderAnchor = (element: ElementNode, inner: Segment[]): Segment[] => {
+  const href = element.attribs["href"]?.trim() ?? "";
+  const text = segmentsToText(inner).trim();
   if (href.length === 0) {
-    return text;
+    return inner;
   }
-  if (trimmed.length === 0 || URL_SHAPED_PATTERN.test(trimmed)) {
-    return href;
+  if (text.length === 0) {
+    return [{ text: href }];
   }
-  return text;
+  const target = normalizeLinkTarget(href);
+  const label = normalizeLinkTarget(text);
+  if (label === target || text.includes(href)) {
+    return inner;
+  }
+  if (URL_SHAPED_PATTERN.test(text) && target.startsWith(label)) {
+    return [{ text: href }];
+  }
+  return [...inner, { text: ` (${href})` }];
 };
 
-const renderNode = (source: string, node: ChildNode): string => {
+const renderNode = (node: ChildNode): Segment[] => {
   if (DomUtils.isText(node)) {
-    return node.data;
+    return [{ text: node.data }];
   }
-  if (!DomUtils.isTag(node)) {
-    return "";
+  if (!DomUtils.isTag(node) || DISCARDED_ELEMENTS.has(node.name)) {
+    return [];
   }
-  if (NEWLINE_ELEMENTS.has(node.name)) {
-    return "\n";
+  if (LINE_BREAK_ELEMENTS.has(node.name)) {
+    return [{ breaks: 1 }];
   }
-  const inner = node.children.map((child) => renderNode(source, child)).join("");
-  if (!RENDERABLE_ELEMENTS.has(node.name)) {
-    return readUnrenderableElement(source, node, inner);
-  }
+  const inner = node.children.flatMap(renderNode);
   if (node.name === "a") {
     return renderAnchor(node, inner);
   }
+  if (CELL_ELEMENTS.has(node.name)) {
+    return [{ text: " " }, ...inner, { text: " " }];
+  }
   if (BLOCK_ELEMENTS.has(node.name)) {
-    return `${BREAK_MARKER}${inner}${BREAK_MARKER}`;
+    return [{ breaks: 0 }, ...inner, { breaks: 0 }];
   }
   return inner;
 };
 
-const countNewlines = (value: string): number =>
-  value.length - value.replaceAll(NEWLINE_PATTERN, "").length;
-
-/*
- * A block boundary asks for at least one line break; explicit breaks in the
- * same run decide how many there actually are.
- */
-const resolveBreakRuns = (value: string): string =>
-  value.replaceAll(BREAK_RUN_PATTERN, (run) => "\n".repeat(Math.max(1, countNewlines(run))));
+const renderMarkup = (value: string): string =>
+  segmentsToText(parseDocument(escapeStrayAngles(value)).children.flatMap(renderNode)).trim();
 
 const htmlToPlainText = (value: string): string => {
-  const document = parseDocument(value, { withEndIndices: true, withStartIndices: true });
-  return resolveBreakRuns(
-    document.children.map((child) => renderNode(value, child)).join(""),
-  ).trim();
+  if (!containsMarkup(value)) {
+    return value;
+  }
+  return neutralizeMarkup(renderMarkup(value));
 };
 
 const collapseComparableWhitespace = (value: string): string =>
@@ -161,29 +235,27 @@ const collapseComparableWhitespace = (value: string): string =>
     .join("\n")
     .replaceAll(SURROUNDING_BLANK_LINE_PATTERN, "");
 
-const projectComparableText = (value: string): string => {
-  if (containsRenderableHtml(value)) {
-    return collapseComparableWhitespace(htmlToPlainText(value));
+/*
+ * Whether a URL carries its scheme and its trailing slash is decided by
+ * whichever side linkified it, so comparison reads every URL in the one form
+ * both sides can reach.
+ */
+const normalizeComparableUrls = (value: string): string =>
+  value.replaceAll(URL_TOKEN_PATTERN, normalizeLinkTarget);
+
+const readProjectionSource = (value: string): string => {
+  if (containsMarkup(value)) {
+    return renderMarkup(value);
   }
-  return collapseComparableWhitespace(value);
+  return decodeHTMLStrict(value);
 };
 
-/*
- * `<p>a &lt;br&gt; b</p>` projects to `a <br> b`, which a second pass reads as
- * a real break, so one pass is not a fixed point.
- */
-const projectToFixedPoint = (value: string, remainingPasses: number): string => {
-  const projected = projectComparableText(value);
-  if (remainingPasses <= 1 || projected === value) {
-    return projected;
-  }
-  return projectToFixedPoint(projected, remainingPasses - 1);
-};
+const projectComparableText = (value: string): string =>
+  neutralizeMarkup(normalizeComparableUrls(readProjectionSource(value)));
 
 const canonicalizeComparableText = (value?: string): string =>
-  projectToFixedPoint(
-    value?.replaceAll(CARRIAGE_RETURN_PATTERN, "\n").trim() ?? "",
-    CANONICALIZATION_PASS_LIMIT,
+  collapseComparableWhitespace(
+    projectComparableText(value?.replaceAll(CARRIAGE_RETURN_PATTERN, "\n").trim() ?? ""),
   );
 
-export { canonicalizeComparableText, containsRenderableHtml, htmlToPlainText };
+export { canonicalizeComparableText, containsMarkup, htmlToPlainText };

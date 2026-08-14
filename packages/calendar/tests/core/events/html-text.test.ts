@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeComparableText,
-  containsRenderableHtml,
+  containsMarkup,
   htmlToPlainText,
 } from "../../../src/core/events/html-text";
 
@@ -16,29 +16,29 @@ const OUTLOOK_TEXT_BODY = [
   "<https://teams.microsoft.com/meetingOptions/?organizerId=1&tenantId=2>",
 ].join("\n");
 
-describe("containsRenderableHtml", () => {
+describe("containsMarkup", () => {
   it("does not classify an angle-bracketed bare URL as markup", () => {
-    expect(containsRenderableHtml("<https://tel.meet/x?pin=1&hs=2>")).toBe(false);
+    expect(containsMarkup("<https://tel.meet/x?pin=1&hs=2>")).toBe(false);
   });
 
   it("does not classify the Google Meet description block as markup", () => {
-    expect(containsRenderableHtml(MEET_BLOCK)).toBe(false);
+    expect(containsMarkup(MEET_BLOCK)).toBe(false);
   });
 
   it("does not classify an Outlook plaintext body as markup", () => {
-    expect(containsRenderableHtml(OUTLOOK_TEXT_BODY)).toBe(false);
+    expect(containsMarkup(OUTLOOK_TEXT_BODY)).toBe(false);
   });
 
   it("classifies anchors, breaks and block elements as markup", () => {
-    expect(containsRenderableHtml("<a href=\"https://x.test\">x</a>")).toBe(true);
-    expect(containsRenderableHtml("a<br>b")).toBe(true);
-    expect(containsRenderableHtml("<p>a</p>")).toBe(true);
-    expect(containsRenderableHtml("<div><span>a</span></div>")).toBe(true);
+    expect(containsMarkup("<a href=\"https://x.test\">x</a>")).toBe(true);
+    expect(containsMarkup("a<br>b")).toBe(true);
+    expect(containsMarkup("<p>a</p>")).toBe(true);
+    expect(containsMarkup("<div><span>a</span></div>")).toBe(true);
   });
 
   it("does not classify an unknown element as markup", () => {
-    expect(containsRenderableHtml("<mailto:a@b.test>")).toBe(false);
-    expect(containsRenderableHtml("value < 3 and value > 1")).toBe(false);
+    expect(containsMarkup("<mailto:a@b.test>")).toBe(false);
+    expect(containsMarkup("value < 3 and value > 1")).toBe(false);
   });
 });
 
@@ -48,9 +48,9 @@ describe("htmlToPlainText", () => {
       .toBe("https://x.test/a?b=1&c=2");
   });
 
-  it("keeps anchor text that is not itself a URL", () => {
+  it("keeps a label's destination reachable beside the label", () => {
     expect(htmlToPlainText("<a href='https://x.test/a?b=1&amp;c=2' title=\"a>b\">Link</a>"))
-      .toBe("Link");
+      .toBe("Link (https://x.test/a?b=1&c=2)");
   });
 
   it("prefers the href when the anchor text is a truncated rendering of it", () => {
@@ -80,17 +80,18 @@ describe("canonicalizeComparableText", () => {
     expect(canonicalizeComparableText("a<br>b")).toBe("a\nb");
   });
 
-  it("leaves the Google Meet description block untouched apart from spacing", () => {
+  it("keeps the Google Meet description block whole, in linkification-free URL form", () => {
     expect(canonicalizeComparableText("<https://tel.meet/x?pin=1&hs=2>"))
-      .toBe("<https://tel.meet/x?pin=1&hs=2>");
+      .toBe("<tel.meet/x?pin=1&hs=2>");
     expect(canonicalizeComparableText(MEET_BLOCK)).toBe(
-      "s: https://tel.meet/xxx-xxx-xxx?pin=123123123123123&hs=2"
-      + " Learn more about Meet at: https://support.google.com/",
+      "s: tel.meet/xxx-xxx-xxx?pin=123123123123123&hs=2"
+      + " Learn more about Meet at: support.google.com",
     );
   });
 
-  it("round-trips an Outlook plaintext body unchanged", () => {
-    expect(canonicalizeComparableText(OUTLOOK_TEXT_BODY)).toBe(OUTLOOK_TEXT_BODY);
+  it("round-trips an Outlook plaintext body apart from URL form", () => {
+    expect(canonicalizeComparableText(OUTLOOK_TEXT_BODY))
+      .toBe(OUTLOOK_TEXT_BODY.replaceAll("https://", ""));
   });
 
   it("converges a linkified URL onto the bare URL it was rendered from", () => {
