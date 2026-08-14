@@ -7,7 +7,7 @@ Keeper.sh is an open-source (AGPL-3.0) calendar synchronization service that kee
 ## Key Features
 
 - Universal calendar sync across Google Calendar, Outlook, Apple Calendar, FastMail, CalDAV, and iCal feeds
-- Per-source-calendar privacy controls for event titles, descriptions, and locations; the shared iCal feed hides all three by default
+- Per-source-calendar privacy controls for event titles, descriptions, and locations; all three are hidden by default, on synced copies and on the shared iCal feed alike
 - Aggregated iCal feed generation for sharing availability externally
 - MCP (Model Context Protocol) server for AI agent calendar access via OAuth 2.1, with read and write tools
 - Self-hostable with Docker Compose (standalone, services-only, or individual containers)

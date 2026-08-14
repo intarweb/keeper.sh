@@ -45,10 +45,10 @@ Each calendar has capability flags: "pull" (read events from) and "push" (write 
 
 ### Privacy Controls
 
-The aggregated iCal feed hides event names, descriptions, and locations by default, showing time blocks labelled "Busy". Events pushed to your destination calendars carry the original title, description, and location unless you turn those off, which is done per source calendar. Attendee lists are never copied to destination calendars or the iCal feed. They are read only when you use the invite and RSVP features.
+The aggregated iCal feed hides event names, descriptions, and locations by default, showing time blocks labelled "Busy". Events pushed to your destination calendars are stripped the same way by default: the title is replaced with the source calendar's name, and the description and location are left behind on the original. Letting any of the three through is a per-source-calendar setting, and it requires the Pro plan. Attendee lists are never copied to destination calendars or the iCal feed. They are read only when you use the invite and RSVP features.
 
 Per-source calendar settings:
-- Include or exclude event titles (replace with "Busy")
+- Include or exclude event titles (excluded by default; the stand-in comes from the custom event name template)
 - Include or exclude descriptions and locations
 - Custom event name templates using `{{event_name}}` or `{{calendar_name}}` placeholders
 - Skip all-day events
