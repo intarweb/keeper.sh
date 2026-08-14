@@ -1,6 +1,10 @@
 const SITE_URL = "https://www.keeper.sh";
 const SITE_NAME = "Keeper.sh";
+const SITE_ALTERNATE_NAME = "Keeper";
 const DEFAULT_IMAGE_PATH = "/open-graph.png";
+
+export const BRAND_DISAMBIGUATION =
+  "Keeper.sh is a calendar syncing tool. It is not affiliated with Keeper Security, the password manager.";
 
 export function canonicalUrl(path: string): string {
   return `${SITE_URL}/${path.replace(/^\/+/, "")}`;
@@ -59,6 +63,8 @@ export const organizationSchema = {
       "@type": "Organization",
       "@id": `${SITE_URL}/#organization`,
       name: SITE_NAME,
+      alternateName: SITE_ALTERNATE_NAME,
+      disambiguatingDescription: BRAND_DISAMBIGUATION,
       url: SITE_URL,
       logo: {
         "@type": "ImageObject",

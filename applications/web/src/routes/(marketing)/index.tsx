@@ -1,6 +1,6 @@
 import { useSetAtom } from 'jotai'
 import { createFileRoute } from '@tanstack/react-router'
-import { canonicalUrl, faqSchema, jsonLdScript, seoMeta, softwareApplicationSchema } from '../../lib/seo'
+import { BRAND_DISAMBIGUATION, canonicalUrl, faqSchema, jsonLdScript, seoMeta, softwareApplicationSchema } from '../../lib/seo'
 import { Heading1, Heading2, Heading3 } from '../../components/ui/primitives/heading'
 import { Text } from '../../components/ui/primitives/text'
 import {
@@ -88,7 +88,7 @@ const MARKETING_FEATURES: MarketingFeature[] = [
     id: 2,
     title: 'Simple Synchronization Engine',
     description:
-      'Your events are aggregated and synced across all linked calendars. Keeper tracks every copy it creates and checks them on each run, updating and removing them as the original changes.',
+      'Your events are aggregated and synced across all linked calendars. Keeper.sh tracks every copy it creates and checks them on each run, updating and removing them as the original changes.',
     gridClassName: 'lg:col-start-7 lg:col-span-4 lg:row-start-1',
     illustration: <MarketingIllustrationSync />,
   },
@@ -159,7 +159,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'How often do calendars sync?',
     answer:
-      'Keeper reads your calendars every minute on both plans. What differs is how often it writes those changes back out to your other calendars: every 30 minutes on the free plan, and every minute on Pro.',
+      'Keeper.sh reads your calendars every minute on both plans. What differs is how often it writes those changes back out to your other calendars: every 30 minutes on the free plan, and every minute on Pro.',
   },
   {
     question: 'Are my event details visible to others?',
@@ -175,6 +175,10 @@ const FAQ_ITEMS: FaqItem[] = [
     question: 'Can I cancel my subscription anytime?',
     answer:
       'Yes. You can cancel at any time from your account settings. Your access continues until the end of the current billing period.',
+  },
+  {
+    question: 'Is Keeper.sh related to Keeper Security, the password manager?',
+    answer: `No. ${BRAND_DISAMBIGUATION}`,
   },
 ]
 
@@ -204,6 +208,9 @@ function MarketingPage() {
       <Heading1 className="text-center">All of your calendars in-sync.</Heading1>
       <Text align="center" className="max-w-[48ch] mx-auto">
         Synchronize events between your personal, work, business and school calendars automatically. Works with Google Calendar, Outlook, iCloud, CalDAV, and ICS/iCal feeds. Open-source under AGPL-3.0.
+      </Text>
+      <Text size="xs" align="center" className="max-w-[48ch] mx-auto">
+        {BRAND_DISAMBIGUATION}
       </Text>
       <div className="contents *:z-20">
         <div className="flex items-center gap-2 mx-auto pt-1">

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  BRAND_DISAMBIGUATION,
   blogPostingSchema,
   canonicalUrl,
   collectionPageSchema,
+  organizationSchema,
   seoMeta,
   webPageSchema,
 } from "@/lib/seo";
@@ -39,6 +41,28 @@ describe("canonicalUrl", () => {
 
   it("collapses duplicate leading slashes", () => {
     expect(canonicalUrl("//pricing")).toBe("https://www.keeper.sh/pricing");
+  });
+});
+
+describe("organizationSchema", () => {
+  it("publishes the brand under both the domain name and the bare word", () => {
+    expect(organizationSchema["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@type": "Organization",
+        name: "Keeper.sh",
+        alternateName: "Keeper",
+      }),
+    );
+  });
+
+  it("separates the organization from the password manager of a similar name", () => {
+    expect(organizationSchema["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@type": "Organization",
+        disambiguatingDescription: BRAND_DISAMBIGUATION,
+      }),
+    );
+    expect(BRAND_DISAMBIGUATION).toContain("Keeper Security");
   });
 });
 
