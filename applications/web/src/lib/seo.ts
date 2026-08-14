@@ -48,6 +48,14 @@ export function seoMeta({
   ];
 }
 
+const AUTHOR_NAME = "Rida F'kih";
+const PERSON_ID = entityId("/about", "person");
+
+// Consumers resolve @id within one page's graph, not across pages, and the Person
+// node itself is only emitted on /about. Carrying the type and name alongside the
+// id keeps the reference meaningful everywhere else it appears.
+export const authorReference = { "@id": PERSON_ID, "@type": "Person", name: AUTHOR_NAME };
+
 export const organizationSchema = {
   "@context": "https://schema.org",
   "@graph": [
@@ -63,6 +71,7 @@ export const organizationSchema = {
         height: 512,
       },
       sameAs: ["https://github.com/ridafkih/keeper.sh"],
+      founder: authorReference,
     },
     {
       "@type": "WebSite",
@@ -235,13 +244,19 @@ export function collectionPageSchema(posts: Array<{ slug: string; metadata: { ti
   };
 }
 
-export const authorPersonSchema = {
-  "@type": "Person",
-  "@id": `${SITE_URL}/#author`,
-  name: "Rida F'kih",
-  url: "https://rida.dev",
-  sameAs: ["https://github.com/ridafkih"],
-};
+export function personSchema(description: string) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "@id": PERSON_ID,
+    name: AUTHOR_NAME,
+    description,
+    url: canonicalUrl("/about"),
+    sameAs: ["https://github.com/ridafkih", "https://rida.dev"],
+    worksFor: { "@id": `${SITE_URL}/#organization` },
+    mainEntityOfPage: { "@id": entityId("/about", "webpage") },
+  };
+}
 
 export function blogPostingSchema(post: {
   title: string;
@@ -264,7 +279,7 @@ export function blogPostingSchema(post: {
     datePublished: post.createdAt,
     dateModified: post.updatedAt,
     keywords: post.tags,
-    author: authorPersonSchema,
+    author: authorReference,
     publisher: { "@id": `${SITE_URL}/#organization` },
     isPartOf: { "@id": `${SITE_URL}/#website` },
     mainEntityOfPage: { "@type": "WebPage", "@id": url },

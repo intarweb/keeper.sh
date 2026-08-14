@@ -3,6 +3,8 @@ import {
   blogPostingSchema,
   canonicalUrl,
   collectionPageSchema,
+  organizationSchema,
+  personSchema,
   seoMeta,
   webPageSchema,
 } from "@/lib/seo";
@@ -137,6 +139,38 @@ describe("blogPostingSchema", () => {
     });
     expect(schema["@id"]).toBe("https://www.keeper.sh/blog/why-keeper/#blogposting");
     expect(schema.url).toBe("https://www.keeper.sh/blog/why-keeper");
+  });
+});
+
+describe("personSchema", () => {
+  const PERSON_ID = "https://www.keeper.sh/about/#person";
+
+  it("is identified by the about page", () => {
+    const schema = personSchema("The maintainer.");
+    expect(schema["@id"]).toBe(PERSON_ID);
+    expect(schema.url).toBe("https://www.keeper.sh/about");
+    expect(schema.mainEntityOfPage).toEqual({ "@id": "https://www.keeper.sh/about/#webpage" });
+  });
+
+  it("claims both author profiles", () => {
+    expect(personSchema("The maintainer.").sameAs).toEqual([
+      "https://github.com/ridafkih",
+      "https://rida.dev",
+    ]);
+  });
+
+  it("is the author a blog post points at and the organization's founder", () => {
+    const reference = { "@id": PERSON_ID, "@type": "Person", name: "Rida F'kih" };
+
+    expect(blogPostingSchema(post).author).toEqual(reference);
+    expect(organizationSchema["@graph"][0]).toMatchObject({ founder: reference });
+  });
+
+  it("names the person everywhere it is referenced, because the node itself is only on /about", () => {
+    const { author } = blogPostingSchema(post);
+
+    expect(author["@type"]).toBe("Person");
+    expect(author.name).toBe(personSchema("The maintainer.").name);
   });
 });
 
