@@ -5,7 +5,6 @@ import { MarketingHeader, MarketingHeaderActions, MarketingHeaderBranding } from
 import { MarketingFooter, MarketingFooterTagline, MarketingFooterNav, MarketingFooterNavGroup, MarketingFooterNavGroupLabel, MarketingFooterNavItem } from '../../features/marketing/components/marketing-footer'
 import KeeperLogo from "@/assets/keeper.svg?react";
 import { ButtonText, LinkButton } from '../../components/ui/primitives/button';
-import { GithubStarButton } from '../../components/ui/primitives/github-star-button';
 import { SessionSlot } from '../../components/ui/shells/session-slot';
 import HeartIcon from "lucide-react/dist/esm/icons/heart";
 import { ExternalTextLink } from "@/components/ui/primitives/text-link";
@@ -40,8 +39,6 @@ export const Route = createFileRoute('/(marketing)')({
 })
 
 function MarketingLayout() {
-  const githubStars = Route.useLoaderData();
-
   return (
     <>
       <MarketingHeader>
@@ -49,7 +46,6 @@ function MarketingLayout() {
           <KeeperLogo className="w-full max-w-6" aria-hidden="true" />
         </MarketingHeaderBranding>
         <MarketingHeaderActions>
-          <GithubStarButton initialStarCount={githubStars.count} />
           <SessionSlot
             authenticated={
               <LinkButton size="compact" variant="highlight" to="/dashboard">
