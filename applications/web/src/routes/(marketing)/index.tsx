@@ -78,35 +78,35 @@ type MarketingFeature = {
 const MARKETING_FEATURES: MarketingFeature[] = [
   {
     id: 1,
-    title: 'Privacy-First & Open Source',
-    description:
-      'Open-source, released under an AGPL-3.0 license. Community driven, and anyone can read the code to check what it does with your calendars. Here are some of the latest contributors.',
-    gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-1',
-    illustration: <MarketingIllustrationContributors />,
-  },
-  {
-    id: 2,
     title: 'Universal Calendar Sync',
     description:
       'Google Calendar, Outlook, Apple Calendar, and more. Automatically sync events between all your calendars no matter the provider.',
-    gridClassName: 'lg:col-start-5 lg:col-span-6 lg:row-start-1',
+    gridClassName: 'lg:col-start-1 lg:col-span-6 lg:row-start-1',
     illustration: <MarketingIllustrationProviders />,
   },
   {
-    id: 3,
+    id: 2,
     title: 'Simple Synchronization Engine',
     description:
       'Your events are aggregated and synced across all linked calendars. Keeper tracks every copy it creates and checks them on each run, updating and removing them as the original changes.',
-    gridClassName: 'lg:col-start-1 lg:col-span-6 lg:row-start-2',
+    gridClassName: 'lg:col-start-7 lg:col-span-4 lg:row-start-1',
     illustration: <MarketingIllustrationSync />,
   },
   {
-    id: 4,
+    id: 3,
     title: 'Quick Setup',
     description:
       'Link your Google, Outlook, iCloud, or CalDAV accounts in seconds. On the hosted version there is nothing to configure. Sign in and go.',
-    gridClassName: 'lg:col-start-7 lg:col-span-4 lg:row-start-2',
+    gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-2',
     illustration: <MarketingIllustrationSetup />,
+  },
+  {
+    id: 4,
+    title: 'Privacy-First & Open Source',
+    description:
+      'Open-source, released under an AGPL-3.0 license. Community driven, and anyone can read the code to check what it does with your calendars. Here are some of the latest contributors.',
+    gridClassName: 'lg:col-start-5 lg:col-span-6 lg:row-start-2',
+    illustration: <MarketingIllustrationContributors />,
   },
 ]
 

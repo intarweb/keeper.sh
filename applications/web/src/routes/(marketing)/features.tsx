@@ -78,6 +78,16 @@ const FEATURE_CARDS: FeatureCard[] = [
     gridClassName: "lg:col-start-6 lg:col-span-5 lg:row-start-3",
     illustration: <MarketingIllustrationContributors />,
   },
+  {
+    title: "Let an assistant handle the scheduling",
+    body: "Keeper.sh is an MCP server, so Claude, Cursor, or any MCP client can read your week and make changes across every calendar you have connected — not just one account. You approve it once on a consent screen, and you can revoke it whenever you like.",
+    gridClassName: "lg:col-start-1 lg:col-span-6 lg:row-start-4",
+  },
+  {
+    title: "Or build on it yourself",
+    body: "A REST API under /api/v1, authenticated with a token you create under Settings → API Tokens. The free plan allows 25 calls a day; Pro is uncapped.",
+    gridClassName: "lg:col-start-7 lg:col-span-4 lg:row-start-4",
+  },
 ];
 
 type UpdateStep = {
@@ -101,11 +111,6 @@ const UPDATE_STEPS: UpdateStep[] = [
     note: "Calendars connected by a link are read in full each time.",
   },
 ];
-
-const MCP_READ_TOOLS =
-  "Read: list_calendars, list_accounts, get_events, get_event, get_event_count, get_pending_invites, get_ical_feed";
-
-const MCP_WRITE_TOOLS = "Write: create_event, update_event, delete_event, rsvp_event";
 
 export const Route = createFileRoute("/(marketing)/features")({
   component: FeaturesPage,
@@ -188,41 +193,6 @@ function FeaturesPage() {
           </MarketingHowItWorksRow>
         </MarketingHowItWorksCard>
       </MarketingHowItWorksSection>
-
-      <MarketingFeatureBentoSection>
-        <Heading2>For developers</Heading2>
-        <Text size="sm" tone="muted" className="mt-2 mb-8 max-w-[64ch]">
-          Skip this part unless you want to drive Keeper.sh from your own code or from an assistant.
-        </Text>
-        <MarketingFeatureBentoGrid>
-          <MarketingFeatureBentoCard className="lg:col-start-1 lg:col-span-5 lg:row-start-1">
-            <MarketingFeatureBentoBody>
-              <Heading3 as="h3">REST API</Heading3>
-              <Text size="sm" className="text-left">
-                Keeper.sh exposes a REST API under /api/v1, authenticated with a bearer token you create under Settings → API Tokens.
-                It covers accounts, calendars, events, invites, and the calendar link.
-              </Text>
-              <Text size="sm" tone="muted" className="text-left">
-                The free plan allows 25 API calls per day. Pro is uncapped.
-              </Text>
-            </MarketingFeatureBentoBody>
-          </MarketingFeatureBentoCard>
-
-          <MarketingFeatureBentoCard className="lg:col-start-6 lg:col-span-5 lg:row-start-1">
-            <MarketingFeatureBentoBody>
-              <Heading3 as="h3">MCP server</Heading3>
-              <Text size="sm" className="text-left">
-                An assistant can read and write your calendars through Keeper.sh&rsquo;s MCP server. You approve it once on a consent
-                screen in your browser, and it signs in with OAuth 2.1 rather than a password.
-              </Text>
-              <ul className="list-disc list-inside flex flex-col gap-1 ml-2 text-sm tracking-tight text-foreground-muted">
-                <li>{MCP_READ_TOOLS}</li>
-                <li>{MCP_WRITE_TOOLS}</li>
-              </ul>
-            </MarketingFeatureBentoBody>
-          </MarketingFeatureBentoCard>
-        </MarketingFeatureBentoGrid>
-      </MarketingFeatureBentoSection>
 
       <MarketingCtaSection>
         <MarketingCtaCard>
