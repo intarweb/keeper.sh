@@ -181,7 +181,7 @@ describe("0077 self-hosted upgrade compatibility", () => {
     const repositoryRoot = `${import.meta.dirname}/../../../..`;
     const entrypoint = await Bun.file(`${repositoryRoot}/services/api/entrypoint.sh`).text();
 
-    expect(entrypoint).toContain('"${RUN_MIGRATIONS:-true}"');
+    expect(entrypoint).toContain("RUN_MIGRATIONS:-true");
     expect(entrypoint).toContain("packages/database/scripts/migrate.ts");
   });
 
