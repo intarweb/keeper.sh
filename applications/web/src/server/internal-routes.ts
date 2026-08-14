@@ -47,6 +47,35 @@ const buildProtectedResourceMetadata = (requestOrigin: string) => ({
   scopes_supported: RESOURCE_SCOPES,
 });
 
+const MCP_SERVER_CARD_PATH = "/mcp/server-card";
+const MCP_SERVER_CARD_MEDIA_TYPE = "application/mcp-server-card+json";
+// SEP-2127 pins this exact string through the `$schema` pattern, so it stays as
+// written even though it does not resolve until the proposal merges.
+const MCP_SERVER_CARD_SCHEMA =
+  "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json";
+const MCP_SERVER_NAMESPACE = "sh.keeper";
+const MCP_SERVER_NAME = "keeper";
+const MCP_SERVER_VERSION = "1.0.0";
+
+const buildMcpServerCard = (requestOrigin: string) => ({
+  $schema: MCP_SERVER_CARD_SCHEMA,
+  name: `${MCP_SERVER_NAMESPACE}/${MCP_SERVER_NAME}`,
+  version: MCP_SERVER_VERSION,
+  title: "Keeper.sh",
+  description: "Read and write your connected calendars from an AI agent.",
+  websiteUrl: requestOrigin,
+  repository: {
+    url: "https://github.com/ridafkih/keeper.sh",
+    source: "github",
+  },
+  remotes: [
+    {
+      type: "streamable-http",
+      url: `${requestOrigin}/mcp`,
+    },
+  ],
+});
+
 async function serveStaticTextFile(pathname: string): Promise<Response | null> {
   const contentType = staticTextFiles[pathname];
   if (!contentType) return null;
@@ -93,6 +122,15 @@ export async function handleInternalRoute(
 
   if (requestUrl.pathname === "/.well-known/oauth-protected-resource") {
     return Response.json(buildProtectedResourceMetadata(resolvePublicOrigin(request)));
+  }
+
+  if (requestUrl.pathname === MCP_SERVER_CARD_PATH) {
+    return new Response(JSON.stringify(buildMcpServerCard(resolvePublicOrigin(request))), {
+      headers: {
+        "content-type": MCP_SERVER_CARD_MEDIA_TYPE,
+        "cache-control": "public, max-age=3600",
+      },
+    });
   }
 
   const internalProxyPath = resolveInternalProxyPath(requestUrl.pathname);

@@ -32,7 +32,7 @@ describe("resolveInternalProxyPath", () => {
   });
 });
 
-const geoConfig: ServerConfig = {
+const serverConfig: ServerConfig = {
   apiProxyOrigin: "http://api.test",
   mcpProxyOrigin: null,
   environment: "production",
@@ -47,20 +47,70 @@ function geoRequest(headers: Record<string, string> = {}): Request {
 
 describe("/internal/geo", () => {
   it("reports that GDPR applies for an EU country", async () => {
-    const response = await handleInternalRoute(geoRequest({ "cf-ipcountry": "DE" }), geoConfig);
+    const response = await handleInternalRoute(geoRequest({ "cf-ipcountry": "DE" }), serverConfig);
 
     expect(await response?.json()).toEqual({ gdprApplies: true });
   });
 
   it("reports that GDPR does not apply outside the EU", async () => {
-    const response = await handleInternalRoute(geoRequest({ "cf-ipcountry": "US" }), geoConfig);
+    const response = await handleInternalRoute(geoRequest({ "cf-ipcountry": "US" }), serverConfig);
 
     expect(await response?.json()).toEqual({ gdprApplies: false });
   });
 
   it("is never stored by a shared cache", async () => {
-    const response = await handleInternalRoute(geoRequest({ "cf-ipcountry": "US" }), geoConfig);
+    const response = await handleInternalRoute(geoRequest({ "cf-ipcountry": "US" }), serverConfig);
 
     expect(response?.headers.get("cache-control")).toBe("private, no-store");
+  });
+});
+
+function serverCardRequest(headers: Record<string, string> = {}): Request {
+  return new Request("http://localhost/mcp/server-card", { headers });
+}
+
+describe("/mcp/server-card", () => {
+  it("serves the card under the server card media type", async () => {
+    const response = await handleInternalRoute(serverCardRequest(), serverConfig);
+
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toContain("application/mcp-server-card+json");
+  });
+
+  it("names the server under the namespace the registry manifest publishes", async () => {
+    const response = await handleInternalRoute(serverCardRequest(), serverConfig);
+
+    expect(await response?.json()).toMatchObject({
+      name: "sh.keeper/keeper",
+      version: "1.0.0",
+    });
+  });
+
+  it("points at the Streamable HTTP endpoint on the requested origin", async () => {
+    const response = await handleInternalRoute(serverCardRequest(), serverConfig);
+
+    expect(await response?.json()).toMatchObject({
+      remotes: [{ type: "streamable-http", url: "http://localhost/mcp" }],
+    });
+  });
+
+  it("advertises the endpoint on the public origin behind a proxy", async () => {
+    const response = await handleInternalRoute(
+      serverCardRequest({ "x-forwarded-proto": "https", "x-forwarded-host": "www.keeper.sh" }),
+      serverConfig,
+    );
+
+    expect(await response?.json()).toMatchObject({
+      remotes: [{ url: "https://www.keeper.sh/mcp" }],
+      websiteUrl: "https://www.keeper.sh",
+    });
+  });
+
+  it("leaves the primitives it serves to runtime listing", async () => {
+    const response = await handleInternalRoute(serverCardRequest(), serverConfig);
+    const card = await response?.json();
+
+    expect(card).not.toHaveProperty("capabilities");
+    expect(card).not.toHaveProperty("serverInfo");
   });
 });
