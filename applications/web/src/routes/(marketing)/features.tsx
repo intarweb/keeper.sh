@@ -83,22 +83,20 @@ const FEATURE_CARDS: FeatureCard[] = [
 type UpdateStep = {
   title: string;
   body: string;
-  note?: string;
 };
 
 const UPDATE_STEPS: UpdateStep[] = [
   {
     title: "Connect a calendar, then say where it copies to",
-    body: "Connecting takes a sign-in or a pasted link. You then point that calendar at the one you want its events to land in.",
+    body: "Connect a calendar with a sign-in or a pasted link, then choose which calendar its events copy into.",
   },
   {
     title: "Choose what each calendar shows",
-    body: "By default a copied event shows only the name of the calendar it came from. On Pro you set this per calendar, so a work calendar can carry the title, description, and location while a shared one stays a plain block. Pro also lets you filter out events you would rather not copy at all.",
+    body: "By default a copy shows only the name of the calendar it came from. On Pro you set that per calendar.",
   },
   {
     title: "Keeper.sh takes it from there",
-    body: "Your calendars are checked every minute on both plans. Google and Outlook only report what changed, so checking stays quick even on a packed calendar. A change reaches your other calendars within 30 minutes on Free, and within a minute on Pro.",
-    note: "Calendars connected by a link are read in full each time.",
+    body: "Your calendars are checked every minute. Changes reach your other calendars within 30 minutes on Free, a minute on Pro.",
   },
 ];
 
@@ -180,7 +178,6 @@ function FeaturesPage() {
             <MarketingHowItWorksStepBody step={3}>
               <Heading3 as="h3">{UPDATE_STEPS[2].title}</Heading3>
               <Text size="sm" tone="muted">{UPDATE_STEPS[2].body}</Text>
-              <Text size="sm" tone="muted">{UPDATE_STEPS[2].note}</Text>
             </MarketingHowItWorksStepBody>
             <MarketingHowItWorksStepIllustration align="right">
               <HowItWorksSync />
