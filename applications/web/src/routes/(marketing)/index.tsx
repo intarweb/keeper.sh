@@ -133,7 +133,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Can my colleagues see what my personal events are?',
     answer:
-      'No. The copy is titled after the calendar it came from, with no description, location or guest list. Pro lets you set your own title instead.',
+      'No, and the guest list never travels, on any plan. The copy takes the calendar name, with no description or location. Pro lets you show the title, description and location.',
   },
   {
     question: 'How often do calendars update?',
@@ -143,8 +143,8 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Can I run Keeper.sh myself?',
     answer:
-      'Yes. Keeper.sh is open source under AGPL-3.0, and the README on GitHub has the setup steps. You will need a server, a domain and backups.',
-    content: <>Yes. Keeper.sh is open source under AGPL-3.0, and the <a href="https://github.com/ridafkih/keeper.sh#readme" target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">README on GitHub</a> has the setup steps. You will need a server, a domain and backups.</>,
+      'Yes. Keeper.sh is open source under AGPL-3.0. The self-hosting page covers what you get, and the README on GitHub has the setup steps.',
+    content: <>Yes. Keeper.sh is open source under AGPL-3.0. The <TextLink align="left" size="sm" to="/self-hosting" tone="default">self-hosting page</TextLink> covers what you get, and the <a href="https://github.com/ridafkih/keeper.sh#readme" target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">README on GitHub</a> has the setup steps.</>,
   },
   {
     question: 'Can I cancel any time?',
