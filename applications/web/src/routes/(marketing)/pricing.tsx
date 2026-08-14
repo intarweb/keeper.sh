@@ -26,7 +26,7 @@ import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 const breadcrumbs = breadcrumbTrail({ name: "Pricing", path: "/pricing" });
 
 const PAGE_DESCRIPTION =
-  "Keeper.sh pricing. Free covers 2 linked accounts, 3 sync mappings, and changes reaching your other calendars every 30 minutes. Pro is $5 per month for unlimited accounts and mappings, changes every minute, and uncapped API access.";
+  "Keeper.sh is free for 2 calendar accounts and 3 connections. Pro is $5 a month, or $42 a year, for unlimited calendars and changes every minute.";
 
 type FaqItem = {
   question: string;
@@ -39,8 +39,8 @@ const FAQ_ITEMS: FaqItem[] = [
     answer: "An account is one connected calendar provider, such as a Google or Outlook login or a CalDAV server. Free allows 2, Pro is unlimited.",
   },
   {
-    question: "What counts as a sync mapping?",
-    answer: "A mapping is one source calendar pushed to one destination calendar. Free allows 3, Pro is unlimited.",
+    question: "What counts as a connection?",
+    answer: "A connection copies events from one calendar into another. Free includes 3, Pro is unlimited. If you want two calendars to match each other, that is two connections.",
   },
   {
     question: "How quickly do changes show up?",
@@ -52,7 +52,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     question: "Is self-hosting free?",
-    answer: "Keeper.sh is open-source under AGPL-3.0. A self-hosted instance runs without commercial mode, so every account on it gets the Pro feature set and no plan limits.",
+    answer: "Yes. Every account on a self-hosted instance gets every paid sync feature, with no plan limits — Keeper.sh is open-source under AGPL-3.0. You are the one running the server, so updates, backups and downtime are yours to handle.",
   },
   {
     question: "Do I need a Google or Microsoft account to sign up?",
@@ -93,8 +93,9 @@ function PricingPage() {
       <header className="flex flex-col gap-1.5">
         <Heading1>Pricing</Heading1>
         <Text size="base" tone="muted" className="max-w-[64ch] leading-6">
-          Keeper.sh uses a low-cost freemium model to give you a solid range of choice. Self-hosting is free and
-          includes every Pro feature.
+          Start free with two calendar accounts and three connections. Pro is $5 a month, or $42 a year, for as many
+          calendars as you want. Self-hosting is free and includes every Pro feature, if you are happy to run the server
+          and keep it updated.
         </Text>
       </header>
 
