@@ -9,7 +9,7 @@ import { GithubStarButton } from '../../components/ui/primitives/github-star-but
 import { SessionSlot } from '../../components/ui/shells/session-slot';
 import HeartIcon from "lucide-react/dist/esm/icons/heart";
 import { ExternalTextLink } from "@/components/ui/primitives/text-link";
-import { CookieConsent } from "@/components/cookie-consent";
+import { CookieConsent } from "@/components/consent-banner";
 
 interface GithubStarsLoaderData {
   count: number | null;
@@ -46,28 +46,32 @@ function MarketingLayout() {
     <>
       <MarketingHeader>
         <MarketingHeaderBranding label="Keeper.sh home">
-          <KeeperLogo className="w-full max-w-6" aria-hidden="true" />
+          <KeeperLogo className="size-7 shrink-0" aria-hidden="true" />
         </MarketingHeaderBranding>
         <MarketingHeaderNav />
         <MarketingHeaderActions>
           <GithubStarButton initialStarCount={githubStars.count} />
-          <SessionSlot
-            authenticated={
-              <LinkButton size="compact" variant="highlight" to="/dashboard">
-                <ButtonText>Dashboard</ButtonText>
-              </LinkButton>
-            }
-            unauthenticated={
-              <>
-                <LinkButton size="compact" variant="border" to="/login">
-                  <ButtonText>Login</ButtonText>
+          <span className="contents max-md:[body:has(#marketing-header-menu)_&]:hidden">
+            <SessionSlot
+              authenticated={
+                <LinkButton size="compact" variant="highlight" to="/dashboard">
+                  <ButtonText>Dashboard</ButtonText>
                 </LinkButton>
-                <LinkButton size="compact" variant="highlight" to="/register">
-                  <ButtonText>Register</ButtonText>
-                </LinkButton>
-              </>
-            }
-          />
+              }
+              unauthenticated={
+                <>
+                  <span className="hidden xs:contents">
+                    <LinkButton size="compact" variant="elevated" to="/login">
+                      <ButtonText>Login</ButtonText>
+                    </LinkButton>
+                  </span>
+                  <LinkButton size="compact" variant="highlight" to="/register">
+                    <ButtonText>Register</ButtonText>
+                  </LinkButton>
+                </>
+              }
+            />
+          </span>
           <MarketingHeaderMenu />
         </MarketingHeaderActions>
       </MarketingHeader>

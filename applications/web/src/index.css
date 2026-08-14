@@ -15,6 +15,12 @@ body {
   overflow-x: hidden;
 }
 
+@media (width < 48rem) {
+  body:has(#marketing-header-menu) {
+    overflow-y: hidden;
+  }
+}
+
 #root {
   @apply w-full;
 }
