@@ -21,12 +21,36 @@ interface KeeperToolContext {
   apiBaseUrl: string;
 }
 
+interface KeeperMcpToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  openWorldHint: boolean;
+}
+
 interface KeeperMcpToolDefinition<TResult> {
   description: string;
   title: string;
+  annotations: KeeperMcpToolAnnotations;
   inputSchema?: Record<string, z.ZodTypeAny>;
   execute: (context: KeeperToolContext, input?: Record<string, unknown>) => Promise<TResult>;
 }
+
+const READ_ONLY: KeeperMcpToolAnnotations = {
+  readOnlyHint: true,
+  openWorldHint: false,
+};
+
+const ADDITIVE: KeeperMcpToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  openWorldHint: false,
+};
+
+const DESTRUCTIVE: KeeperMcpToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  openWorldHint: false,
+};
 
 const keeperCalendarSchema = z.object({
   id: z.string(),
@@ -245,12 +269,14 @@ const localizeFreeTime = (freeTime: KeeperFreeTime): KeeperFreeTime => ({
 const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   list_calendars: {
     title: "List calendars",
+    annotations: READ_ONLY,
     description:
       "List all calendars the user has connected to Keeper.sh, including provider name and account.",
     execute: (context) => apiFetch(context, "/api/v1/calendars", z.array(keeperCalendarSchema)),
   },
   get_event_count: {
     title: "Get event count",
+    annotations: READ_ONLY,
     description:
       "Get the number of calendar events. Optionally provide a date range with 'from' and 'to' ISO 8601 datetimes.",
     inputSchema: {
@@ -270,6 +296,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   get_events: {
     title: "Get events",
+    annotations: READ_ONLY,
     description:
       "Get calendar events within a date range. Provide ISO 8601 datetimes for 'from' and 'to', and an IANA timezone (e.g. America/New_York) to localize event times.",
     inputSchema: eventRangeSchema,
@@ -284,6 +311,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   get_event: {
     title: "Get event",
+    annotations: READ_ONLY,
     description: "Get a single calendar event by its ID.",
     inputSchema: {
       eventId: z.string().describe("The event ID returned by get_events"),
@@ -297,6 +325,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   create_event: {
     title: "Create event",
+    annotations: ADDITIVE,
     description:
       "Create a new calendar event on a connected calendar. Requires calendarId, title, startTime, and endTime. Pass an IANA timezone so the event renders in local time on CalDAV calendars (iCloud, Fastmail) instead of GMT.",
     inputSchema: {
@@ -325,6 +354,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   update_event: {
     title: "Update event",
+    annotations: DESTRUCTIVE,
     description:
       "Update an existing calendar event. Only provided fields are updated.",
     inputSchema: {
@@ -354,6 +384,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   delete_event: {
     title: "Delete event",
+    annotations: DESTRUCTIVE,
     description: "Delete a calendar event by its ID.",
     inputSchema: {
       eventId: z.string().describe("The event ID returned by get_events"),
@@ -370,6 +401,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   rsvp_event: {
     title: "Respond to event invite",
+    annotations: DESTRUCTIVE,
     description:
       "Respond to a calendar event invitation. Set rsvpStatus to 'accepted', 'declined', or 'tentative'.",
     inputSchema: {
@@ -391,6 +423,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   get_pending_invites: {
     title: "Get pending invites",
+    annotations: READ_ONLY,
     description:
       "Get calendar event invitations that have not been responded to within a date range for a specific calendar.",
     inputSchema: {
@@ -410,16 +443,19 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   list_accounts: {
     title: "List accounts",
+    annotations: READ_ONLY,
     description: "List all connected calendar accounts with provider information.",
     execute: (context) => apiFetch(context, "/api/v1/accounts", z.array(z.unknown())),
   },
   get_ical_feed: {
     title: "Get iCal feed URL",
+    annotations: READ_ONLY,
     description: "Get the user's iCal feed URL for subscribing in other calendar apps.",
     execute: (context) => apiFetch(context, "/api/v1/ical", z.object({ url: z.string() })),
   },
   find_free_time: {
     title: "Find free time",
+    annotations: READ_ONLY,
     description:
       "Find open slots of at least 'durationMinutes' across every synced calendar in a date range. Events marked free or working-elsewhere never block; busy, out-of-office, and all-day events do. Optionally restrict candidates to working hours and weekdays in the given timezone. Returned slots are localized to that timezone.",
     inputSchema: {
@@ -469,6 +505,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   trigger_sync: {
     title: "Trigger sync",
+    annotations: ADDITIVE,
     description:
       "Force Keeper.sh to sync now: clears the ingest backoff on every active source so they are polled on the next pass, and immediately enqueues a push to every destination calendar. Throttled to one request per minute per user.",
     execute: (context) =>
@@ -476,6 +513,7 @@ const createKeeperMcpToolset = (): KeeperMcpToolset => ({
   },
   pause_sync: {
     title: "Pause or resume calendar sync",
+    annotations: DESTRUCTIVE,
     description:
       "Pause or resume syncing for a single calendar without disconnecting it. A paused calendar is neither polled for new events nor pushed to, in both directions, and its stored events are kept. Set paused to false to resume.",
     inputSchema: {

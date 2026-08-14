@@ -80,6 +80,36 @@ describe("createKeeperMcpToolset", () => {
     }
   });
 
+  it("annotates every tool with hints clients can gate confirmation on", () => {
+    const toolset = createKeeperMcpToolset();
+
+    for (const [, tool] of Object.entries(toolset)) {
+      expect(tool.annotations.openWorldHint).toBe(false);
+      if (tool.annotations.readOnlyHint) {
+        continue;
+      }
+      expect(typeof tool.annotations.destructiveHint).toBe("boolean");
+    }
+  });
+
+  it("marks the tools that change existing calendar state as destructive", () => {
+    const toolset = createKeeperMcpToolset();
+
+    const destructive = Object.entries(toolset)
+      .filter(([, tool]) => tool.annotations.destructiveHint === true)
+      .map(([name]) => name)
+      .toSorted();
+
+    expect(destructive).toEqual([
+      "delete_event",
+      "pause_sync",
+      "rsvp_event",
+      "update_event",
+    ]);
+    expect(toolset.create_event.annotations.destructiveHint).toBe(false);
+    expect(toolset.get_events.annotations.readOnlyHint).toBe(true);
+  });
+
   it("accepts the opaque occurrence IDs returned by event reads", () => {
     const toolset = createKeeperMcpToolset();
     const occurrenceId = "occurrence:019c0000-0000-7000-8000-000000000001:1772445600000";
