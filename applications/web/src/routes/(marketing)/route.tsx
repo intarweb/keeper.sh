@@ -4,8 +4,7 @@ import { Layout, LayoutItem } from '../../components/ui/shells/layout'
 import { MarketingHeader, MarketingHeaderActions, MarketingHeaderBranding } from '../../features/marketing/components/marketing-header'
 import { MarketingFooter, MarketingFooterTagline, MarketingFooterNav, MarketingFooterNavGroup, MarketingFooterNavGroupLabel, MarketingFooterNavItem } from '../../features/marketing/components/marketing-footer'
 import KeeperLogo from "@/assets/keeper.svg?react";
-import { ButtonText, ExternalLinkButton, LinkButton } from '../../components/ui/primitives/button';
-import { formatStarCount } from '../../features/marketing/github-stars';
+import { ButtonText, LinkButton } from '../../components/ui/primitives/button';
 import { SessionSlot } from '../../components/ui/shells/session-slot';
 import HeartIcon from "lucide-react/dist/esm/icons/heart";
 import { ExternalTextLink } from "@/components/ui/primitives/text-link";
@@ -40,8 +39,6 @@ export const Route = createFileRoute('/(marketing)')({
 })
 
 function MarketingLayout() {
-  const githubStars = Route.useLoaderData()
-
   return (
     <>
       <MarketingHeader>
@@ -49,17 +46,6 @@ function MarketingLayout() {
           <KeeperLogo className="w-full max-w-6" aria-hidden="true" />
         </MarketingHeaderBranding>
         <MarketingHeaderActions>
-          {githubStars.count !== null && (
-            <ExternalLinkButton
-              size="compact"
-              variant="ghost"
-              href="https://github.com/ridafkih/keeper.sh"
-              rel="noreferrer"
-              target="_blank"
-            >
-              <ButtonText>{formatStarCount(githubStars.count)}</ButtonText>
-            </ExternalLinkButton>
-          )}
           <SessionSlot
             authenticated={
               <LinkButton size="compact" variant="highlight" to="/dashboard">
