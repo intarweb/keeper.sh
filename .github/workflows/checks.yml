@@ -37,6 +37,8 @@ jobs:
   # out to cpus-1 forks. Calendar and the API are the two long poles.
   test-calendar:
     runs-on: ubuntu-latest
+    env:
+      TZ: UTC
     strategy:
       fail-fast: false
       matrix:
