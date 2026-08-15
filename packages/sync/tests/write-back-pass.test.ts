@@ -361,7 +361,7 @@ describe("runWriteBackPass: the budget bounds the pass", () => {
       store: harness.store,
     });
 
-    expect(result.applied + result.abandoned + result.quarantined).toBe(
+    expect(result.applied + result.abandoned + result.quarantined + result.withheld).toBe(
       MAX_WRITE_BACKS_PER_PASS,
     );
   });
@@ -504,7 +504,13 @@ describe("runWriteBackPass: the other destinations of the source are told", () =
       store: harness.store,
     });
 
-    expect(result).toEqual({ abandoned: 0, applied: 0, failed: 0, quarantined: 0 });
+    expect(result).toEqual({
+      abandoned: 0,
+      applied: 0,
+      failed: 0,
+      quarantined: 0,
+      withheld: 0,
+    });
     expect(harness.log).toEqual([]);
   });
 });

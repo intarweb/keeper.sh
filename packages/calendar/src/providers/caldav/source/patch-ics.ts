@@ -1,6 +1,8 @@
 const NOT_FOUND_INDEX = -1;
 const NEXT_LINE = 1;
 const SINGLE_MATCH = 1;
+const NESTED_LEVEL = 1;
+const TOP_LEVEL = 0;
 
 const LINE_SEPARATOR = "\r\n";
 
@@ -35,9 +37,24 @@ const readPropertyValue = (line: string): string => {
   return line.slice(separator + NEXT_LINE);
 };
 
+/*
+ * A VALARM carries its own DESCRIPTION, DURATION and DTSTAMP-shaped properties, and they
+ * belong to the alarm, not the event. Walking into the sub-component would let a write-back
+ * to the event's description delete the alarm's, or lift the alarm's DURATION into the
+ * VEVENT body beside DTEND — a pair RFC 5545 forbids.
+ */
+const readComponentName = (line: string): string | null => {
+  const name = readPropertyName(line);
+  if (name !== "BEGIN" && name !== "END") {
+    return null;
+  }
+  return readPropertyValue(line).trim().toUpperCase();
+};
+
 const collectSpans = (lines: string[], block: VEventBlock): Map<string, PropertySpan[]> => {
   const spans = new Map<string, PropertySpan[]>();
   let index = block.start + NEXT_LINE;
+  let depth = TOP_LEVEL;
 
   while (index < block.end) {
     const line = lines[index] ?? "";
@@ -46,6 +63,20 @@ const collectSpans = (lines: string[], block: VEventBlock): Map<string, Property
       continue;
     }
     const name = readPropertyName(line);
+    if (name === "BEGIN" && readComponentName(line)) {
+      depth += NESTED_LEVEL;
+      index += NEXT_LINE;
+      continue;
+    }
+    if (name === "END" && readComponentName(line)) {
+      depth -= NESTED_LEVEL;
+      index += NEXT_LINE;
+      continue;
+    }
+    if (depth > TOP_LEVEL) {
+      index += NEXT_LINE;
+      continue;
+    }
     let end = index + NEXT_LINE;
     while (end < block.end && isContinuation(lines[end] ?? "")) {
       end += NEXT_LINE;

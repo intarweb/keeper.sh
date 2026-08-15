@@ -134,7 +134,13 @@ describe("runWriteBackPass: inbound work that cannot complete is bounded", () =>
       store: harness.store,
     });
 
-    expect(result).toEqual({ abandoned: 0, applied: 1, failed: 0, quarantined: 0 });
+    expect(result).toEqual({
+      abandoned: 0,
+      applied: 1,
+      failed: 0,
+      quarantined: 0,
+      withheld: 0,
+    });
     expect(harness.writerCalls).toEqual(["update"]);
   });
 

@@ -48,6 +48,7 @@ type ReadHealth = "ambiguous_empty" | "healthy" | "live_empty";
 type WriteBackRejectionReason =
   | "availability_clamped"
   | "availability_not_writable"
+  | "never_observed"
   | "recurring_event"
   | "redacted_field"
   | "write_back_quarantined";
@@ -438,32 +439,91 @@ const resolveEligibleMappings = (
 };
 
 const createBreakerConfirmation = (
-  deleteBreakerTripped: boolean,
-  pendingDeletes: PendingDelete[],
+  trippedSourceCalendarIds: ReadonlySet<string>,
 ): DeleteConfirmationRequest | null => {
-  if (!deleteBreakerTripped) {
+  if (trippedSourceCalendarIds.size === NO_OBSERVATIONS) {
     return null;
   }
   return {
     reason: "delete_breaker_tripped",
-    sourceCalendarIds: [...new Set(
-      pendingDeletes.flatMap(({ mapping }) => mapping.sourceCalendarId ?? []),
-    )],
+    sourceCalendarIds: [...trippedSourceCalendarIds],
   };
 };
 
-const hasApprovedDeletion = (
+/*
+ * An answer is given for one source calendar, so it unlocks that calendar and no other.
+ * Reading it as a destination-wide clearance would let a "yes, I deleted those" for one
+ * pair destroy originals on a sibling pair the user was never asked about.
+ */
+const resolveHeldSourceCalendarIds = (
+  readHealth: ReadHealth,
   eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
-): boolean => eligible.some(({ policy }) =>
-  policy.deleteApproved && policy.writeBackMode === "edits_and_deletes");
+): Set<string> => {
+  if (readHealth !== "ambiguous_empty") {
+    return new Set<string>();
+  }
+  return new Set(
+    eligible
+      .filter(({ policy }) =>
+        !(policy.deleteApproved && policy.writeBackMode === "edits_and_deletes"))
+      .flatMap(({ mapping }) => mapping.sourceCalendarId ?? []),
+  );
+};
 
 const collectDeletingSourceCalendarIds = (
   eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
+  restrictedTo: ReadonlySet<string>,
 ): string[] => [...new Set(
   eligible
     .filter(({ policy }) => policy.writeBackMode === "edits_and_deletes")
-    .flatMap(({ mapping }) => mapping.sourceCalendarId ?? []),
+    .flatMap(({ mapping }) => mapping.sourceCalendarId ?? [])
+    .filter((sourceCalendarId) => restrictedTo.has(sourceCalendarId)),
 )];
+
+const countBySourceCalendar = (
+  entries: { mapping: EventMapping }[],
+): Map<string, number> => {
+  const counts = new Map<string, number>();
+  for (const { mapping } of entries) {
+    const { sourceCalendarId } = mapping;
+    if (!sourceCalendarId) {
+      continue;
+    }
+    counts.set(sourceCalendarId, (counts.get(sourceCalendarId) ?? NO_OBSERVATIONS) + 1);
+  }
+  return counts;
+};
+
+/*
+ * The ratio answers "did something systemic just happen to this calendar", so it is taken
+ * against the mappings of the calendar losing its copies and not against every mapping on
+ * the destination: a sibling source calendar large enough to dilute the ratio would
+ * otherwise wave a whole calendar's worth of deletions through unasked. The destination
+ * wide ratio is kept beside it, because a fleet of one-mapping calendars all vanishing
+ * together trips that one and no per-calendar one.
+ */
+const resolveTrippedSourceCalendarIds = (
+  eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
+  unapprovedDeletes: PendingDelete[],
+): Set<string> => {
+  const deleteCounts = countBySourceCalendar(unapprovedDeletes);
+  if (
+    unapprovedDeletes.length > TWO_WAY_DELETE_ABSOLUTE_FLOOR
+    && unapprovedDeletes.length / eligible.length > TWO_WAY_DELETE_RATIO
+  ) {
+    return new Set(deleteCounts.keys());
+  }
+
+  const eligibleCounts = countBySourceCalendar(eligible);
+  const tripped = new Set<string>();
+  for (const [sourceCalendarId, deletes] of deleteCounts) {
+    const total = eligibleCounts.get(sourceCalendarId) ?? deletes;
+    if (deletes > TWO_WAY_DELETE_ABSOLUTE_FLOOR && deletes / total > TWO_WAY_DELETE_RATIO) {
+      tripped.add(sourceCalendarId);
+    }
+  }
+  return tripped;
+};
 
 const isDeletionRefused = (context: MappingContext): boolean => {
   const { mapping, policy, scope } = context;
@@ -502,6 +562,26 @@ const classifyMissingMirror = (context: MappingContext): MappingOutcome => {
   }
   if (isDeletionRefused(context)) {
     return { suppress: false };
+  }
+  /*
+   * Absence is only evidence of a user deleting the copy if Keeper ever saw that copy
+   * alive under this policy. A mapping with no witness is one write-back has never
+   * observed — the pass that enabled two-way sync, or the pass after a mode change reset
+   * the witnesses — so its absence predates the consent and belongs to the ordinary
+   * re-create path. Any delete clock carried across that boundary is cleared with it.
+   */
+  if (!isWitnessRecorded(mapping)) {
+    return {
+      classification: {
+        mappingId: mapping.id,
+        reason: "never_observed",
+        type: "rejected",
+        ...(hasPendingDeleteState(mapping) && {
+          mappingUpdate: clearPendingDeleteUpdate(mapping),
+        }),
+      },
+      suppress: false,
+    };
   }
   if (mapping.syncEventHash !== createSyncEventContentHash(localEvent)) {
     counters.conflictSourceWins += FIRST_OBSERVATION;
@@ -893,22 +973,21 @@ const classifyInboundChanges = (
 
   /*
    * A read that returned literally nothing cannot tell an emptied calendar from a broken
-   * connection, so it holds for an answer. Once that answer is in, the pass proceeds: each
-   * deletion is still confirmed against the copy itself before anything on the source is
-   * touched, which is the check that distinguishes the two cases.
+   * connection, so it holds for an answer. Only the calendar the answer was given for
+   * proceeds: each of its deletions is still confirmed against the copy itself before
+   * anything on the source is touched, which is the check that distinguishes the two cases.
    */
-  if (readHealth === "ambiguous_empty" && !hasApprovedDeletion(eligible)) {
+  const heldSourceCalendarIds = resolveHeldSourceCalendarIds(readHealth, eligible);
+  const heldEligible = eligible.filter(({ mapping }) =>
+    mapping.sourceCalendarId !== null && heldSourceCalendarIds.has(mapping.sourceCalendarId));
+  let emptyReadConfirmation: DeleteConfirmationRequest | null = null;
+
+  if (heldEligible.length > NO_OBSERVATIONS) {
     counters.ambiguousEmptyRead = FIRST_OBSERVATION;
-    return {
-      classifications,
-      counters,
-      deleteBreakerTripped: false,
-      deleteConfirmation: {
-        reason: "all_copies_missing",
-        sourceCalendarIds: collectDeletingSourceCalendarIds(eligible),
-      },
-      readHealth,
-      suppressedMappingIds: eligible.map(({ mapping }) => mapping.id),
+    suppressedMappingIds.push(...heldEligible.map(({ mapping }) => mapping.id));
+    emptyReadConfirmation = {
+      reason: "all_copies_missing",
+      sourceCalendarIds: collectDeletingSourceCalendarIds(eligible, heldSourceCalendarIds),
     };
   }
 
@@ -924,6 +1003,9 @@ const classifyInboundChanges = (
   const pendingDeletes: PendingDelete[] = [];
 
   for (const { mapping, policy } of eligible) {
+    if (mapping.sourceCalendarId !== null && heldSourceCalendarIds.has(mapping.sourceCalendarId)) {
+      continue;
+    }
     const localEvent = localEventsById.get(mapping.syncEventId);
     if (!localEvent) {
       continue;
@@ -960,15 +1042,18 @@ const classifyInboundChanges = (
    * given, and the pair could never finish the bulk deletion it was asked about.
    */
   const unapprovedDeletes = pendingDeletes.filter(({ deleteApproved }) => !deleteApproved);
-  const deleteBreakerTripped = unapprovedDeletes.length > TWO_WAY_DELETE_ABSOLUTE_FLOOR
-    && unapprovedDeletes.length / eligible.length > TWO_WAY_DELETE_RATIO;
+  const trippedSourceCalendarIds = resolveTrippedSourceCalendarIds(eligible, unapprovedDeletes);
+  const deleteBreakerTripped = trippedSourceCalendarIds.size > NO_OBSERVATIONS;
 
   if (deleteBreakerTripped) {
     counters.deleteBreakerTripped = FIRST_OBSERVATION;
   }
 
   for (const pending of pendingDeletes) {
-    if (deleteBreakerTripped && !pending.deleteApproved) {
+    const heldByBreaker = !pending.deleteApproved
+      && pending.mapping.sourceCalendarId !== null
+      && trippedSourceCalendarIds.has(pending.mapping.sourceCalendarId);
+    if (heldByBreaker) {
       classifications.push(createDeleteCandidate(pending));
       continue;
     }
@@ -985,7 +1070,8 @@ const classifyInboundChanges = (
     classifications,
     counters,
     deleteBreakerTripped,
-    deleteConfirmation: createBreakerConfirmation(deleteBreakerTripped, unapprovedDeletes),
+    deleteConfirmation: emptyReadConfirmation
+      ?? createBreakerConfirmation(trippedSourceCalendarIds),
     readHealth,
     suppressedMappingIds,
   };
