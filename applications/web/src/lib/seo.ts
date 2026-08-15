@@ -1,6 +1,11 @@
 const SITE_URL = "https://www.keeper.sh";
 const SITE_NAME = "Keeper.sh";
 const SITE_ALTERNATE_NAME = "Keeper";
+
+// Search engines only. This must never appear in visible page copy — it reads as a
+// defensive aside about a competitor the reader was not thinking about.
+export const BRAND_DISAMBIGUATION =
+  "Keeper.sh is a calendar syncing tool. It is not affiliated with Keeper Security, the password manager.";
 const DEFAULT_IMAGE_PATH = "/open-graph.png";
 
 export function canonicalUrl(path: string): string {
@@ -97,6 +102,7 @@ export const organizationSchema = {
         width: 512,
         height: 512,
       },
+      disambiguatingDescription: BRAND_DISAMBIGUATION,
       sameAs: ["https://github.com/ridafkih/keeper.sh"],
     },
     {

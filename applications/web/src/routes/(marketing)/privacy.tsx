@@ -16,7 +16,7 @@ export const Route = createFileRoute("/(marketing)/privacy")({
       "How Keeper.sh collects, uses, and protects your calendar data. Per-calendar controls over what event details are shared, and minimal data retention.",
     path: "/privacy",
     scripts: [
-      jsonLdScript(webPageSchema("Privacy Policy", "Privacy policy for Keeper.sh, the open-source calendar syncing service.", "/privacy")),
+      jsonLdScript(webPageSchema("Privacy Policy", "Privacy policy for Keeper.sh, which copies your events between your calendars.", "/privacy")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),
     ],
   }),

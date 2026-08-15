@@ -162,7 +162,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Can my colleagues see what my personal events are?',
     answer:
-      'No. A copy carries the calendar name in place of your event title, with no description, location or guest list. Pro lets you show the title, description and location; guest lists are never copied on any plan.',
+      'No. A copy carries the calendar name in place of your event title, and leaves the description and location behind. Guest lists are never copied on any plan, and the rest you can turn back on per calendar whenever you want.',
   },
   {
     question: 'How often do calendars update?',

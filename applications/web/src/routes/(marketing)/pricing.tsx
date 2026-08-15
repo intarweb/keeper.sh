@@ -35,7 +35,7 @@ type FaqItem = {
 
 const FAQ_ITEMS: FaqItem[] = [
   {
-    question: "What counts as a linked account?",
+    question: "What counts as a calendar account?",
     answer: "An account is one connected calendar provider, such as a Google or Outlook login or a CalDAV server. Free allows 2, Pro is unlimited.",
   },
   {

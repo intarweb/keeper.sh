@@ -16,7 +16,7 @@ export const Route = createFileRoute("/(marketing)/terms")({
       "Terms of service for Keeper.sh. Covers account registration, subscription billing, acceptable use, and data ownership for our calendar syncing service.",
     path: "/terms",
     scripts: [
-      jsonLdScript(webPageSchema("Terms & Conditions", "Terms and conditions for using Keeper.sh, the open-source calendar syncing service.", "/terms")),
+      jsonLdScript(webPageSchema("Terms & Conditions", "Terms and conditions for using Keeper.sh, which copies your events between your calendars.", "/terms")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),
     ],
   }),
