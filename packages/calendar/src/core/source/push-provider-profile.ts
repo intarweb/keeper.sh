@@ -11,6 +11,7 @@ interface PushProviderProfile {
   maxLifetimeMs: number;
   provider: string;
   renewalMode: PushChannelRenewalMode;
+  requiresProviderAccountId: boolean;
   scopeKind: "calendar";
   supportsList: boolean;
 }
@@ -19,6 +20,7 @@ const GOOGLE_PUSH_PROFILE: PushProviderProfile = {
   maxLifetimeMs: GOOGLE_WATCH_MAX_LIFETIME_MS,
   provider: "google",
   renewalMode: "recreate",
+  requiresProviderAccountId: false,
   scopeKind: "calendar",
   supportsList: false,
 };
@@ -27,6 +29,7 @@ const OUTLOOK_PUSH_PROFILE: PushProviderProfile = {
   maxLifetimeMs: GRAPH_SUBSCRIPTION_MAX_LIFETIME_MS,
   provider: "outlook",
   renewalMode: "extend",
+  requiresProviderAccountId: true,
   scopeKind: "calendar",
   supportsList: true,
 };

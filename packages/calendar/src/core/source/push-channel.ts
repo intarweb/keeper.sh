@@ -5,6 +5,7 @@ import {
   resolveRenewalLeadMs,
   resolveStaggerPeriodMs,
   type PushChannelRenewalMode,
+  type PushProviderProfile,
 } from "./push-provider-profile";
 
 const FULL_POLL_INTERVAL_MS = 60_000;
@@ -63,7 +64,7 @@ type PushChannelScope =
     calendarId: string;
     externalCalendarId: string;
     kind: "calendar";
-    providerAccountId: string;
+    providerAccountId: string | null;
     userId: string;
   }
   | {
@@ -155,11 +156,25 @@ interface PushChannelHealth {
   reason: string | null;
 }
 
+type PushPlanSkipReason =
+  | "existing-channel"
+  | "free-plan"
+  | "missing-external-calendar-id"
+  | "missing-provider-account-id"
+  | "needs-reauthentication"
+  | "not-pull"
+  | "plan-unresolved"
+  | "unsupported-provider";
+
+type CalendarPlanDecision =
+  | { kind: "register"; profile: PushProviderProfile; scope: PushChannelScope }
+  | { kind: "skip"; reason: PushPlanSkipReason };
+
 interface PlanPushChannelActionsInput {
   calendars: EligibleSourceCalendar[];
   channels: StoredPushChannel[];
   now: Date;
-  onFreeCalendarSkipped?: (calendar: EligibleSourceCalendar) => void;
+  onCalendarSkipped?: (calendar: EligibleSourceCalendar, reason: PushPlanSkipReason) => void;
   onPlanError: (userId: string, error: unknown) => void;
   resolvePlan: (userId: string) => Promise<"free" | "pro">;
   webhookPublicUrl: string | null;
@@ -248,7 +263,7 @@ const resolveRequestedExpiresAt = (
 };
 
 const buildCalendarScope = (calendar: EligibleSourceCalendar): PushChannelScope | null => {
-  if (calendar.externalCalendarId === null || calendar.providerAccountId === null) {
+  if (calendar.externalCalendarId === null) {
     return null;
   }
   return {
@@ -268,12 +283,58 @@ const buildChannelScope = (channel: StoredPushChannel): PushChannelScope => ({
   userId: channel.userId,
 });
 
-const isRegistrationEligible = (calendar: EligibleSourceCalendar): boolean =>
-  isPullCalendar(calendar)
-  && !calendar.needsReauthentication
-  && calendar.externalCalendarId !== null
-  && calendar.providerAccountId !== null
-  && resolvePushProviderProfile(calendar.provider) !== null;
+const isRegistrationEligible = (calendar: EligibleSourceCalendar): boolean => {
+  const profile = resolvePushProviderProfile(calendar.provider);
+  if (!profile) {
+    return false;
+  }
+  if (profile.requiresProviderAccountId && calendar.providerAccountId === null) {
+    return false;
+  }
+  return isPullCalendar(calendar)
+    && !calendar.needsReauthentication
+    && calendar.externalCalendarId !== null;
+};
+
+const resolveCalendarPlanDecision = (
+  calendar: EligibleSourceCalendar,
+  hasLiveChannel: boolean,
+  plan: "free" | "pro" | null,
+): CalendarPlanDecision => {
+  if (hasLiveChannel) {
+    return { kind: "skip", reason: "existing-channel" };
+  }
+  if (!isPullCalendar(calendar)) {
+    return { kind: "skip", reason: "not-pull" };
+  }
+  if (calendar.needsReauthentication) {
+    return { kind: "skip", reason: "needs-reauthentication" };
+  }
+
+  const profile = resolvePushProviderProfile(calendar.provider);
+  if (!profile) {
+    return { kind: "skip", reason: "unsupported-provider" };
+  }
+  if (calendar.externalCalendarId === null) {
+    return { kind: "skip", reason: "missing-external-calendar-id" };
+  }
+  if (profile.requiresProviderAccountId && calendar.providerAccountId === null) {
+    return { kind: "skip", reason: "missing-provider-account-id" };
+  }
+
+  const scope = buildCalendarScope(calendar);
+  if (!scope) {
+    return { kind: "skip", reason: "missing-external-calendar-id" };
+  }
+  if (plan === null) {
+    return { kind: "skip", reason: "plan-unresolved" };
+  }
+  if (plan === "free") {
+    return { kind: "skip", reason: "free-plan" };
+  }
+
+  return { kind: "register", profile, scope };
+};
 
 const isRenewalDue = (
   channel: StoredPushChannel,
@@ -460,22 +521,14 @@ const planPushChannelActions = async (
   }
 
   for (const calendar of input.calendars) {
-    if (liveChannelsByCalendarId.has(calendar.calendarId)) {
-      continue;
-    }
-    if (!isRegistrationEligible(calendar)) {
-      continue;
-    }
-    const profile = resolvePushProviderProfile(calendar.provider);
-    const scope = buildCalendarScope(calendar);
-    if (!profile || !scope) {
-      continue;
-    }
-    if (plansByUserId.get(calendar.userId) === "free") {
-      input.onFreeCalendarSkipped?.(calendar);
-      continue;
-    }
-    if (plansByUserId.get(calendar.userId) !== "pro") {
+    const decision = resolveCalendarPlanDecision(
+      calendar,
+      liveChannelsByCalendarId.has(calendar.calendarId),
+      plansByUserId.get(calendar.userId) ?? null,
+    );
+
+    if (decision.kind === "skip") {
+      input.onCalendarSkipped?.(calendar, decision.reason);
       continue;
     }
 
@@ -484,13 +537,13 @@ const planPushChannelActions = async (
       previousProviderChannelId: null,
       previousProviderResourceId: null,
       provider: calendar.provider,
-      renewalMode: profile.renewalMode,
+      renewalMode: decision.profile.renewalMode,
       requestedExpiresAt: resolveRequestedExpiresAt(
         `${calendar.provider}:${calendar.calendarId}`,
-        profile.maxLifetimeMs,
+        decision.profile.maxLifetimeMs,
         input.now,
       ),
-      scope,
+      scope: decision.scope,
       type: "register",
     });
   }
@@ -552,6 +605,7 @@ export type {
   PushChannelScope,
   PushChannelState,
   PushClaimKind,
+  PushPlanSkipReason,
   PushRateLimiter,
   RegistrarContext,
   SourcePushRegistrar,

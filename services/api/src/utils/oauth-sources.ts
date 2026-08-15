@@ -4,7 +4,7 @@ import {
   oauthCredentialsTable,
   sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
-import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { listUserCalendars as listGoogleCalendars } from "@keeper.sh/calendar/google";
 import { listUserCalendars as listOutlookCalendars } from "@keeper.sh/calendar/outlook";
 import type { database as contextDatabase } from "@/context";
@@ -19,7 +19,7 @@ import { enqueuePushSync } from "./enqueue-push-sync";
 const FIRST_RESULT_LIMIT = 1;
 const OAUTH_CALENDAR_TYPE = "oauth";
 const USER_ACCOUNT_LOCK_NAMESPACE = 9002;
-type OAuthSourceDatabase = Pick<typeof contextDatabase, "insert" | "select" | "selectDistinct">;
+type OAuthSourceDatabase = Pick<typeof contextDatabase, "insert" | "select" | "selectDistinct" | "update">;
 
 class OAuthSourceLimitError extends Error {
   constructor() {
@@ -107,27 +107,6 @@ const getUserOAuthSources = async (
     name: source.name,
     provider: source.provider,
   }));
-};
-
-const verifyOAuthSourceOwnership = async (userId: string, calendarId: string): Promise<boolean> => {
-  const { database } = await import("@/context");
-  const [source] = await database
-    .select({ id: calendarsTable.id })
-    .from(calendarsTable)
-    .where(
-      and(
-        eq(calendarsTable.id, calendarId),
-        eq(calendarsTable.userId, userId),
-        eq(calendarsTable.calendarType, OAUTH_CALENDAR_TYPE),
-        inArray(calendarsTable.id,
-          database.selectDistinct({ id: sourceDestinationMappingsTable.sourceCalendarId })
-            .from(sourceDestinationMappingsTable)
-        ),
-      ),
-    )
-    .limit(FIRST_RESULT_LIMIT);
-
-  return Boolean(source);
 };
 
 const getOAuthDestinationCredentials = async (
@@ -292,15 +271,47 @@ const countUserAccounts = async (userId: string): Promise<number> => {
   return countUserAccountsWithDatabase(database, userId);
 };
 
+interface FindOAuthAccountOptions {
+  userId: string;
+  provider: string;
+  oauthCredentialId: string;
+  providerAccountId?: string | null;
+}
+
+const findOAuthAccountIdByProviderIdentity = async (
+  databaseClient: OAuthSourceDatabase,
+  options: FindOAuthAccountOptions,
+): Promise<string | null> => {
+  const { userId, provider, providerAccountId } = options;
+  if (!providerAccountId) {
+    return null;
+  }
+
+  const [existingAccount] = await databaseClient
+    .select({ id: calendarAccountsTable.id })
+    .from(calendarAccountsTable)
+    .where(
+      and(
+        eq(calendarAccountsTable.userId, userId),
+        eq(calendarAccountsTable.provider, provider),
+        eq(calendarAccountsTable.accountId, providerAccountId),
+      ),
+    )
+    .limit(FIRST_RESULT_LIMIT);
+
+  return existingAccount?.id ?? null;
+};
+
 const findOAuthAccountIdWithDatabase = async (
   databaseClient: OAuthSourceDatabase,
-  options: {
-    userId: string;
-    provider: string;
-    oauthCredentialId: string;
-  },
+  options: FindOAuthAccountOptions,
 ): Promise<string | null> => {
   const { userId, provider, oauthCredentialId } = options;
+
+  const identityMatch = await findOAuthAccountIdByProviderIdentity(databaseClient, options);
+  if (identityMatch) {
+    return identityMatch;
+  }
 
   const [existingAccount] = await databaseClient
     .select({ id: calendarAccountsTable.id })
@@ -318,14 +329,29 @@ const findOAuthAccountIdWithDatabase = async (
 };
 
 const findOAuthAccountId = async (
-  options: {
-    userId: string;
-    provider: string;
-    oauthCredentialId: string;
-  },
+  options: FindOAuthAccountOptions,
 ): Promise<string | null> => {
   const { database } = await import("@/context");
   return findOAuthAccountIdWithDatabase(database, options);
+};
+
+const adoptProviderAccountIdWithDatabase = async (
+  databaseClient: OAuthSourceDatabase,
+  options: { accountRowId: string; providerAccountId: string | null },
+): Promise<void> => {
+  if (!options.providerAccountId) {
+    return;
+  }
+
+  await databaseClient
+    .update(calendarAccountsTable)
+    .set({ accountId: options.providerAccountId })
+    .where(
+      and(
+        eq(calendarAccountsTable.id, options.accountRowId),
+        isNull(calendarAccountsTable.accountId),
+      ),
+    );
 };
 
 const hasExistingOAuthCalendarWithDatabase = async (
@@ -588,13 +614,15 @@ interface ImportOAuthAccountDependencies {
   canAddAccount: (userId: string, currentCount: number) => Promise<boolean>;
   countUserAccounts: (userId: string) => Promise<number>;
   createAccountId: (
-    options: Pick<ImportOAuthAccountOptions, "userId" | "provider" | "oauthCredentialId" | "email">,
+    options: Pick<
+      ImportOAuthAccountOptions,
+      "userId" | "provider" | "oauthCredentialId" | "email" | "providerAccountId"
+    >,
   ) => Promise<string>;
-  findExistingAccountId: (options: {
-    userId: string;
-    provider: string;
-    oauthCredentialId: string;
-  }) => Promise<string | null>;
+  adoptProviderAccountId: (
+    options: { accountRowId: string; providerAccountId: string | null },
+  ) => Promise<void>;
+  findExistingAccountId: (options: FindOAuthAccountOptions) => Promise<string | null>;
   getUnimportedExternalCalendars: (
     userId: string,
     accountId: string,
@@ -610,16 +638,21 @@ interface ImportOAuthAccountDependencies {
 }
 
 const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDependencies => ({
+  adoptProviderAccountId: async (options) => {
+    const { database } = await import("@/context");
+    await adoptProviderAccountIdWithDatabase(database, options);
+  },
   canAddAccount: async (userId, currentCount) => {
     const { premiumService } = await import("@/context");
     return premiumService.canAddAccount(userId, currentCount);
   },
   countUserAccounts,
-  createAccountId: async ({ userId, provider, oauthCredentialId, email }) => {
+  createAccountId: async ({ userId, provider, oauthCredentialId, email, providerAccountId }) => {
     const { database } = await import("@/context");
     const [insertedAccount] = await database
       .insert(calendarAccountsTable)
       .values({
+        accountId: providerAccountId,
         authType: "oauth",
         displayName: email,
         email,
@@ -710,14 +743,19 @@ const importOAuthAccountCalendarsWithDependencies = async (
   options: ImportOAuthAccountOptions,
   dependencies: ImportOAuthAccountDependencies,
 ): Promise<string> => {
-  const { userId, provider, oauthCredentialId, accessToken, email } = options;
+  const { userId, provider, oauthCredentialId, accessToken, email, providerAccountId } = options;
 
   const existingAccountId = await dependencies.findExistingAccountId({
     oauthCredentialId,
     provider,
+    providerAccountId,
     userId,
   });
   let accountId = existingAccountId;
+
+  if (accountId) {
+    await dependencies.adoptProviderAccountId({ accountRowId: accountId, providerAccountId });
+  }
 
   if (!accountId) {
     const existingAccountCount = await dependencies.countUserAccounts(userId);
@@ -730,6 +768,7 @@ const importOAuthAccountCalendarsWithDependencies = async (
       email,
       oauthCredentialId,
       provider,
+      providerAccountId,
       userId,
     });
   }
@@ -762,17 +801,22 @@ interface ImportOAuthAccountOptions {
   oauthCredentialId: string;
   accessToken: string;
   email: string | null;
+  providerAccountId: string | null;
 }
 
 const createOAuthAccountIdWithDatabase = async (
   databaseClient: OAuthSourceDatabase,
-  options: Pick<ImportOAuthAccountOptions, "userId" | "provider" | "oauthCredentialId" | "email">,
+  options: Pick<
+    ImportOAuthAccountOptions,
+    "userId" | "provider" | "oauthCredentialId" | "email" | "providerAccountId"
+  >,
 ): Promise<string> => {
-  const { userId, provider, oauthCredentialId, email } = options;
+  const { userId, provider, oauthCredentialId, email, providerAccountId } = options;
 
   const [insertedAccount] = await databaseClient
     .insert(calendarAccountsTable)
     .values({
+      accountId: providerAccountId,
       authType: "oauth",
       displayName: email,
       email,
@@ -856,6 +900,8 @@ const importOAuthAccountCalendars = async (
 
     return importOAuthAccountCalendarsWithDependencies(options, {
       ...dependencies,
+      adoptProviderAccountId: (accountOptions) =>
+        adoptProviderAccountIdWithDatabase(tx, accountOptions),
       canAddAccount: (_userId, currentCount) =>
         Promise.resolve(currentCount < premiumService.getAccountLimit(plan)),
       listCalendars: () => Promise.resolve(externalCalendars),
@@ -878,11 +924,12 @@ export {
   SourceCredentialNotFoundError,
   SourceCredentialProviderMismatchError,
   getUserOAuthSources,
-  verifyOAuthSourceOwnership,
   getOAuthDestinationCredentials,
   getOAuthSourceCredentials,
   createOAuthSource,
   createOAuthSourceWithDependencies,
+  createOAuthAccountIdWithDatabase,
+  findOAuthAccountIdWithDatabase,
   importOAuthAccountCalendars,
   importOAuthAccountCalendarsWithDependencies,
 };

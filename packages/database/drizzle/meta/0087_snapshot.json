@@ -1,6 +1,6 @@
 {
-  "id": "38fe910b-81fd-4355-8702-ed15aa405187",
-  "prevId": "cb9ec7fc-01a9-4d60-91d0-b71a07230324",
+  "id": "b8bd3633-e01a-453e-b149-d9f1b6975c85",
+  "prevId": "1bd69000-dc6d-4e05-9bd0-8b276b528651",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -71,9 +71,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "api_tokens_hash_idx": {
           "name": "api_tokens_hash_idx",
@@ -86,34 +86,34 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "api_tokens_userId_user_id_fk": {
           "name": "api_tokens_userId_user_id_fk",
           "tableFrom": "api_tokens",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "api_tokens_tokenHash_unique": {
           "name": "api_tokens_tokenHash_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "tokenHash"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -290,9 +290,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendar_accounts_provider_idx": {
           "name": "calendar_accounts_provider_idx",
@@ -305,9 +305,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendar_accounts_needs_reauth_idx": {
           "name": "calendar_accounts_needs_reauth_idx",
@@ -320,13 +320,19 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendar_accounts_provider_account_idx": {
           "name": "calendar_accounts_provider_account_idx",
           "columns": [
+            {
+              "expression": "userId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "provider",
               "isExpression": false,
@@ -341,50 +347,50 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "calendar_accounts_caldavCredentialId_caldav_credentials_id_fk": {
           "name": "calendar_accounts_caldavCredentialId_caldav_credentials_id_fk",
           "tableFrom": "calendar_accounts",
+          "tableTo": "caldav_credentials",
           "columnsFrom": [
             "caldavCredentialId"
           ],
-          "tableTo": "caldav_credentials",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "calendar_accounts_oauthCredentialId_oauth_credentials_id_fk": {
           "name": "calendar_accounts_oauthCredentialId_oauth_credentials_id_fk",
           "tableFrom": "calendar_accounts",
+          "tableTo": "oauth_credentials",
           "columnsFrom": [
             "oauthCredentialId"
           ],
-          "tableTo": "oauth_credentials",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "calendar_accounts_userId_user_id_fk": {
           "name": "calendar_accounts_userId_user_id_fk",
           "tableFrom": "calendar_accounts",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -529,9 +535,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendar_push_channels_expiry_idx": {
           "name": "calendar_push_channels_expiry_idx",
@@ -550,9 +556,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendar_push_channels_provider_channel_idx": {
           "name": "calendar_push_channels_provider_channel_idx",
@@ -571,10 +577,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "\"calendar_push_channels\".\"providerChannelId\" is not null",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "calendar_push_channels_scope_idx": {
           "name": "calendar_push_channels_scope_idx",
@@ -593,51 +599,51 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "\"calendar_push_channels\".\"calendarId\" is not null and \"calendar_push_channels\".\"state\" in ('registering', 'active', 'degraded')",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
         "calendar_push_channels_accountId_calendar_accounts_id_fk": {
           "name": "calendar_push_channels_accountId_calendar_accounts_id_fk",
           "tableFrom": "calendar_push_channels",
+          "tableTo": "calendar_accounts",
           "columnsFrom": [
             "accountId"
           ],
-          "tableTo": "calendar_accounts",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "calendar_push_channels_calendarId_calendars_id_fk": {
           "name": "calendar_push_channels_calendarId_calendars_id_fk",
           "tableFrom": "calendar_push_channels",
+          "tableTo": "calendars",
           "columnsFrom": [
             "calendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "calendar_push_channels_userId_user_id_fk": {
           "name": "calendar_push_channels_userId_user_id_fk",
           "tableFrom": "calendar_push_channels",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -695,25 +701,25 @@
         "calendar_snapshots_calendarId_calendars_id_fk": {
           "name": "calendar_snapshots_calendarId_calendars_id_fk",
           "tableFrom": "calendar_snapshots",
+          "tableTo": "calendars",
           "columnsFrom": [
             "calendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "calendar_snapshots_calendarId_unique": {
           "name": "calendar_snapshots_calendarId_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "calendarId"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -979,9 +985,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendars_account_idx": {
           "name": "calendars_account_idx",
@@ -994,9 +1000,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendars_capabilities_idx": {
           "name": "calendars_capabilities_idx",
@@ -1009,9 +1015,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "calendars_type_idx": {
           "name": "calendars_type_idx",
@@ -1024,37 +1030,37 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "calendars_accountId_calendar_accounts_id_fk": {
           "name": "calendars_accountId_calendar_accounts_id_fk",
           "tableFrom": "calendars",
+          "tableTo": "calendar_accounts",
           "columnsFrom": [
             "accountId"
           ],
-          "tableTo": "calendar_accounts",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "calendars_userId_user_id_fk": {
           "name": "calendars_userId_user_id_fk",
           "tableFrom": "calendars",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1095,11 +1101,59 @@
           "primaryKey": false,
           "notNull": false
         },
+        "destinationAvailability": {
+          "name": "destinationAvailability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destinationContentHash": {
+          "name": "destinationContentHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destinationDescription": {
+          "name": "destinationDescription",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destinationEndTime": {
+          "name": "destinationEndTime",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "destinationEventUid": {
           "name": "destinationEventUid",
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "destinationIsAllDay": {
+          "name": "destinationIsAllDay",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destinationLocation": {
+          "name": "destinationLocation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destinationStartTime": {
+          "name": "destinationStartTime",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destinationSummary": {
+          "name": "destinationSummary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "endTime": {
           "name": "endTime",
@@ -1119,6 +1173,19 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "missingFirstObservedAt": {
+          "name": "missingFirstObservedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "missingObservationCount": {
+          "name": "missingObservationCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "syncEventId": {
           "name": "syncEventId",
@@ -1143,6 +1210,32 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true
+        },
+        "writeBackDailyCount": {
+          "name": "writeBackDailyCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "writeBackDailyWindowStart": {
+          "name": "writeBackDailyWindowStart",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "writeBackEpoch": {
+          "name": "writeBackEpoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "writeBackEpochWindowStart": {
+          "name": "writeBackEpochWindowStart",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1163,10 +1256,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "\"event_mappings\".\"syncEventId\" is not null",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "event_mappings_calendar_idx": {
           "name": "event_mappings_calendar_idx",
@@ -1179,9 +1272,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "event_mappings_event_state_idx": {
           "name": "event_mappings_event_state_idx",
@@ -1194,9 +1287,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "event_mappings_source_calendar_idx": {
           "name": "event_mappings_source_calendar_idx",
@@ -1209,9 +1302,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "event_mappings_missing_sync_event_idx": {
           "name": "event_mappings_missing_sync_event_idx",
@@ -1224,10 +1317,10 @@
             }
           ],
           "isUnique": false,
-          "with": {},
-          "method": "btree",
           "where": "\"event_mappings\".\"syncEventId\" is null",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "event_mappings_sync_hash_idx": {
           "name": "event_mappings_sync_hash_idx",
@@ -1240,37 +1333,59 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
+        },
+        "event_mappings_pending_delete_idx": {
+          "name": "event_mappings_pending_delete_idx",
+          "columns": [
+            {
+              "expression": "calendarId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "missingFirstObservedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"event_mappings\".\"missingFirstObservedAt\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
         "event_mappings_calendarId_calendars_id_fk": {
           "name": "event_mappings_calendarId_calendars_id_fk",
           "tableFrom": "event_mappings",
+          "tableTo": "calendars",
           "columnsFrom": [
             "calendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "event_mappings_eventStateId_event_states_id_fk": {
           "name": "event_mappings_eventStateId_event_states_id_fk",
           "tableFrom": "event_mappings",
+          "tableTo": "event_states",
           "columnsFrom": [
             "eventStateId"
           ],
-          "tableTo": "event_states",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1405,9 +1520,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "event_states_end_time_idx": {
           "name": "event_states_end_time_idx",
@@ -1420,9 +1535,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "event_states_calendar_idx": {
           "name": "event_states_calendar_idx",
@@ -1435,9 +1550,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "event_states_source_event_idx": {
           "name": "event_states_source_event_idx",
@@ -1456,10 +1571,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "\"event_states\".\"sourceEventId\" is not null",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "event_states_recurring_instance_idx": {
           "name": "event_states_recurring_instance_idx",
@@ -1484,10 +1599,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "\"event_states\".\"sourceEventId\" is null and \"event_states\".\"recurrenceId\" is not null",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "event_states_non_recurring_instance_idx": {
           "name": "event_states_non_recurring_instance_idx",
@@ -1518,27 +1633,160 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "\"event_states\".\"sourceEventId\" is null and \"event_states\".\"recurrenceId\" is null",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
         "event_states_calendarId_calendars_id_fk": {
           "name": "event_states_calendarId_calendars_id_fk",
           "tableFrom": "event_states",
+          "tableTo": "calendars",
           "columnsFrom": [
             "calendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.event_write_back_tombstones": {
+      "name": "event_write_back_tombstones",
+      "schema": "",
+      "columns": {
+        "appliedAt": {
+          "name": "appliedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "destinationCalendarId": {
+          "name": "destinationCalendarId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "eventMappingId": {
+          "name": "eventMappingId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "eventStateId": {
+          "name": "eventStateId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "observedAt": {
+          "name": "observedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "snapshot": {
+          "name": "snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sourceCalendarId": {
+          "name": "sourceCalendarId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sourceEventUid": {
+          "name": "sourceEventUid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "event_write_back_tombstones_source_idx": {
+          "name": "event_write_back_tombstones_source_idx",
+          "columns": [
+            {
+              "expression": "sourceCalendarId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "appliedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_write_back_tombstones_expiry_idx": {
+          "name": "event_write_back_tombstones_expiry_idx",
+          "columns": [
+            {
+              "expression": "expiresAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_write_back_tombstones_mapping_idx": {
+          "name": "event_write_back_tombstones_mapping_idx",
+          "columns": [
+            {
+              "expression": "eventMappingId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1601,24 +1849,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "feedback_userId_user_id_fk": {
           "name": "feedback_userId_user_id_fk",
           "tableFrom": "feedback",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1676,9 +1924,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "ical_feed_calendars_feed_idx": {
           "name": "ical_feed_calendars_feed_idx",
@@ -1691,9 +1939,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "ical_feed_calendars_calendar_idx": {
           "name": "ical_feed_calendars_calendar_idx",
@@ -1706,37 +1954,37 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "ical_feed_calendars_feedId_ical_feeds_id_fk": {
           "name": "ical_feed_calendars_feedId_ical_feeds_id_fk",
           "tableFrom": "ical_feed_calendars",
+          "tableTo": "ical_feeds",
           "columnsFrom": [
             "feedId"
           ],
-          "tableTo": "ical_feeds",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "ical_feed_calendars_calendarId_calendars_id_fk": {
           "name": "ical_feed_calendars_calendarId_calendars_id_fk",
           "tableFrom": "ical_feed_calendars",
+          "tableTo": "calendars",
           "columnsFrom": [
             "calendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1803,15 +2051,15 @@
         "ical_feed_settings_userId_user_id_fk": {
           "name": "ical_feed_settings_userId_user_id_fk",
           "tableFrom": "ical_feed_settings",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1940,9 +2188,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "ical_feeds_token_idx": {
           "name": "ical_feeds_token_idx",
@@ -1955,9 +2203,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "ical_feeds_default_idx": {
           "name": "ical_feeds_default_idx",
@@ -1970,25 +2218,25 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "\"ical_feeds\".\"isDefault\" = true",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
         "ical_feeds_userId_user_id_fk": {
           "name": "ical_feeds_userId_user_id_fk",
           "tableFrom": "ical_feeds",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2078,9 +2326,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_credentials_provider_idx": {
           "name": "oauth_credentials_provider_idx",
@@ -2093,9 +2341,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_credentials_expires_at_idx": {
           "name": "oauth_credentials_expires_at_idx",
@@ -2108,24 +2356,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "oauth_credentials_userId_user_id_fk": {
           "name": "oauth_credentials_userId_user_id_fk",
           "tableFrom": "oauth_credentials",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2145,6 +2393,12 @@
           "notNull": true,
           "default": "now()"
         },
+        "deleteConfirmationApprovedAt": {
+          "name": "deleteConfirmationApprovedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "destinationCalendarId": {
           "name": "destinationCalendarId",
           "type": "uuid",
@@ -2163,6 +2417,32 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "writeBackEnabledAt": {
+          "name": "writeBackEnabledAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "writeBackMode": {
+          "name": "writeBackMode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'off'"
+        },
+        "writeBackState": {
+          "name": "writeBackState",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ok'"
+        },
+        "writeBackStateReason": {
+          "name": "writeBackStateReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2183,9 +2463,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "source_destination_mappings_source_idx": {
           "name": "source_destination_mappings_source_idx",
@@ -2198,9 +2478,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "source_destination_mappings_destination_idx": {
           "name": "source_destination_mappings_destination_idx",
@@ -2213,37 +2493,53 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
+        },
+        "source_destination_mappings_write_back_idx": {
+          "name": "source_destination_mappings_write_back_idx",
+          "columns": [
+            {
+              "expression": "writeBackMode",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"source_destination_mappings\".\"writeBackMode\" <> 'off'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
         "source_destination_mappings_destinationCalendarId_calendars_id_fk": {
           "name": "source_destination_mappings_destinationCalendarId_calendars_id_fk",
           "tableFrom": "source_destination_mappings",
+          "tableTo": "calendars",
           "columnsFrom": [
             "destinationCalendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "source_destination_mappings_sourceCalendarId_calendars_id_fk": {
           "name": "source_destination_mappings_sourceCalendarId_calendars_id_fk",
           "tableFrom": "source_destination_mappings",
+          "tableTo": "calendars",
           "columnsFrom": [
             "sourceCalendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2309,24 +2605,24 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "sync_status_calendarId_calendars_id_fk": {
           "name": "sync_status_calendarId_calendars_id_fk",
           "tableFrom": "sync_status",
+          "tableTo": "calendars",
           "columnsFrom": [
             "calendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2439,9 +2735,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "user_events_calendar_idx": {
           "name": "user_events_calendar_idx",
@@ -2454,9 +2750,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "user_events_start_time_idx": {
           "name": "user_events_start_time_idx",
@@ -2469,9 +2765,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "user_events_end_time_idx": {
           "name": "user_events_end_time_idx",
@@ -2484,37 +2780,37 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "user_events_calendarId_calendars_id_fk": {
           "name": "user_events_calendarId_calendars_id_fk",
           "tableFrom": "user_events",
+          "tableTo": "calendars",
           "columnsFrom": [
             "calendarId"
           ],
-          "tableTo": "calendars",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "user_events_userId_user_id_fk": {
           "name": "user_events_userId_user_id_fk",
           "tableFrom": "user_events",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2559,15 +2855,15 @@
         "user_subscriptions_userId_user_id_fk": {
           "name": "user_subscriptions_userId_user_id_fk",
           "tableFrom": "user_subscriptions",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2606,15 +2902,15 @@
         "user_sync_requests_userId_user_id_fk": {
           "name": "user_sync_requests_userId_user_id_fk",
           "tableFrom": "user_sync_requests",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2713,15 +3009,15 @@
         "account_userId_user_id_fk": {
           "name": "account_userId_user_id_fk",
           "tableFrom": "account",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2852,9 +3148,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_access_token_session_idx": {
           "name": "oauth_access_token_session_idx",
@@ -2867,9 +3163,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_access_token_user_idx": {
           "name": "oauth_access_token_user_idx",
@@ -2882,9 +3178,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_access_token_refresh_idx": {
           "name": "oauth_access_token_refresh_idx",
@@ -2897,73 +3193,73 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "oauth_access_token_clientId_oauth_application_clientId_fk": {
           "name": "oauth_access_token_clientId_oauth_application_clientId_fk",
           "tableFrom": "oauth_access_token",
+          "tableTo": "oauth_application",
           "columnsFrom": [
             "clientId"
           ],
-          "tableTo": "oauth_application",
           "columnsTo": [
             "clientId"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_access_token_sessionId_session_id_fk": {
           "name": "oauth_access_token_sessionId_session_id_fk",
           "tableFrom": "oauth_access_token",
+          "tableTo": "session",
           "columnsFrom": [
             "sessionId"
           ],
-          "tableTo": "session",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         },
         "oauth_access_token_userId_user_id_fk": {
           "name": "oauth_access_token_userId_user_id_fk",
           "tableFrom": "oauth_access_token",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_access_token_refreshId_oauth_refresh_token_id_fk": {
           "name": "oauth_access_token_refreshId_oauth_refresh_token_id_fk",
           "tableFrom": "oauth_access_token",
+          "tableTo": "oauth_refresh_token",
           "columnsFrom": [
             "refreshId"
           ],
-          "tableTo": "oauth_refresh_token",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "oauth_access_token_token_unique": {
           "name": "oauth_access_token_token_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "token"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -3176,34 +3472,34 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "oauth_application_userId_user_id_fk": {
           "name": "oauth_application_userId_user_id_fk",
           "tableFrom": "oauth_application",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "oauth_application_clientId_unique": {
           "name": "oauth_application_clientId_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "clientId"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -3271,9 +3567,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_consent_user_idx": {
           "name": "oauth_consent_user_idx",
@@ -3286,9 +3582,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_consent_reference_idx": {
           "name": "oauth_consent_reference_idx",
@@ -3301,37 +3597,37 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "oauth_consent_clientId_oauth_application_clientId_fk": {
           "name": "oauth_consent_clientId_oauth_application_clientId_fk",
           "tableFrom": "oauth_consent",
+          "tableTo": "oauth_application",
           "columnsFrom": [
             "clientId"
           ],
-          "tableTo": "oauth_application",
           "columnsTo": [
             "clientId"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_consent_userId_user_id_fk": {
           "name": "oauth_consent_userId_user_id_fk",
           "tableFrom": "oauth_consent",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3424,9 +3720,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_refresh_token_session_idx": {
           "name": "oauth_refresh_token_session_idx",
@@ -3439,9 +3735,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "oauth_refresh_token_user_idx": {
           "name": "oauth_refresh_token_user_idx",
@@ -3454,60 +3750,60 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "oauth_refresh_token_clientId_oauth_application_clientId_fk": {
           "name": "oauth_refresh_token_clientId_oauth_application_clientId_fk",
           "tableFrom": "oauth_refresh_token",
+          "tableTo": "oauth_application",
           "columnsFrom": [
             "clientId"
           ],
-          "tableTo": "oauth_application",
           "columnsTo": [
             "clientId"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_refresh_token_sessionId_session_id_fk": {
           "name": "oauth_refresh_token_sessionId_session_id_fk",
           "tableFrom": "oauth_refresh_token",
+          "tableTo": "session",
           "columnsFrom": [
             "sessionId"
           ],
-          "tableTo": "session",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         },
         "oauth_refresh_token_userId_user_id_fk": {
           "name": "oauth_refresh_token_userId_user_id_fk",
           "tableFrom": "oauth_refresh_token",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "oauth_refresh_token_token_unique": {
           "name": "oauth_refresh_token_token_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "token"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -3590,15 +3886,15 @@
         "passkey_userId_user_id_fk": {
           "name": "passkey_userId_user_id_fk",
           "tableFrom": "passkey",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3667,25 +3963,25 @@
         "session_userId_user_id_fk": {
           "name": "session_userId_user_id_fk",
           "tableFrom": "session",
+          "tableTo": "user",
           "columnsFrom": [
             "userId"
           ],
-          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "session_token_unique": {
           "name": "session_token_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "token"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -3754,17 +4050,17 @@
       "uniqueConstraints": {
         "user_email_unique": {
           "name": "user_email_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "email"
-          ],
-          "nullsNotDistinct": false
+          ]
         },
         "user_username_unique": {
           "name": "user_username_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "username"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -3825,10 +4121,10 @@
   },
   "enums": {},
   "schemas": {},
-  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
+  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

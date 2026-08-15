@@ -33,9 +33,11 @@ describe("importOAuthAccountCalendarsWithDependencies", () => {
           email: "person@example.com",
           oauthCredentialId: "credential-1",
           provider: "google",
+          providerAccountId: "google-account-1",
           userId: "user-1",
         },
         {
+          adoptProviderAccountId: () => Promise.resolve(),
           canAddAccount: (userId, currentCount) => {
             canAddAccountCalls.push([userId, currentCount]);
             return Promise.resolve(canAddAccountResult);
@@ -65,9 +67,11 @@ describe("importOAuthAccountCalendarsWithDependencies", () => {
         email: "person@example.com",
         oauthCredentialId: "credential-1",
         provider: "google",
+        providerAccountId: "google-account-1",
         userId: "user-1",
       },
       {
+        adoptProviderAccountId: () => Promise.resolve(),
         canAddAccount: (userId, currentCount) => {
           canAddAccountCalls.push([userId, currentCount]);
           return Promise.resolve(false);

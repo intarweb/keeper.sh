@@ -71,6 +71,7 @@ export type {
   PushChannelScope,
   PushChannelState,
   PushClaimKind,
+  PushPlanSkipReason,
   PushRateLimiter,
   RegistrarContext,
   SourcePushRegistrar,

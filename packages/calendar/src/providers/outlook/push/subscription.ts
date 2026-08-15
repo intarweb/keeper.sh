@@ -108,6 +108,13 @@ const registerOutlookSubscription = async (
     );
   }
 
+  if (scope.providerAccountId === null) {
+    throw new GraphSubscriptionError(
+      "Outlook push registration requires a provider account id on the calendar scope",
+      0,
+    );
+  }
+
   const resourcePath = buildCalendarResourcePath(
     scope.providerAccountId,
     scope.externalCalendarId,

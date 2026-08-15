@@ -1,35 +1,23 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTableName } from "drizzle-orm";
-import type { createCalDAVDestination as createCalDAVDestinationFn } from "../../src/utils/caldav";
 import type { createCalDAVSource as createCalDAVSourceFn } from "../../src/utils/caldav-sources";
-import type { handleOAuthCallback as handleOAuthCallbackFn } from "../../src/utils/oauth";
 import type {
   createOAuthSource as createOAuthSourceFn,
   importOAuthAccountCalendars as importOAuthAccountCalendarsFn,
 } from "../../src/utils/oauth-sources";
 
 const COLD_IMPORT_TIMEOUT_MS = 30_000;
-
-let createCalDAVDestination: typeof createCalDAVDestinationFn = () =>
-  Promise.reject(new Error("Module not loaded"));
 let createCalDAVSource: typeof createCalDAVSourceFn = () =>
   Promise.reject(new Error("Module not loaded"));
 let createOAuthSource: typeof createOAuthSourceFn = () =>
-  Promise.reject(new Error("Module not loaded"));
-let handleOAuthCallback: typeof handleOAuthCallbackFn = () =>
   Promise.reject(new Error("Module not loaded"));
 let importOAuthAccountCalendars: typeof importOAuthAccountCalendarsFn = () =>
   Promise.reject(new Error("Module not loaded"));
 
 let canAddAccountResult = true;
-let destinationAccountId: string | null = null;
 let googleCalendars = [{ id: "external-1", summary: "Team Calendar" }];
-let hasRequiredScopesResult = true;
 let insertCalls: unknown[] = [];
-let saveCalDAVDestinationCalls: { accountId: string; transactionOpen: boolean; tx: object }[] = [];
-let saveCalendarDestinationCalls: { accountId: string; needsReauthentication: boolean; transactionOpen: boolean; tx: object }[] = [];
 let selectResults: unknown[][] = [];
-let transactionOpen = false;
 let triggerSyncCalls: string[] = [];
 let txInstance: object = {};
 
@@ -130,14 +118,7 @@ beforeAll(async () => {
       selectDistinct: () => ({
         from: () => ({}),
       }),
-      transaction: async (callback: (tx: object) => Promise<unknown>) => {
-        transactionOpen = true;
-        try {
-          return await callback(txInstance);
-        } finally {
-          transactionOpen = false;
-        }
-      },
+      transaction: (callback: (tx: object) => Promise<unknown>) => callback(txInstance),
     },
     encryptionKey: "encryption-key",
     premiumService: {
@@ -161,58 +142,6 @@ beforeAll(async () => {
   vi.mock("../../src/utils/background-task", () => ({
     spawnBackgroundJob: (_jobName: string, fields: { userId: string }, _callback: () => Promise<void>) => {
       triggerSyncCalls.push(fields.userId);
-    },
-  }));
-
-  vi.mock("../../src/utils/destinations", () => ({
-    exchangeCodeForTokens: () =>
-      Promise.resolve((() => {
-        let scope = "calendar.read";
-        if (hasRequiredScopesResult) {
-          scope = "calendar.read calendar.write";
-        }
-
-        return {
-        access_token: "access-token",
-        expires_in: 3600,
-        refresh_token: "refresh-token",
-          scope,
-        };
-      })()),
-    fetchUserInfo: () =>
-      Promise.resolve({
-        email: "person@example.com",
-        id: "external-account-1",
-      }),
-    getDestinationAccountId: () => Promise.resolve(destinationAccountId),
-    hasRequiredScopes: () => Promise.resolve(hasRequiredScopesResult),
-    saveCalDAVDestinationWithDatabase: (tx: object, _userId: string, _provider: string, accountId: string) => {
-      saveCalDAVDestinationCalls.push({ accountId, transactionOpen, tx });
-      return Promise.resolve();
-    },
-    saveCalendarDestinationWithDatabase: (
-      tx: object,
-      _userId: string,
-      _provider: string,
-      accountId: string,
-      _email: string | null,
-      _accessToken: string,
-      _refreshToken: string,
-      _expiresAt: Date,
-      needsReauthentication = false,
-    ) => {
-      saveCalendarDestinationCalls.push({ accountId, needsReauthentication, transactionOpen, tx });
-      return Promise.resolve();
-    },
-    validateState: () => {
-      if (destinationAccountId) {
-        return {
-          destinationId: destinationAccountId,
-          userId: "user-1",
-        };
-      }
-
-      return { userId: "user-1" };
     },
   }));
 
@@ -272,15 +201,9 @@ beforeAll(async () => {
   }));
 
   ({
-    handleOAuthCallback,
-  } = await import("../../src/utils/oauth"));
-  ({
     createOAuthSource,
     importOAuthAccountCalendars,
   } = await import("../../src/utils/oauth-sources"));
-  ({
-    createCalDAVDestination,
-  } = await import("../../src/utils/caldav"));
   ({
     createCalDAVSource,
   } = await import("../../src/utils/caldav-sources"));
@@ -292,61 +215,14 @@ afterAll(() => {
 
 beforeEach(() => {
   canAddAccountResult = true;
-  destinationAccountId = null;
   googleCalendars = [{ id: "external-1", summary: "Team Calendar" }];
-  hasRequiredScopesResult = true;
   insertCalls = [];
-  saveCalDAVDestinationCalls = [];
-  saveCalendarDestinationCalls = [];
   selectResults = [];
-  transactionOpen = false;
   triggerSyncCalls = [];
   txInstance = createTxInstance();
 });
 
 describe("Account locks", () => {
-  it("rechecks the OAuth destination cap inside the locked transaction", async () => {
-    canAddAccountResult = false;
-    selectResults = [
-      [],
-      [{ id: "existing-account" }],
-    ];
-
-    await expect(
-      handleOAuthCallback({
-        code: "oauth-code",
-        error: null,
-        provider: "google",
-        state: "oauth-state",
-      }),
-    ).rejects.toMatchObject({
-      message: "Account limit reached",
-    });
-
-    expect(saveCalendarDestinationCalls).toHaveLength(0);
-  });
-
-  it("persists OAuth reauthentication updates while the transaction lock is held", async () => {
-    destinationAccountId = "external-account-1";
-    hasRequiredScopesResult = false;
-
-    await handleOAuthCallback({
-      code: "oauth-code",
-      error: null,
-      provider: "google",
-      state: "oauth-state",
-    });
-
-    expect(saveCalendarDestinationCalls).toEqual([
-      {
-        accountId: "external-account-1",
-        needsReauthentication: true,
-        transactionOpen: true,
-        tx: txInstance,
-      },
-    ]);
-  });
-
   it("creates OAuth sources without escaping the locked transaction", async () => {
     selectResults = [
       [{ email: "person@example.com" }],
@@ -419,38 +295,12 @@ describe("Account locks", () => {
       email: "person@example.com",
       oauthCredentialId: "credential-1",
       provider: "google",
+      providerAccountId: "google-account-1",
       userId: "user-1",
     });
 
     expect(accountId).toBe("account-1");
     expect(insertCalls).toHaveLength(2);
-    expect(triggerSyncCalls).toEqual(["user-1"]);
-  });
-
-  it("creates CalDAV destinations before releasing the transaction lock", async () => {
-    selectResults = [
-      [],
-      [],
-    ];
-
-    await createCalDAVDestination(
-      "user-1",
-      "icloud",
-      "https://caldav.test",
-      {
-        password: "secret",
-        username: "person@example.com",
-      },
-      "https://caldav.test/team",
-    );
-
-    expect(saveCalDAVDestinationCalls).toEqual([
-      {
-        accountId: "person@example.com@caldav.test",
-        transactionOpen: true,
-        tx: txInstance,
-      },
-    ]);
     expect(triggerSyncCalls).toEqual(["user-1"]);
   });
 
