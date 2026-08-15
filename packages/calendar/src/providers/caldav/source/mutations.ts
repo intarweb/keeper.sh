@@ -13,6 +13,8 @@ import type {
 } from "../../../core/source/writer";
 
 const NOT_FOUND_STATUS = 404;
+const OK_STATUS = 200;
+const REDIRECT_STATUS = 300;
 const KEEPER_PRODUCT_ID = "-//Keeper.sh//Keeper.sh//EN";
 const ICALENDAR_VERSION = "2.0";
 
@@ -134,6 +136,26 @@ const collectChangedPropertyNames = (updates: SourceEventUpdate): Set<string> =>
 const isNotFoundError = (error: unknown): boolean =>
   error instanceof Error && "status" in error && error.status === NOT_FOUND_STATUS;
 
+/*
+ * Tsdav resolves a write with the raw fetch Response and rejects on nothing but a
+ * transport error, so a server that refuses the write — a read-only share, a failed
+ * precondition, an expired password — arrives here as a resolved value. Reading that as a
+ * success would report an edit or a deletion of the user's real event that never happened.
+ */
+const readWriteStatus = (result: unknown): number => {
+  if (typeof result !== "object" || result === null) {
+    throw new Error("The CalDAV server returned no response to the write.");
+  }
+  const { status } = result as { status?: unknown };
+  if (typeof status !== "number") {
+    throw new TypeError("The CalDAV server returned no status for the write.");
+  }
+  return status;
+};
+
+const isSuccessfulStatus = (status: number): boolean =>
+  status >= OK_STATUS && status < REDIRECT_STATUS;
+
 const createCalDAVSourceWriter = (
   config: CalDAVSourceWriterConfig,
 ): CalendarSourceWriter => {
@@ -213,9 +235,15 @@ const createCalDAVSourceWriter = (
       };
     }
 
-    await client.updateCalendarObject({
+    const status = readWriteStatus(await client.updateCalendarObject({
       calendarObject: { data, url: object.url },
-    });
+    }));
+    if (!isSuccessfulStatus(status)) {
+      return {
+        error: `The CalDAV server refused the edit with status ${status}.`,
+        success: false,
+      };
+    }
     return { success: true };
   };
 
@@ -228,12 +256,20 @@ const createCalDAVSourceWriter = (
       return { success: true };
     }
 
-    try {
-      await client.deleteCalendarObject({ calendarObject: { url: object.url } });
-    } catch (error) {
-      if (!isNotFoundError(error)) {
+    const status = await client
+      .deleteCalendarObject({ calendarObject: { url: object.url } })
+      .then(readWriteStatus)
+      .catch((error: unknown) => {
+        if (isNotFoundError(error)) {
+          return NOT_FOUND_STATUS;
+        }
         throw error;
-      }
+      });
+    if (!isSuccessfulStatus(status) && status !== NOT_FOUND_STATUS) {
+      return {
+        error: `The CalDAV server refused the deletion with status ${status}.`,
+        success: false,
+      };
     }
     return { success: true };
   };

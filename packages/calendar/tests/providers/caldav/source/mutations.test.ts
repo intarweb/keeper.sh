@@ -3,6 +3,7 @@ import { createCalDAVSourceWriter } from "../../../../src/providers/caldav/sourc
 
 const CALENDAR_URL = "https://caldav.example.com/calendars/personal";
 const SOURCE_EVENT_UID = "source-event-uid-1";
+const NO_CONTENT_STATUS = 204;
 const OPAQUE_OBJECT_URL = `${CALENDAR_URL}/1a2b3c4d-not-the-uid.ics`;
 
 const buildIcs = (uid: string): string => [
@@ -37,7 +38,7 @@ const createClient = (input: {
     client: {
       deleteCalendarObject: (request: { calendarObject: { url: string } }) => {
         deleted.push(request.calendarObject.url);
-        return Promise.resolve(null);
+        return Promise.resolve(new Response(null, { status: NO_CONTENT_STATUS }));
       },
       fetchCalendarObjects: (request: {
         filters?: Record<string, unknown>;
@@ -54,7 +55,7 @@ const createClient = (input: {
       },
       updateCalendarObject: (request: { calendarObject: { data: string; url: string } }) => {
         updated.push(request.calendarObject);
-        return Promise.resolve(null);
+        return Promise.resolve(new Response(null, { status: NO_CONTENT_STATUS }));
       },
     },
     deleted,

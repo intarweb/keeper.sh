@@ -4,6 +4,7 @@ import { createCalDAVSourceWriter } from "../../../../src/providers/caldav/sourc
 const CALENDAR_URL = "https://caldav.example.com/calendars/personal";
 const SOURCE_EVENT_UID = "source-event-uid-1";
 const OBJECT_URL = `${CALENDAR_URL}/${SOURCE_EVENT_UID}.ics`;
+const NO_CONTENT_STATUS = 204;
 
 const ORIGINAL_ICS = [
   "BEGIN:VCALENDAR",
@@ -49,12 +50,12 @@ const createClient = () => {
 
   return {
     client: {
-      deleteCalendarObject: () => Promise.resolve(null),
+      deleteCalendarObject: () => Promise.resolve(new Response(null, { status: NO_CONTENT_STATUS })),
       fetchCalendarObjects: () =>
         Promise.resolve([{ data: ORIGINAL_ICS, url: OBJECT_URL }]),
       updateCalendarObject: (request: { calendarObject: { data: string; url: string } }) => {
         updated.push(request.calendarObject);
-        return Promise.resolve(null);
+        return Promise.resolve(new Response(null, { status: NO_CONTENT_STATUS }));
       },
     },
     updated,

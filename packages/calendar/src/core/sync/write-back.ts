@@ -451,10 +451,23 @@ const createBreakerConfirmation = (
 };
 
 /*
- * An answer is given for one source calendar, so it unlocks that calendar and no other.
- * Reading it as a destination-wide clearance would let a "yes, I deleted those" for one
- * pair destroy originals on a sibling pair the user was never asked about.
+ * Holding withholds the mirror as well as the deletion, so it is spent only where a
+ * deletion is actually on the table: a pair that can never delete a source event has
+ * nothing to protect and would be left with an empty destination it can never refill. An
+ * answer is given for one source calendar, so it unlocks that calendar and no other —
+ * reading it as a destination-wide clearance would let a "yes, I deleted those" for one
+ * pair destroy originals on a sibling pair the user was never asked about. A mapping
+ * whose copy Keeper has never observed alive is in the same position as the answer that
+ * put it back: its absence predates any consent, so it belongs to the re-create path and
+ * asking about it again would never end.
  */
+const couldDeleteSourceEvents = (
+  { mapping, policy }: { mapping: EventMapping; policy: WriteBackPolicy },
+): boolean =>
+  policy.writeBackMode === "edits_and_deletes"
+  && !policy.deleteApproved
+  && isWitnessRecorded(mapping);
+
 const resolveHeldSourceCalendarIds = (
   readHealth: ReadHealth,
   eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
@@ -464,8 +477,7 @@ const resolveHeldSourceCalendarIds = (
   }
   return new Set(
     eligible
-      .filter(({ policy }) =>
-        !(policy.deleteApproved && policy.writeBackMode === "edits_and_deletes"))
+      .filter((entry) => couldDeleteSourceEvents(entry))
       .flatMap(({ mapping }) => mapping.sourceCalendarId ?? []),
   );
 };

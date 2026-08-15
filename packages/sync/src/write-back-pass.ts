@@ -418,16 +418,17 @@ const recordNonProgress = async (
   input: WriteBackPassInput,
   target: WriteBackTarget,
   classification: ActionableClassification,
-): Promise<void> => {
+): Promise<boolean> => {
   const spent = await input.store.recordFailure(target.mappingId);
   if (spent < TWO_WAY_EPOCH_QUARANTINE_LIMIT || classification.type !== "delete") {
-    return;
+    return false;
   }
   await input.store.requestDeleteConfirmation?.(
     target.sourceCalendarId,
     target.destinationCalendarId,
     "delete_probe_blocked",
   );
+  return true;
 };
 
 const runWriteBackPass = async (
@@ -494,7 +495,15 @@ const runWriteBackPass = async (
         touchedSourceCalendarIds.add(target.sourceCalendarId);
       }
       if (outcome === "abandoned") {
-        await recordNonProgress(input, target, classification);
+        /*
+         * Pausing the pair for a human answer is the same decision a quarantine is: the
+         * user has been told nothing was deleted and is being asked what happened, so the
+         * rest of this pass must not answer the question by destroying the originals.
+         */
+        const paused = await recordNonProgress(input, target, classification);
+        if (paused) {
+          quarantinedPairKeys.add(createPairKey(target));
+        }
       }
     } catch (error) {
       result.failed += 1;
