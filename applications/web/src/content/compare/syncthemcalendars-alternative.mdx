@@ -1,7 +1,7 @@
 ---
 title: "SyncThemCalendars Alternative: Keeper.sh vs SyncThemCalendars"
 description: "Keeper.sh is $5 flat for unlimited connections; SyncThemCalendars meters syncs from $3.99. Update speed, which calendars each reaches, event privacy."
-blurb: "One meters how many syncs you run, the other charges $5 flat. Here is how each handles two-way mirroring, which calendars they reach, and what happens to your event details."
+blurb: "SyncThemCalendars charges by how many syncs you run. Keeper.sh is $5 flat. Here is how each handles two-way mirroring, which calendars they reach, and what happens to your event details."
 createdAt: "2026-08-11"
 slug: "syncthemcalendars-alternative"
 updatedAt: "2026-08-14"
@@ -13,7 +13,7 @@ tags:
 
 You keep a work calendar and a personal one, and neither knows about the other. Both Keeper.sh and SyncThemCalendars fix that by copying your busy time between them.
 
-They take different shapes. SyncThemCalendars covers three providers. Keeper.sh reaches more kinds of calendar, charges $5 flat however many connections you run, and copies your busy time without copying your event titles.
+They take different shapes. SyncThemCalendars covers three providers. Keeper.sh reaches more kinds of calendar, charges $5 flat however many connections you run, and copies your busy time while your event titles stay behind.
 
 ## Does either one sync both ways?
 
@@ -21,7 +21,7 @@ Both do, and they get there differently.
 
 Their two-way sync page puts it plainly. One-way copies events from one calendar to another. Two-way "mirrors both calendars", so a change on either side shows up on the other, and it is a per-sync setting you toggle.
 
-On Keeper.sh each connection runs in one direction, so mirroring work and personal means two connections rather than one switch. Same result on your calendars, one more step at setup. It also means the free plan's three connections cover one mirrored pair plus one more calendar going one way.
+On Keeper.sh each connection runs in one direction, so mirroring work and personal takes two connections. Same result on your calendars, one more step at setup. The free plan's three connections cover one mirrored pair plus one more calendar going one way.
 
 ## Which calendars does each one connect?
 
@@ -29,7 +29,7 @@ SyncThemCalendars supports Google Calendar, Microsoft Outlook and Office 365, an
 
 Keeper.sh supports Google, Outlook, iCloud, Fastmail and any CalDAV server. That last part is the difference. If your calendar lives at mailbox.org, Posteo, Nextcloud, Infomaniak or a server you run, Keeper.sh can read and write it.
 
-We also read iCal and ICS links, though we cannot write back to them, because those links only go one way.
+We also read iCal and ICS links. Those links are read-only by design, so nothing can write back to them.
 
 If your calendars are all Google, Outlook or iCloud, none of this affects you.
 
@@ -61,7 +61,7 @@ Paying yearly there is no crossover. Keeper.sh Pro is $42 a year against their c
 
 The other real difference is the free plan. Ours never expires, with 2 accounts and 3 connections. Theirs is 14 days, and then they ask for payment.
 
-## Where is Keeper.sh genuinely better?
+## Where Keeper.sh fits better
 
 **More calendar types.** CalDAV and Fastmail, as above.
 
@@ -71,25 +71,21 @@ The other real difference is the free plan. Ours never expires, with 2 accounts 
 
 **Unlimited connections for $5.** No counting syncs.
 
-**Your event details stay put by default.** A new connection copies a busy block titled after the calendar it came from, leaving title, description and location behind. Showing the real detail is a choice you make on Pro.
+**Your event details stay put by default.** A new connection copies a busy block titled after the calendar it came from, leaving the title, description and location behind. Pro is what shows the real detail.
 
 **An API and an agent connector.** Keeper.sh has a REST API, plus an MCP server with 14 tools, so assistants like Claude can list, create, edit, delete and RSVP to events. Both run on the free plan, capped at 25 requests a day, and uncapped on Pro.
 
 **One feed for every calendar.** Keeper.sh gives you a single private iCal link combining the calendars you choose to include, readable by anything that takes a calendar feed.
 
-## Where is SyncThemCalendars genuinely better?
+## What SyncThemCalendars has that Keeper.sh does not
 
-**Two-way mirroring is one toggle**, where Keeper.sh takes two connections.
-
-**Google and Outlook copies update "in moments"**, by their own pages.
-
-**Cheaper month to month**, $3.99 for five syncs against our $5; yearly it flips, $47.88 against $42.
-
-**Setup advertised as** "Set up your first sync in 2 minutes".
+**Two-way mirroring in one toggle**, where Keeper.sh takes two connections, and Google and Outlook copies that update "in moments" by their own pages.
 
 **Seven languages** — English, French, German, Japanese, Spanish, Italian and Portuguese — where Keeper.sh is English only.
 
-**Per-field privacy**, showing full details or hiding title, description and location, per sync and per field.
+**A lower monthly price at small setups**, $3.99 for five syncs against our $5.
+
+**Privacy set per sync and per field**, where Keeper.sh sets it once on the calendar events come from.
 
 ## What about data handling?
 
@@ -99,7 +95,7 @@ Keeper.sh publishes no data processing agreement for the hosted service. If your
 
 ## Running Keeper.sh yourself
 
-Keeper.sh is built to be self-hosted, and self-hosting is not a lesser version. Every Pro feature switches on automatically, including per-minute writes and the uncapped API.
+Running Keeper.sh yourself gets you the full product. Every Pro feature switches on automatically, including per-minute writes and the uncapped API.
 
 Take this route when the data cannot leave your control. You hold the database, the tokens and the logs, and nobody else sits in the path.
 

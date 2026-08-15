@@ -1,7 +1,7 @@
 ---
 title: "CalendarBridge Alternative: Keeper.sh vs CalendarBridge"
 description: "Eight calendars costs $40 a month on CalendarBridge and $5 on Keeper.sh. What each one connects, how fast changes land, and what each has that the other does not."
-blurb: "Keeper.sh is $5 a month however many calendars you have, and copies your busy time without copying your event titles. Here is how the two differ."
+blurb: "Keeper.sh is $5 a month however many calendars you have, and copies your busy time while your event titles stay behind. Here is how the two differ."
 createdAt: "2026-08-11"
 slug: "calendarbridge-alternative"
 updatedAt: "2026-08-14"
@@ -14,7 +14,7 @@ tags:
 
 You keep two or three calendars and you are tired of double bookings. Keeper.sh and CalendarBridge both fix that by mirroring your busy time between them.
 
-They split on price shape and on who holds your calendar. CalendarBridge charges per calendar and certifies its US cloud. Keeper.sh is $5 a month whatever your setup looks like, and is open source under AGPL-3.0, so the whole thing can run on a server you own.
+They split on price shape and on who holds your calendar. CalendarBridge charges per calendar and certifies its US cloud. Keeper.sh is $5 a month whatever your setup looks like, and can run on a server you own instead.
 
 ## Will it connect the calendars you actually have?
 
@@ -42,7 +42,7 @@ Keeper.sh is free for 2 linked accounts and 3 connections, with no cap on how ma
 
 Picture a consultant carrying eight client calendars. That is $40 a month on [CalendarBridge Pro](https://calendarbridge.com/pricing-individual/) and $5 on Keeper.sh Pro. Signing a ninth client moves one of those two numbers.
 
-Keeper.sh does not price the symptom. However scattered your calendars get, unscattering them costs the same, which is the part of this a spreadsheet notices.
+Adding calendars never changes the Keeper.sh price. That is the part a spreadsheet notices.
 
 ## Where Keeper.sh fits better
 
@@ -56,7 +56,7 @@ Keeper.sh does not price the symptom. However scattered your calendars get, unsc
 
 **You want to skip the noise.** Pro filters out all-day events, focus time and out-of-office blocks, so a week marked away does not black out your other calendar.
 
-**You want your own assistant driving it.** Keeper.sh's MCP server hands an assistant 14 tools: read events, create, move, cancel, RSVP and find free time. It is free at 25 calls a day and unmetered on Pro, and the REST API does the same from a script.
+**You want an assistant to run your diary.** Keeper.sh gives Claude and other assistants 14 tools: read events, create, move, cancel, RSVP and find free time. Free at 25 calls a day, unmetered on Pro, and a REST API does the same from a script.
 
 **You would rather nobody else held your calendar.** Keeper.sh is AGPL-3.0 and runs on hardware you own, so nothing about how your events are handled is hidden from you. CalendarBridge is hosted only.
 
@@ -68,21 +68,15 @@ Be honest with yourself about the work. You need a server, Postgres, Redis and a
 
 After that, upgrades, backups and uptime are yours. Docker Compose files and a standalone image keep the setup short. If that sounds like a second job, hosted Keeper.sh is $5 a month.
 
-## Where CalendarBridge is ahead
+## What CalendarBridge has that Keeper.sh does not
 
-**Regulated work.** CalendarBridge signs a [HIPAA business associate agreement](https://calendarbridge.com/) on Premium and Pro, and supports Microsoft 365 GCC High; Keeper.sh does neither today.
+**Regulated work.** A signed [HIPAA business associate agreement](https://calendarbridge.com/) on Premium and Pro, Microsoft 365 GCC High support, and a verified SOC 2 Type 1 on its [trust centre](https://trust.calendarbridge.com/).
 
-**Phone apps.** CalendarBridge ships apps on the Apple App Store, Google Play and the [Microsoft Store](https://calendarbridge.com/); Keeper.sh is browser-only.
+**Phone apps and booking pages.** Apps on the [Apple, Google and Microsoft stores](https://calendarbridge.com/), and up to 10 [scheduling pages](https://calendarbridge.com/scheduling-pages-for-people-with-multiple-calendars/).
 
-**Booking pages.** Up to 10 [scheduling pages](https://calendarbridge.com/scheduling-pages-for-people-with-multiple-calendars/) on every plan; Keeper.sh has none.
+**An email scheduling assistant.** [It arranges meetings over email](https://calendarbridge.com/ai-scheduling/) on Premium and Pro.
 
-**Email assistant.** An [AI scheduling assistant](https://calendarbridge.com/ai-scheduling/) on Premium and Pro arranges meetings over email, plus an [MCP server](https://help.calendarbridge.com/user-docs/bring-your-own-agent-mcp/) on every plan.
-
-**Audit paperwork.** A verified SOC 2 Type 1, Type 2 in progress, on its [trust centre](https://trust.calendarbridge.com/).
-
-**Team setup.** [Group plans](https://calendarbridge.com/pricing-group/) let one admin manage everyone's connections on one bill.
-
-**One combined view.** Its unified calendar app shows every calendar on one screen; Keeper.sh gives you a subscribe link instead.
+**Team billing and one combined view.** [Group plans](https://calendarbridge.com/pricing-group/) put everyone's connections under one admin and one bill, and its calendar app shows every calendar on one screen. Keeper.sh gives you a subscribe link instead.
 
 ## FAQ
 
@@ -96,7 +90,7 @@ Yes, as two connections. Each connection runs one way, so you create one in each
 
 ### Which one should I pick?
 
-Keeper.sh, if what you want is a free start, one flat price however many calendars you carry, or a copy you run yourself. If your requirement is on the CalendarBridge list above — a HIPAA BAA, phone apps, booking pages — that list is the answer.
+Keeper.sh, if what you want is a free start, one flat price however many calendars you carry, or a copy you run yourself. If you need a HIPAA BAA, phone apps or booking pages, CalendarBridge has those and Keeper.sh does not.
 
 ## Other comparisons
 

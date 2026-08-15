@@ -11,7 +11,7 @@ export function RelatedArticles({ articles }: { articles: ArticleSummary[] }) {
   return (
     <aside aria-labelledby={RELATED_ARTICLES_HEADING_ID} className="flex flex-col gap-3">
       <Heading3 as="h2" id={RELATED_ARTICLES_HEADING_ID}>
-        Keep reading
+        Related pages
       </Heading3>
       <ul className="flex flex-col gap-2 list-none">
         {articles.map((article) => (

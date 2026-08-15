@@ -11,7 +11,7 @@ import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 const breadcrumbs = breadcrumbTrail({ name: "Compare", path: "/compare" });
 
 const PAGE_DESCRIPTION =
-  "How Keeper.sh compares to the other calendar sync tools: which calendars each one connects, how fast changes land, what each costs, and who each one suits.";
+  "How Keeper.sh compares to the other calendar sync tools. Which calendars each one connects, how fast changes land, what each costs, and who each one suits.";
 
 export const Route = createFileRoute("/(marketing)/compare/")({
   component: CompareDirectoryPage,

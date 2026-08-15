@@ -13,7 +13,7 @@ tags:
 
 A duplicate means something is producing two of the same event. Keeper.sh corrects a copy that already exists rather than making another, so the second one is coming from somewhere else. There are three usual causes.
 
-## Two connections sending to each other
+## You built a two-way setup without meaning to
 
 If A sends to B and B also sends to A, an event created in A gets a copy in B, and that copy is a real event in B. A deliberate two-way pair is exactly this, and it is fine. The problem case is a two-way setup between calendars that already share events some other way.
 

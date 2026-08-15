@@ -1,7 +1,7 @@
 ---
-title: "How Calendar Sync Actually Works: Tokens, DST, Deletions"
-description: "What a calendar sync engine has to do: incremental syncs, 410 GONE resyncs, deduplication, loop prevention, recurrence exceptions, timezones, deletions."
-blurb: "Everything I learned building a calendar sync engine — sync tokens, 410 GONE, RRULE expansion across DST, loop prevention between mirrored calendars, and why deletions are the hard part."
+title: "How Calendar Sync Actually Works, and Where It Breaks"
+description: "A year of building a calendar sync engine, written up: how a change gets noticed, what happens when two mirrored calendars feed each other, and why deleting an event is the hard part."
+blurb: "Everything I learned building a calendar sync engine: how a change gets noticed, what stops two mirrored calendars flooding each other, what the clocks changing does to a repeating event, and why deletions are the hard part."
 createdAt: "2026-08-11"
 slug: "how-calendar-sync-actually-works"
 updatedAt: "2026-08-12"
@@ -12,7 +12,7 @@ tags:
   - "engineering"
 ---
 
-Calendar sync looks like a solved problem from the outside. You read events from one calendar, you write them to another, and you do it on a timer. I thought that too, then I built [Keeper.sh](https://github.com/ridafkih/keeper.sh) and spent a year finding out where the bodies are buried. What follows is what a real sync engine has to do, written from ours: the mechanisms, and the failure modes that forced them.
+Calendar sync looks like a solved problem from the outside. You read events from one calendar, you write them to another, and you do it on a timer. I thought that too, then I built [Keeper.sh](https://github.com/ridafkih/keeper.sh) and spent a year finding out what actually goes wrong. What follows is what a real sync engine has to do, written from ours: the mechanisms, and the failures that forced them.
 
 ## The shape of the problem
 
@@ -40,7 +40,7 @@ Ours handles 410 at the page level: any page that returns it aborts the whole pu
 
 We also expire tokens ourselves. A stored token carries a version encoding the sync-window shape in force when it was issued, plus a time bucket rolling over about every seven days; either one moving on drops the token and forces a full fetch. The window part is defensive: widen the window in a release and every existing token was minted against a narrower one, so the newly-covered range would silently never backfill. The seven-day part hedges against drift, since a single mishandled tombstone persists until something forces a full read. The bucket is offset by a hash of the calendar ID, so calendars don't all resync on the same day and stampede the API.
 
-## Why our CalDAV source has no sync token
+## Why we re-read CalDAV calendars in full
 
 CalDAV is the odd one out. Our CalDAV source returns a null sync token on every cycle, by construction: it fetches a `calendar-query` REPORT over the entire time window each time and diffs the whole result against stored state.
 

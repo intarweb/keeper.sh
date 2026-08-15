@@ -22,7 +22,7 @@ export const contentSilos: Record<ContentSiloId, ContentSilo> = {
   docs: {
     basePath: "/docs",
     description:
-      "Reference for every Keeper.sh setting: what a linked account is, what a connection copies, which event details reach the other calendar, and how far ahead and behind a sync reaches.",
+      "What every Keeper.sh setting does. Linked accounts, sending events to another calendar, which event details travel with a copy, and how far back and ahead the copying reaches.",
     id: "docs",
     name: "Docs",
     pages: processedDocs,
@@ -31,7 +31,7 @@ export const contentSilos: Record<ContentSiloId, ContentSilo> = {
   guides: {
     basePath: "/guides",
     description:
-      "Fixes for the things that go wrong with calendar sync, each one starting from the symptom you can see: events that read Busy, copies that have not turned up yet, the same meeting twice, a feed that lags behind.",
+      "Fixes for calendar sync, each one starting from what you can see. Events that read Busy, copies that have not turned up, the same meeting twice, a subscribed link that lags behind.",
     id: "guides",
     name: "Guides",
     pages: processedGuides,
@@ -40,7 +40,7 @@ export const contentSilos: Record<ContentSiloId, ContentSilo> = {
   recipes: {
     basePath: "/recipes",
     description:
-      "Ready-made Keeper.sh setups you can copy, each one written as the connections and settings it needs, and each labelled with the plan it runs on.",
+      "Ready-made Keeper.sh setups you can copy. Each one lists the connections and settings it needs, and the plan it runs on.",
     id: "recipes",
     name: "Recipes",
     pages: processedRecipes,
