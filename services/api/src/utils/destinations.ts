@@ -177,6 +177,7 @@ const recordGrantDemand = (
 
 const readPriorGrantDemandState = async (
   databaseClient: DestinationDatabase,
+  userId: string,
   provider: string,
   accountId: string,
 ): Promise<PriorGrantDemandState | null> => {
@@ -189,6 +190,7 @@ const readPriorGrantDemandState = async (
       .from(calendarAccountsTable)
       .where(
         and(
+          eq(calendarAccountsTable.userId, userId),
           eq(calendarAccountsTable.provider, provider),
           eq(calendarAccountsTable.accountId, accountId),
         ),
@@ -212,6 +214,7 @@ const upsertAccountAndCalendarWithDatabase = async (
   if (oauthCredentialId) {
     priorGrantDemandState = await readPriorGrantDemandState(
       databaseClient,
+      base.userId,
       base.provider,
       base.accountId,
     );

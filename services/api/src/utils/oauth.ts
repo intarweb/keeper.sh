@@ -100,6 +100,7 @@ interface HandleOAuthCallbackDependencies {
 
 const getExistingDestinationAccount = async (
   databaseClient: Pick<typeof contextDatabase, "select">,
+  userId: string,
   provider: string,
   accountId: string,
 ): Promise<{ id: string } | undefined> => {
@@ -108,6 +109,7 @@ const getExistingDestinationAccount = async (
     .from(calendarAccountsTable)
     .where(
       and(
+        eq(calendarAccountsTable.userId, userId),
         eq(calendarAccountsTable.provider, provider),
         eq(calendarAccountsTable.accountId, accountId),
       ),
@@ -221,7 +223,12 @@ const handleOAuthCallback = async (
       );
 
       if (!payload.destinationId) {
-        const existingAccount = await getExistingDestinationAccount(tx, payload.provider, payload.accountId);
+        const existingAccount = await getExistingDestinationAccount(
+          tx,
+          payload.userId,
+          payload.provider,
+          payload.accountId,
+        );
         if (!existingAccount) {
           const [accountCount] = await tx
             .select({ value: count() })
