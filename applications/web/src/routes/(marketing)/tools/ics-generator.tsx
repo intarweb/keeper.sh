@@ -52,7 +52,7 @@ const EMPTY_DRAFT: IcsEventDraft = {
 const FAQ_ITEMS = [
   {
     question: "What is an ICS file?",
-    answer: "An ICS file is a calendar file in the iCalendar format defined by RFC 5545. It is plain text that describes one or more events, and every major calendar application imports it, which is why event invitations arrive as .ics attachments.",
+    answer: "An ICS file is a calendar file in the format defined by RFC 5545. It is plain text describing one or more events, and every major calendar app can import it. That is why meeting invitations arrive as .ics attachments.",
   },
   {
     question: "How do I open the file I just made?",
@@ -67,8 +67,8 @@ const FAQ_ITEMS = [
     answer: "The times you enter are read in your computer's time zone and written into the file as UTC, which every calendar application converts back for whoever opens the file. All-day events are written as dates with no time attached.",
   },
   {
-    question: "Can I generate a repeating event?",
-    answer: "Not with this tool. It writes a single event with a start, an end, a title, a location, and a description. A repeating event needs an RRULE property, which you can add by hand to the generated file.",
+    question: "Can I make a repeating event?",
+    answer: "This tool writes one event, with a start, an end, a title, a location and a description. For a repeating event, add an RRULE line by hand to the file it gives you.",
   },
 ];
 
@@ -276,10 +276,9 @@ function IcsGeneratorPage() {
       <MarketingToolSection>
         <Heading2>What the generator writes</Heading2>
         <Text size="sm" tone="muted" className="mt-2 max-w-[64ch]">
-          The file is an iCalendar document as described by RFC 5545: a VCALENDAR wrapper around a single VEVENT
-          carrying a UID, a timestamp, the start and end you entered, and whichever of the title, location, and
-          description you filled in. Text is escaped and long lines are folded the way the specification asks for, so
-          calendar applications read it back exactly as typed.
+          The file follows RFC 5545: a VCALENDAR wrapper around a single VEVENT. It carries a UID, a timestamp, the
+          start and end you entered, and whichever of the title, location and description you filled in. Text is
+          escaped and long lines are folded, so calendar apps read it back exactly as typed.
         </Text>
       </MarketingToolSection>
 
@@ -300,7 +299,7 @@ function IcsGeneratorPage() {
 
       <MarketingToolCta
         title="Building calendar files by hand?"
-        body="Keeper.sh keeps events in step across Google Calendar, Outlook, iCloud, Fastmail, and any CalDAV server, so the copies stay in sync without a file to move around."
+        body="Keeper.sh copies your events between Google Calendar, Outlook, iCloud, Fastmail and any CalDAV server, so nothing needs a file moved around by hand."
         source="ics-generator"
       />
     </div>

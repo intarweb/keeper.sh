@@ -11,7 +11,7 @@ export function ArticleCta() {
             Ready to sync your calendars?
           </Heading3>
           <Text size="base" tone="muted" className="leading-6">
-            Create an account, connect your sources and destinations, and keep your availability aligned everywhere.
+            Connect your calendars and they all show you as busy at the same times.
           </Text>
           <LinkButton size="compact" to="/register" variant="highlight">
             <ButtonText>Register for Keeper.sh</ButtonText>

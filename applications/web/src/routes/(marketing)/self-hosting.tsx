@@ -34,7 +34,7 @@ const breadcrumbs = breadcrumbTrail({ name: "Self-Hosting", path: "/self-hosting
 const README_URL = "https://github.com/ridafkih/keeper.sh#self-hosted";
 
 const PAGE_DESCRIPTION =
-  "Run Keeper.sh on your own server and stop your calendars double-booking. It is open-source under AGPL-3.0, ships as Docker images, and every self-hosted account gets every paid sync feature, with no plan limits.";
+  "Run Keeper.sh on your own hardware and stop your calendars double-booking. Every account on your own instance gets every paid sync feature, with no plan limits.";
 
 type SelfHostingCard = {
   title: string;
@@ -46,37 +46,32 @@ type SelfHostingCard = {
 const SELF_HOSTING_CARDS: SelfHostingCard[] = [
   {
     title: "Every paid sync feature, with no plan limits",
-    body: "A self-hosted instance runs with the plan checks switched off, so every account on it gets every paid sync feature. That means unlimited linked accounts and connections, changes written out to your calendars every minute, event filters, iCal feed customization, and uncapped API and MCP access.",
+    body: "Every account on your own instance gets every paid feature: unlimited accounts and connections, updates every minute, event filters, and uncapped API and MCP calls.",
     gridClassName: "lg:col-start-1 lg:col-span-6 lg:row-start-1",
     illustration: <MarketingIllustrationSync />,
   },
   {
-    title: "The same calendars, on your own instance",
-    body: "Google Calendar, Outlook, iCloud, Fastmail, and any CalDAV server work on either side of a connection. You can also add an iCal or ICS link and copy events out of it. Google and Outlook need OAuth credentials you register yourself; the rest need nothing extra.",
+    title: "Works with the same calendars as the hosted version",
+    body: "Google Calendar, Outlook, iCloud, Fastmail and any CalDAV server all work. You can also paste a calendar link and copy events out of it. Google and Outlook need OAuth apps you register yourself.",
     gridClassName: "lg:col-start-7 lg:col-span-4 lg:row-start-1",
     illustration: <MarketingIllustrationProviders />,
   },
   {
-    title: "Seven images, one of them recommended",
-    body: "Start with keeper-standalone behind a reverse proxy. It bundles the web, API, cron, worker, and MCP services with PostgreSQL and Redis, so it has the fewest moving parts. The keeper-services image leaves the database and Redis to you, and five more images run each service on its own.",
+    title: "Get it running with a single container",
+    body: "The keeper-standalone image bundles the web, API, cron, worker and MCP services with PostgreSQL and Redis. Six other images let you split those out if you want to place each part yourself.",
     gridClassName: "lg:col-start-1 lg:col-span-4 lg:row-start-2",
     illustration: <MarketingIllustrationSetup />,
   },
   {
     title: "Your calendar data sits on your hardware",
-    body: "Your events, your connections, and the accounts you link live in a PostgreSQL database you run. CalDAV credentials are encrypted at rest with a key you generate, and your instance talks to the calendar providers you connect rather than to keeper.sh.",
+    body: "Your events, your connections and your linked accounts live in a PostgreSQL database you run. CalDAV passwords are encrypted with a key you generate. Your instance talks straight to your calendar providers, with nothing going through keeper.sh.",
     gridClassName: "lg:col-start-5 lg:col-span-6 lg:row-start-2",
   },
   {
-    title: "Open-source under AGPL-3.0",
-    body: "Keeper.sh is open-source, and the hosted version runs the same code you deploy. You can read what it does with your calendars instead of taking our word for it, and the project takes contributions.",
-    gridClassName: "lg:col-start-1 lg:col-span-5 lg:row-start-3",
+    title: "Anyone can read the code",
+    body: "The hosted version runs the same code you deploy, so you can check what it does with your calendars. Keeper.sh is open source under AGPL-3.0 and takes contributions.",
+    gridClassName: "lg:col-start-1 lg:col-span-10 lg:row-start-3",
     illustration: <MarketingIllustrationContributors />,
-  },
-  {
-    title: "What it costs you instead of the $5",
-    body: "A server, a domain, upgrades, backups, your own Google and Microsoft OAuth apps, and being the person paged when it stops. The hosted version is the same engine with those parts taken care of, and paying for it funds the work on both.",
-    gridClassName: "lg:col-start-6 lg:col-span-5 lg:row-start-3",
   },
 ];
 
@@ -87,24 +82,24 @@ type FaqItem = {
 
 const FAQ_ITEMS: FaqItem[] = [
   {
-    question: "Is self-hosting free?",
-    answer: "There is no licence fee: Keeper.sh is open-source under AGPL-3.0, and every account on a self-hosted instance gets every paid sync feature with no plan limits. You pay instead in a server, a domain, upgrades, backups, and being the person paged when it stops. Hosted Keeper.sh is $5 a month with all of that taken care of.",
+    question: "What does running it myself cost?",
+    answer: "There is no licence fee, and every account on your instance gets every paid sync feature. You pay instead in a server, a domain, upgrades, backups, and being the person paged when it breaks. Hosted Keeper.sh is $5 a month with all of that handled.",
   },
   {
     question: "Which image should I start with?",
-    answer: "keeper-standalone, behind a reverse proxy. It bundles the web, API, cron, worker, and MCP services with PostgreSQL and Redis, and auto-configures them internally. Use keeper-services if you would rather run the database and Redis yourself, or the individual service images if you want to place each one separately.",
+    answer: "keeper-standalone, behind a reverse proxy. It bundles the web, API, cron, worker and MCP services with PostgreSQL and Redis, and wires them together for you. Use the other images if you want to place each part yourself.",
   },
   {
     question: "Do I need Google and Microsoft OAuth apps?",
-    answer: "Only for the Google Calendar and Outlook integrations, which need client credentials you register yourself. iCloud, Fastmail, CalDAV servers, and iCal or ICS links need nothing beyond the instance itself.",
+    answer: "Only for Google Calendar and Outlook. Those two need client credentials you register yourself. iCloud, Fastmail, CalDAV servers and calendar links need nothing extra.",
   },
   {
     question: "How do updates work?",
-    answer: "Updates ship as Docker images. Pin yours to a major.minor tag such as 2.13 rather than latest, so a breaking change cannot arrive the next time you upgrade.",
+    answer: "Updates ship as Docker images. Pin yours to a major.minor tag such as 2.13. Pinning to latest can hand you a breaking change the next time you upgrade.",
   },
   {
     question: "Where do my credentials and events live?",
-    answer: "In the PostgreSQL database your instance uses. CalDAV credentials are encrypted at rest with the encryption key you generate when you set the instance up.",
+    answer: "In the PostgreSQL database your instance uses. CalDAV passwords are encrypted with the key you generate when you set the instance up.",
   },
 ];
 
@@ -113,12 +108,12 @@ export const Route = createFileRoute("/(marketing)/self-hosting")({
   head: () => ({
     links: [{ rel: "canonical", href: canonicalUrl("/self-hosting") }],
     meta: seoMeta({
-      title: "Self-Hosted Calendar Sync",
+      title: "Run Keeper.sh on Your Own Server",
       description: PAGE_DESCRIPTION,
       path: "/self-hosting",
     }),
     scripts: [
-      jsonLdScript(webPageSchema("Self-Hosting", PAGE_DESCRIPTION, "/self-hosting")),
+      jsonLdScript(webPageSchema("Run Keeper.sh on Your Own Server", PAGE_DESCRIPTION, "/self-hosting")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),
       jsonLdScript(faqSchema("/self-hosting", FAQ_ITEMS)),
     ],
@@ -130,7 +125,7 @@ function SelfHostingPage() {
     <div className="flex flex-col gap-6 py-16">
       <Breadcrumb items={breadcrumbs} />
       <header className="flex flex-col gap-1.5">
-        <Heading1>Self-hosted calendar sync</Heading1>
+        <Heading1>Run Keeper.sh on your own server</Heading1>
         <Text size="base" tone="muted" className="max-w-[64ch] leading-6">
           {PAGE_DESCRIPTION}
         </Text>
@@ -155,18 +150,18 @@ function SelfHostingPage() {
       <MarketingFeatureBentoSection>
         <Heading2>Getting it running</Heading2>
         <Text size="sm" tone="muted" className="mt-2 mb-8 max-w-[64ch]">
-          The README carries the compose files, the environment variable table, and the OAuth setup for Google and Microsoft.
+          The README has the compose files, the environment variables, and the OAuth setup for Google and Microsoft.
         </Text>
         <MarketingFeatureBentoGrid>
           <MarketingFeatureBentoCard className="lg:col-start-1 lg:col-span-5 lg:row-start-1">
             <MarketingFeatureBentoBody>
               <Heading3 as="h3">What you need</Heading3>
               <Text size="sm" className="text-left">
-                Docker and Docker Compose, a machine to run them on, and a domain if you want the instance reachable from
+                Docker and Docker Compose, a machine to run them on, and a domain if you want to reach the instance from
                 outside your network.
               </Text>
               <Text size="sm" tone="muted" className="text-left">
-                Google Calendar and Outlook additionally need OAuth apps registered under your own Google Cloud and Azure
+                Google Calendar and Outlook also need OAuth apps registered under your own Google Cloud and Azure
                 accounts.
               </Text>
             </MarketingFeatureBentoBody>
@@ -174,10 +169,10 @@ function SelfHostingPage() {
 
           <MarketingFeatureBentoCard className="lg:col-start-6 lg:col-span-5 lg:row-start-1">
             <MarketingFeatureBentoBody>
-              <Heading3 as="h3">The short version</Heading3>
+              <Heading3 as="h3">What you do</Heading3>
               <Text size="sm" className="text-left">
-                Pull keeper-standalone and generate the auth secret and encryption key it asks for. Set TRUSTED_ORIGINS to
-                the URL you will serve it on, and put it behind a reverse proxy that terminates TLS.
+                Download the keeper-standalone image and generate the two secrets it asks for. Set TRUSTED_ORIGINS to the
+                URL you will serve it on, and put it behind a reverse proxy that handles TLS.
               </Text>
               <ExternalTextLink align="left" href={README_URL} rel="noreferrer" size="sm" target="_blank" tone="muted">
                 Read the self-hosting guide

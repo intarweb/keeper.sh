@@ -20,10 +20,10 @@ const LICENSE_URL = "https://www.gnu.org/licenses/agpl-3.0.en.html";
 const ORIGIN_POST_SLUG = "why-i-built-an-open-source-calendar-syncing-tool";
 
 const PAGE_DESCRIPTION =
-  "Keeper.sh stops your calendars double-booking each other. Rida F'kih built it for his own four calendars and released it under AGPL-3.0.";
+  "Keeper.sh stops your calendars double-booking each other. Rida F'kih built it for his own four calendars, and still writes and maintains it.";
 
 const PERSON_DESCRIPTION =
-  "Rida F'kih is the author and maintainer of Keeper.sh, the calendar sync service that keeps busy time in step across Google Calendar, Outlook, iCloud, and Fastmail. He writes the posts on its blog.";
+  "Rida F'kih writes and maintains Keeper.sh, which copies your events between Google Calendar, Outlook, iCloud, and Fastmail so they all show you as busy at the same times. He writes the posts on its blog.";
 
 export const Route = createFileRoute("/(marketing)/about")({
   component: AboutPage,
@@ -37,7 +37,7 @@ export const Route = createFileRoute("/(marketing)/about")({
     scripts: [
       jsonLdScript(webPageSchema(
         "About Keeper.sh",
-        "Who builds Keeper.sh, the calendar sync service that stops double-booking, why it exists, and why it is licensed under AGPL-3.0.",
+        "Who builds Keeper.sh, the calendar sync service that stops double-booking, why it exists, and why anyone can read its code.",
         "/about",
       )),
       jsonLdScript(personSchema(PERSON_DESCRIPTION)),
@@ -58,18 +58,16 @@ function AboutPage() {
       </header>
 
       <div className="flex flex-col gap-8">
-        <Section title="Who builds it">
+        <Section title="Who builds Keeper.sh">
           <Text size="sm">
-            Keeper.sh is written and maintained by Rida F&apos;kih, who holds the copyright on the project and
-            releases it under AGPL-3.0. The sync engine, the API, the MCP server and this website are all in
-            one public repository, so the work is reviewable commit by commit rather than described from a
-            distance.
+            Rida F&apos;kih writes and maintains Keeper.sh, and holds the copyright on it. The sync code, the
+            API, the MCP server and this website all live in one public repository. You can read every
+            change as it lands.
           </Text>
           <Text size="sm">
             He also writes the posts on the{" "}
             <TextLink align="left" size="sm" to="/blog" tone="default">blog</TextLink>
-            , which is where the comparisons, the provider guides and the reasoning behind the product
-            decisions live. You can find him on{" "}
+            , where the comparisons and the provider guides live. You can find him on{" "}
             <ExternalTextLink align="left" href={PROFILE_URL} rel="noopener noreferrer" size="sm" target="_blank" tone="default">
               GitHub
             </ExternalTextLink>{" "}
@@ -81,18 +79,15 @@ function AboutPage() {
           </Text>
         </Section>
 
-        <Section title="Why it exists">
+        <Section title="Why Keeper.sh exists">
           <Text size="sm">
-            It started with four calendars: a work calendar and a business calendar on Google, a
-            business-personal one on Fastmail, and a personal one on iCloud. Everyone who tried to book time
-            saw a different, incomplete version of the week, and meetings landed on top of each other.
+            It started with four calendars: two on Google, one on Fastmail and one on iCloud. Anyone trying
+            to book time saw a different, incomplete week. Meetings kept landing on top of each other.
           </Text>
           <Text size="sm">
-            The tools that already existed charged per calendar, which meant they charged the most for
-            exactly the problem being solved, and none of them read Fastmail. They also wanted the contents
-            of the events. What was actually needed was smaller than that: block the same time everywhere,
-            and say nothing about why. That is the job Keeper.sh does, and details are something you turn on
-            rather than remember to turn off.
+            The tools that already existed charged more the more calendars you had, and none of them read
+            Fastmail. They also copied the event contents across. Keeper.sh does the smaller job: block the
+            same time everywhere, and keep the details private until you turn them on.
           </Text>
           <Text size="sm">
             The longer version of that story is in{" "}
@@ -107,37 +102,34 @@ function AboutPage() {
           </Text>
         </Section>
 
-        <Section title="Why AGPL-3.0">
+        <Section title="Why anyone can read the code">
           <Text size="sm">
-            A calendar sync tool has to read whole events to work out when you are busy, so the honest answer
-            to &ldquo;what happens to my events?&rdquo; is source code rather than a policy page. Keeper.sh is
-            licensed under{" "}
+            Keeper.sh has to read your whole events to work out when you are busy. You should be able to
+            check what it does with them, so the code is public and licensed under{" "}
             <ExternalTextLink align="left" href={LICENSE_URL} rel="noopener noreferrer" size="sm" target="_blank" tone="default">
               AGPL-3.0
             </ExternalTextLink>
-            , and the hosted service at keeper.sh runs the same code that is in the repository.
+            . The hosted service at keeper.sh runs the same code that is in the repository.
           </Text>
           <Text size="sm">
-            The AGPL matters more than a permissive license here because this software is normally used over
-            a network. Anyone who runs a modified version as a service has to make their changes available
-            under the same terms, which keeps improvements in the open instead of ending up in a closed fork
-            of the thing you were relying on.
+            AGPL was chosen because this software normally runs as a service. Anyone who runs a changed
+            version has to publish their changes under the same licence. Improvements stay in the open.
           </Text>
           <Text size="sm">
-            Self-hosting is a first-class path rather than a stripped-down one: every account on a
-            self-hosted instance gets every paid sync feature, with no plan limits. Paying for the{" "}
+            Every account on a self-hosted instance gets every paid sync feature, with no plan limits.
+            Paying for the{" "}
             <TextLink align="left" size="sm" to="/pricing" tone="default">hosted version</TextLink>
-            {" "}buys the server, the upgrades and the backups, and it funds the work on both.
+            {" "}buys you the server, the upgrades and the backups. It funds the work on both.
           </Text>
         </Section>
 
-        <Section title="Getting in touch">
+        <Section title="How to report a bug or ask a question">
           <Text size="sm">
-            Bugs and feature requests are best filed as{" "}
+            File bugs and feature requests as{" "}
             <ExternalTextLink align="left" href={`${REPOSITORY_URL}/issues`} rel="noopener noreferrer" size="sm" target="_blank" tone="default">
               issues on GitHub
             </ExternalTextLink>
-            , where they are triaged in public. For anything else, email{" "}
+            . They are triaged in public. For anything else, email{" "}
             <a href="mailto:support@keeper.sh" className="text-foreground underline underline-offset-2">
               support@keeper.sh
             </a>
@@ -150,8 +142,7 @@ function AboutPage() {
         <MarketingCtaCard>
           <Heading2 className="text-center text-white">Ready to stop double-booking?</Heading2>
           <Text size="sm" align="center" tone="highlight" className="max-w-[46ch]">
-            Connect your calendars and Keeper.sh keeps their busy time aligned. Or read the code first, then
-            decide.
+            Connect your calendars and they all show you as busy at the same times. Or read the code first.
           </Text>
           <div className="flex items-center gap-2 mt-2">
             <LinkButton

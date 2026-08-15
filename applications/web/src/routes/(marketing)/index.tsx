@@ -97,7 +97,7 @@ const MARKETING_FEATURES: MarketingFeature[] = [
     id: 3,
     title: 'Synced events stay private by default',
     description:
-      'Copies show the calendar name, not your event title. No description, location or guest list.',
+      'A copy shows the calendar it came from. Your title, description, location and guest list stay behind.',
     gridClassName: 'lg:col-start-1 lg:col-span-10 lg:row-start-2',
   },
   {
@@ -126,9 +126,9 @@ type FaqItem = {
 
 const FAQ_ITEMS: FaqItem[] = [
   {
-    question: 'My calendar only gives me a link, not a login. Does that work?',
+    question: 'What if my calendar only gives me a share link?',
     answer:
-      'Yes. Paste the link and those events copy to your other calendars. It goes one way only, so nothing you change reaches the original calendar.',
+      'Paste the link and those events copy into your other calendars. The copying runs one way, so nothing you change later reaches the original calendar.',
   },
   {
     question: 'Which calendars does Keeper.sh work with?',
@@ -138,7 +138,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Can my colleagues see what my personal events are?',
     answer:
-      'No, and the guest list never travels, on any plan. The copy takes the calendar name, with no description or location. Pro lets you show the title, description and location.',
+      'No. A copy shows the name of the calendar it came from, with no title, description, location or guest list. Pro lets you pass the title, description and location through, and the guest list is never copied on any plan.',
   },
   {
     question: 'How often do calendars update?',

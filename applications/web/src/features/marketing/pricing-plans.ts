@@ -31,8 +31,8 @@ export const PRICING_PLANS: PricingPlan[] = [
     price: '$0',
     period: 'per month',
     description:
-      'For personal use and getting started with calendar sync.',
-    ctaLabel: 'Get Started',
+      'For keeping two calendar accounts from double-booking each other.',
+    ctaLabel: 'Start for Free',
   },
   {
     id: 'pro',
@@ -40,8 +40,8 @@ export const PRICING_PLANS: PricingPlan[] = [
     price: '$5',
     period: 'per month',
     description:
-      'For power users who need fast syncs, advanced feed controls, and unlimited syncing.',
-    ctaLabel: 'Get Started',
+      'For more than two calendar accounts, or when you need updates within the minute.',
+    ctaLabel: 'Get Pro',
     tone: "inverse" as const,
   },
 ];
@@ -61,24 +61,24 @@ export const PRICING_FEATURES: PricingFeature[] = [
     highlight: { free: 'Up to 2 linked accounts', pro: 'Unlimited linked accounts' },
   },
   {
-    label: 'Sync Mappings',
+    label: 'Connections',
     free: 'Up to 3',
     pro: 'infinity',
     highlight: { free: 'Up to 3 connections', pro: 'Unlimited connections' },
   },
-  { label: 'Aggregated iCal Feed', free: 'check', pro: 'check' },
-  { label: 'iCal Feed Customization', free: 'minus', pro: 'check' },
+  { label: 'Shareable Calendar Link', free: 'check', pro: 'check' },
+  { label: 'Choose What the Link Shows', free: 'minus', pro: 'check' },
   {
-    label: 'Event Filters & Exclusions',
+    label: 'Choose Which Events Sync',
     free: 'minus',
     pro: 'check',
-    highlight: { pro: 'Event filters and exclusions' },
+    highlight: { pro: 'Choose which events sync' },
   },
   {
-    label: 'API & MCP Access',
+    label: 'AI Agent and API Access',
     free: '25 calls/day',
     pro: 'infinity',
-    highlight: { free: '25 API and MCP calls a day', pro: 'Unlimited API and MCP calls' },
+    highlight: { free: '25 agent or API calls a day', pro: 'Unlimited agent and API calls' },
   },
   { label: 'Email & Passkey Sign-In', free: 'check', pro: 'check' },
   { label: 'Priority Support', free: 'minus', pro: 'check' },

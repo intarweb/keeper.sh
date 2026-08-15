@@ -33,7 +33,7 @@ const PAGE_DESCRIPTION =
 const FAQ_ITEMS = [
   {
     question: "What is inside an ICS file?",
-    answer: "Plain text in the standard calendar file format, named iCalendar and defined by RFC 5545, which is not Apple's iCal app. Inside is a VCALENDAR block holding VEVENT entries, each with properties such as UID, DTSTART, DTEND, SUMMARY, LOCATION, and DESCRIPTION. This viewer reads those properties and lays them out in a readable form.",
+    answer: "Plain text in the calendar file format defined by RFC 5545. Inside is a VCALENDAR block holding VEVENT entries, each with properties such as UID, DTSTART, DTEND, SUMMARY, LOCATION, and DESCRIPTION. This viewer reads those properties and lays them out in a readable form.",
   },
   {
     question: "Is my file uploaded?",
@@ -44,12 +44,12 @@ const FAQ_ITEMS = [
     answer: "Times written with a TZID parameter, or with no zone at all, are shown exactly as the file records them along with the zone it names. Times written in UTC are converted to your computer's time zone.",
   },
   {
-    question: "Can it open a subscription feed?",
-    answer: "It reads files, not URLs. Download the feed first, or paste its contents into the box. Keeper.sh itself can subscribe to an iCal or ICS link and keep syncing it.",
+    question: "Can I open a subscription link here?",
+    answer: "Download the file the link gives you and open that, or paste its contents into the box. Keeper.sh itself can subscribe to a calendar link and keep copying from it.",
   },
   {
     question: "Does it show repeating events?",
-    answer: "It shows the RRULE line as written on the event rather than expanding it into individual occurrences, so you can see the rule the file carries.",
+    answer: "Yes. It shows the RRULE line exactly as the file writes it, so you can read the repeat rule itself. It does not list each occurrence separately.",
   },
 ];
 
@@ -204,9 +204,8 @@ function IcsViewerPage() {
       <MarketingToolSection>
         <Heading2>How the file is read</Heading2>
         <Text size="sm" tone="muted" className="mt-2 max-w-[64ch]">
-          Folded lines are joined back together, escaped text is restored, and each VEVENT is read for its UID, start
-          and end, title, location, organizer, status, recurrence rule, and description. Anything the format allows but
-          this page does not display is left untouched in your file.
+          Folded lines are joined back together and escaped text is restored. Each VEVENT is then read for its UID,
+          start and end, title, location, organizer, status, repeat rule, and description. Your file is never changed.
         </Text>
       </MarketingToolSection>
 
@@ -227,7 +226,7 @@ function IcsViewerPage() {
 
       <MarketingToolCta
         title="Reading calendar files to find a conflict?"
-        body="Keeper.sh keeps your calendars in step with each other across Google Calendar, Outlook, iCloud, Fastmail, and any CalDAV server, so the conflicts show up in the calendar itself."
+        body="Keeper.sh copies your events between Google Calendar, Outlook, iCloud, Fastmail and any CalDAV server, so a clash shows up in the calendar itself."
         source="ics-viewer"
       />
     </div>
