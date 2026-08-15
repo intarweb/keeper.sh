@@ -7,7 +7,7 @@ import { TextLink } from "@/components/ui/primitives/text-link";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 import { NotFoundState } from "@/components/ui/shells/not-found";
 import { ArticleCta } from "@/features/marketing/components/article-cta";
-import { ChangelogKindTags } from "@/features/marketing/components/changelog-kind-tags";
+import { ChangelogNewTag } from "@/features/marketing/components/changelog-new-tag";
 import {
   changelogFeatureNeighbours,
   changelogReleaseOf,
@@ -33,9 +33,6 @@ const INLINE_LINK_CLASS =
 
 const NEIGHBOUR_LINK_CLASS =
   "group flex flex-col gap-1 rounded-2xl border border-interactive-border bg-background p-4 shadow-xs transition-colors hover:bg-background-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-/** Every featured entry is a new capability, so each one carries the same tag. */
-const ENTRY_KINDS = ["added"] as const;
 
 const entryBreadcrumbs = (title: string, slug: string) =>
   breadcrumbTrail({ name: "Changelog", path: "/changelog" }, { name: title, path: `/changelog/${slug}` });
@@ -123,12 +120,14 @@ function ChangelogEntryPage() {
       <div className="flex flex-col gap-8">
         <Breadcrumb items={entryBreadcrumbs(feature.title, slug)} />
         <header className="flex flex-col items-start gap-3">
-          <ChangelogKindTags kinds={[...ENTRY_KINDS]} />
+          <ChangelogNewTag />
           <Heading1>{feature.title}</Heading1>
           <Text size="sm" tone="muted">
             <time dateTime={release.date}>{formatIsoDate(release.date)}</time>
             {" · "}
-            {release.build}
+            <Text as="span" size="sm" tone="disabled">
+              {release.build}
+            </Text>
           </Text>
         </header>
       </div>
@@ -142,7 +141,7 @@ function ChangelogEntryPage() {
             {paragraph}
           </Text>
         ))}
-        <Text size="sm" tone="muted">
+        <Text size="sm" tone="muted" className="mt-2">
           Read more about{" "}
           {feature.link.to === "/blog/$slug" ? (
             <Link

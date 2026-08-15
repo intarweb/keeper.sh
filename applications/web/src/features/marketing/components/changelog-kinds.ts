@@ -2,7 +2,7 @@
  * The three kinds a change can be, and how each one is marked.
  *
  * All the changelog-specific knowledge lives here and in
- * `changelog-kind-tags.tsx`: the primitives in `ui/primitives/tag.tsx` know
+ * `changelog-new-tag.tsx`: the primitives in `ui/primitives/tag.tsx` know
  * nothing about releases.
  */
 

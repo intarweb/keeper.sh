@@ -11,11 +11,11 @@ import { tv } from "tailwind-variants/lite";
  */
 
 const timeline = tv({
-  base: "flex flex-col gap-12 list-none",
+  base: "flex flex-col gap-8 list-none",
 });
 
 const timelineEntry = tv({
-  base: "grid grid-cols-1 gap-x-8 gap-y-4 border-t border-interactive-border pt-12 first:border-t-0 first:pt-0",
+  base: "grid grid-cols-1 gap-x-8 gap-y-3 border-t border-interactive-border pt-8 first:border-t-0 first:pt-0",
   variants: {
     aside: {
       narrow: "sm:grid-cols-[7rem_minmax(0,1fr)]",
