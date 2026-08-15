@@ -77,7 +77,10 @@ describe("configurable sync ranges", () => {
   });
 
   it("anchors to local midnight in any server timezone", () => {
-    const originalTimeZone = process.env.TZ;
+    /* Bun resolves the process timezone once from TZ, so deleting the variable leaves
+     * the worker pinned to whatever this test set last. Restoring an explicit zone is
+     * what actually puts it back. */
+    const originalTimeZone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     const originalOffset = new Date().getTimezoneOffset();
     const observedOffsets = new Set<number>();
     try {
@@ -93,11 +96,7 @@ describe("configurable sync ranges", () => {
         expect(window.timeMin.getTime()).toBeLessThan(window.timeMax.getTime());
       }
     } finally {
-      if (typeof originalTimeZone === "string") {
-        process.env.TZ = originalTimeZone;
-      } else {
-        delete process.env.TZ;
-      }
+      process.env.TZ = originalTimeZone;
     }
 
     expect(observedOffsets.size).toBe(4);
