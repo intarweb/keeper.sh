@@ -40,6 +40,7 @@ Keeper.sh is for people whose commitments are split across accounts that cannot 
 - [How to Sync Nextcloud Calendar with Google Calendar](https://www.keeper.sh/blog/sync-nextcloud-calendar-with-google-calendar): what the copies look like.
 - [How to Sync Nextcloud Calendar with Outlook](https://www.keeper.sh/blog/sync-nextcloud-calendar-with-outlook): the URL to paste, and tenant consent.
 - [How to Sync Radicale with iCloud Calendar](https://www.keeper.sh/blog/sync-radicale-with-icloud-calendar): the private-network setting that catches people out.
+- [How to Give Claude Access to Your Calendar (MCP)](https://www.keeper.sh/blog/how-to-give-claude-access-to-your-calendar-mcp): the five-minute setup, and what the consent screen asks for.
 
 ## Comparisons
 
