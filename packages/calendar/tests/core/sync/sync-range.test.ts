@@ -80,7 +80,7 @@ describe("configurable sync ranges", () => {
     /* Bun resolves the process timezone once from TZ, so deleting the variable leaves
      * the worker pinned to whatever this test set last. Restoring an explicit zone is
      * what actually puts it back. */
-    const originalTimeZone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const originalTimeZone = process.env.TZ ?? new Intl.DateTimeFormat().resolvedOptions().timeZone;
     const originalOffset = new Date().getTimezoneOffset();
     const observedOffsets = new Set<number>();
     try {
