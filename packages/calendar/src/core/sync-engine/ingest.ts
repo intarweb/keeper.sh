@@ -15,6 +15,7 @@ import {
   parseStoredSourceEventStatesRecoveringInvalid,
   type StoredSourceEventState,
 } from "../source/stored-event-state";
+import { recordSegment } from "../telemetry/segments";
 
 type IngestWideEventFields = Record<string, boolean | number | string>;
 
@@ -187,6 +188,22 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
   const startTime = Date.now();
   let flushed = false;
 
+  /*
+   * Part of the diff runs inside the persistence transaction's callback, which a
+   * pooled driver invokes in the async context of whoever released the connection.
+   * A widelog call there would land on another source's event, so the diff is
+   * accumulated locally and recorded once below, back in this function's context.
+   */
+  let diffMs = 0;
+  const measureDiff = <TResult>(operation: () => TResult): TResult => {
+    const startedAt = performance.now();
+    try {
+      return operation();
+    } finally {
+      diffMs += performance.now() - startedAt;
+    }
+  };
+
   try {
     const withPersistenceTransaction = resolvePersistenceTransaction(options);
     const fetchResult = await fetchEvents();
@@ -214,17 +231,19 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
         summarizeWideEventList([...unsupportedEventUids]);
     }
     if (sourceEvents.some((event) => event.recurrenceRule)) {
-      if (!fetchResult.syncWindow) {
+      const recurrenceWindow = fetchResult.syncWindow;
+      if (!recurrenceWindow) {
         throw new RangeError("Recurring source ingestion requires an explicit sync window");
       }
-      const overBudget = findSourceEventsExceedingRecurrenceBudget(
-        calendarId,
-        sourceEvents,
-        {
-          end: fetchResult.syncWindow.timeMax,
-          start: fetchResult.syncWindow.timeMin,
-        },
-      );
+      const overBudget = measureDiff(() =>
+        findSourceEventsExceedingRecurrenceBudget(
+          calendarId,
+          sourceEvents,
+          {
+            end: recurrenceWindow.timeMax,
+            start: recurrenceWindow.timeMin,
+          },
+        ));
       if (overBudget.length > 0) {
         /*
          * A widened sync range can pull a pathological series over the occurrence
@@ -263,7 +282,8 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
       wideEvent["existing_events.count"] = storedEvents.length;
 
       const isDeltaSync = fetchResult.isDeltaSync ?? false;
-      const parseResult = parseStoredSourceEventStatesRecoveringInvalid(storedEvents);
+      const parseResult = measureDiff(() =>
+        parseStoredSourceEventStatesRecoveringInvalid(storedEvents));
       const existingEvents = parseResult.events;
       const invalidStoredEventIds = parseResult.failures.map((failure) => failure.eventId);
       if (parseResult.failures.length > 0) {
@@ -283,35 +303,40 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
         return EMPTY_RESULT;
       }
 
-      const eventsToAdd = buildSourceEventsToAdd(existingEvents, sourceEvents, {
-        isDeltaSync,
-      });
-      const invalidStoredEventIdsToRemove = buildInvalidStoredEventIdsToRemove(
-        parseResult.failures,
-        fetchResult.events,
-      );
-      const eventStateIdsToRemove = [...new Set([
-        ...invalidStoredEventIdsToRemove,
-        ...getNonRecurringStoredEventIdsOutsideWindow(
-          existingEvents,
-          fetchResult.syncWindow,
+      const { eventStateIdsToRemove, eventsToAdd } = measureDiff(() => {
+        const additions = buildSourceEventsToAdd(existingEvents, sourceEvents, {
           isDeltaSync,
-        ),
-        /*
-         * Removal is computed against the unfiltered fetch. An over-budget series is
-         * only withheld from ingestion; treating it as absent here would delete the
-         * states it already has, turning a stalled series into deleted user events.
-         */
-        ...buildSourceEventStateIdsToRemove(
-          existingEvents,
+        });
+        const invalidStoredEventIdsToRemove = buildInvalidStoredEventIdsToRemove(
+          parseResult.failures,
           fetchResult.events,
-          {
-            changedEventIds: fetchResult.changedEventIds,
-            cancelledEventIds: fetchResult.cancelledEventIds,
-            isDeltaSync,
-          },
-        ),
-      ])];
+        );
+        return {
+          eventsToAdd: additions,
+          eventStateIdsToRemove: [...new Set([
+            ...invalidStoredEventIdsToRemove,
+            ...getNonRecurringStoredEventIdsOutsideWindow(
+              existingEvents,
+              fetchResult.syncWindow,
+              isDeltaSync,
+            ),
+            /*
+             * Removal is computed against the unfiltered fetch. An over-budget series is
+             * only withheld from ingestion; treating it as absent here would delete the
+             * states it already has, turning a stalled series into deleted user events.
+             */
+            ...buildSourceEventStateIdsToRemove(
+              existingEvents,
+              fetchResult.events,
+              {
+                changedEventIds: fetchResult.changedEventIds,
+                cancelledEventIds: fetchResult.cancelledEventIds,
+                isDeltaSync,
+              },
+            ),
+          ])],
+        };
+      });
 
       wideEvent["events.added"] = eventsToAdd.length;
       wideEvent["events.removed"] = eventStateIdsToRemove.length;
@@ -386,6 +411,9 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
 
     throw error;
   } finally {
+    if (diffMs > 0) {
+      recordSegment("work.diff_ms", diffMs);
+    }
     wideEvent["duration_ms"] = Date.now() - startTime;
     onIngestEvent?.(wideEvent);
   }
