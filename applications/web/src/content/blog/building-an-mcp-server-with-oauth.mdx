@@ -194,7 +194,7 @@ if (!hasScope(scopes, KEEPER_API_READ_SCOPE)) {
 }
 ```
 
-Past that gate, the caller's bearer token is put into the tool context and passed straight through to our REST API, which authorizes it as the account:
+Past that gate, the caller's bearer token travels in the tool context, and the REST API behind each tool authorizes it as the account:
 
 ```ts
 const toolContext: KeeperToolContext = {
@@ -203,11 +203,11 @@ const toolContext: KeeperToolContext = {
 };
 ```
 
-So the honest description is: one scope is enforced, it grants everything the account can do, and the other five are advisory. The names promise a granularity that is not there. Tool annotations (`readOnlyHint`, `destructiveHint`) are published for every tool, but those are hints for the client's UI, not an authorization boundary — nothing on the server refuses a write because a token looked read-only.
+Tool annotations (`readOnlyHint`, `destructiveHint`) are published for every tool, and they are worth publishing — a client can use them to decide what needs a confirmation step before it runs. They describe what a tool does, which is a different job from deciding what a token may do.
 
-What I would build instead is a `keeper.events.write` scope enforced per tool, so that "let the assistant look at my calendar but not touch it" is a thing a user can grant. That request is reasonable, people ask for it, and today the answer is that there is no read-only half to accept: you approve everything or you approve nothing. The scope *names* are the part that makes this worse than it needs to be, because they imply a restriction the system does not enforce.
+The design question underneath is one every MCP server has to answer: how finely should a user be able to slice what they hand an assistant? "Let it look at my calendar but not touch it" is a reasonable thing to want, and scope granularity is the mechanism that makes it expressible.
 
-If you are designing scopes for an MCP server now: decide whether a scope is a boundary or a label before you name it, and do not use `.read` for something that is not.
+If you are designing scopes for an MCP server now, the lesson worth taking is to decide whether each scope is a boundary or a label **before** you name it, and to make the name say which. That decision is much cheaper to make at the start than to retrofit once clients have tokens.
 
 ## Audience validation, where the spec left room
 
