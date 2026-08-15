@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { KEEPER_API_RESOURCE_SCOPES } from "@keeper.sh/constants";
 import { GDPR_COUNTRIES } from "@/config/gdpr";
 import { getGithubStarsSnapshot } from "./github-stars";
 import { proxyRequest } from "./proxy/http";
@@ -32,19 +33,10 @@ const resolveInternalProxyPath = (pathname: string): string | null => {
   return null;
 };
 
-const RESOURCE_SCOPES = [
-  "keeper.read",
-  "keeper.sources.read",
-  "keeper.destinations.read",
-  "keeper.mappings.read",
-  "keeper.events.read",
-  "keeper.sync-status.read",
-];
-
 const buildProtectedResourceMetadata = (requestOrigin: string) => ({
   resource: `${requestOrigin}/mcp`,
   authorization_servers: [`${requestOrigin}/api/auth`],
-  scopes_supported: RESOURCE_SCOPES,
+  scopes_supported: KEEPER_API_RESOURCE_SCOPES,
 });
 
 const MCP_SERVER_CARD_PATH = "/mcp/server-card";

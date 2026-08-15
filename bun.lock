@@ -16,6 +16,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@better-auth/passkey": "^1.5.5",
+        "@keeper.sh/constants": "workspace:*",
         "@keeper.sh/data-schemas": "workspace:*",
         "@keeper.sh/otelemetry": "workspace:*",
         "@polar-sh/checkout": "^0.2.0",
@@ -206,6 +207,7 @@
         "@keeper.sh/typescript-config": "workspace:*",
         "@types/bun": "latest",
         "typescript": "5.9.3",
+        "vitest": "^4.1.4",
       },
     },
     "packages/queue": {
