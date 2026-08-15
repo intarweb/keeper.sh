@@ -99,7 +99,7 @@ const MARKETING_FEATURES: MarketingFeature[] = [
     id: 3,
     title: 'Simple Synchronization Engine',
     description:
-      'Your events are aggregated and synced across all linked calendars. Keeper tracks every copy it creates and checks them on each run, updating and removing them as the original changes.',
+      'Your events are aggregated and synced across all linked calendars. Keeper.sh tracks every copy it creates and checks them on each run, updating and removing them as the original changes.',
     gridClassName: 'lg:col-start-1 lg:col-span-6 lg:row-start-2',
     illustration: <MarketingIllustrationSync />,
   },
@@ -162,7 +162,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'How often do calendars sync?',
     answer:
-      'Keeper reads your calendars every minute on both plans. What differs is how often it writes those changes back out to your other calendars: every 30 minutes on the free plan, and every minute on Pro.',
+      'Keeper.sh reads your calendars every minute on both plans. What differs is how often it writes those changes back out to your other calendars: every 30 minutes on the free plan, and every minute on Pro.',
   },
   {
     question: 'Are my event details visible to others?',
