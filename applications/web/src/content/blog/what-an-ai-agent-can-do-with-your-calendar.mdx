@@ -151,7 +151,7 @@ A capability list is only useful if it is also a list of what you do not get. No
 
 The awkward part, which a capability list that wants to be trusted has to include.
 
-**The permission is all-or-nothing.** Six Keeper.sh permissions are listed on the consent screen, and one of them — `keeper.read` — is what every call is actually checked against. The rest are labels. There is no read-only half to approve, so pressing Allow grants create, update, delete and RSVP along with everything else. Per-tool scopes are on the roadmap, and the reasoning behind the current set is in the [OAuth write-up](/blog/building-an-mcp-server-with-oauth); in the meantime, a client that confirms destructive tools individually gives you that control.
+**The permission covers reading and writing together.** Approving Keeper.sh on the consent screen grants create, update, delete and RSVP alongside reading, rather than a read-only half you can accept on its own. Finer-grained permissions are on the roadmap. Until then, a client that asks you to confirm destructive tools individually gives you the same control.
 
 **Tool annotations are hints, not a fence.** Every tool publishes `readOnlyHint` and `destructiveHint` — eight are read-only, two additive, four destructive. Good clients use these to decide what to confirm with you. Nothing on the server refuses a write because a token looked read-only. Treat them as a UI affordance, not a security boundary.
 
