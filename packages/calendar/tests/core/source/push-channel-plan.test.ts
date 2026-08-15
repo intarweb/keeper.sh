@@ -110,8 +110,8 @@ describe("planPushChannelActions eligibility", () => {
     })).resolves.toEqual([]);
   });
 
-  it("skips calendars whose account carries no provider account id", async () => {
-    await expect(plan({
+  it("skips only the providers that need a provider account id when it is absent", async () => {
+    const actions = await plan({
       calendars: [
         makeCalendar({ providerAccountId: null }),
         makeCalendar({
@@ -120,7 +120,11 @@ describe("planPushChannelActions eligibility", () => {
           providerAccountId: null,
         }),
       ],
-    })).resolves.toEqual([]);
+    });
+
+    expect(actions.map((action) => [action.provider, action.type])).toEqual([
+      ["google", "register"],
+    ]);
   });
 
   it("deregisters a channel whose calendar became disabled or lost pull", async () => {

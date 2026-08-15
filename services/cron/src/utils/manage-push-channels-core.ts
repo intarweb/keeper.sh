@@ -13,6 +13,7 @@ import type {
   PushChannelAction,
   PushChannelRegistration,
   PushChannelScope,
+  PushPlanSkipReason,
   RegistrarContext,
   SourcePushRegistrar,
   StoredPushChannel,
@@ -54,6 +55,17 @@ interface ManagePushChannelsDependencies {
   webhookPublicUrl: string | null;
 }
 
+const PUSH_PLAN_SKIP_REASONS = [
+  "existing-channel",
+  "free-plan",
+  "missing-external-calendar-id",
+  "missing-provider-account-id",
+  "needs-reauthentication",
+  "not-pull",
+  "plan-unresolved",
+  "unsupported-provider",
+] as const satisfies readonly PushPlanSkipReason[];
+
 interface ManageCounters {
   activatedProviderChannelIds: Set<string>;
   deregistered: number;
@@ -64,8 +76,29 @@ interface ManageCounters {
   planErrors: number;
   registered: number;
   renewed: number;
-  skippedFree: number;
+  skipped: Record<PushPlanSkipReason, number>;
 }
+
+const createSkipCounters = (): Record<PushPlanSkipReason, number> => ({
+  "existing-channel": 0,
+  "free-plan": 0,
+  "missing-external-calendar-id": 0,
+  "missing-provider-account-id": 0,
+  "needs-reauthentication": 0,
+  "not-pull": 0,
+  "plan-unresolved": 0,
+  "unsupported-provider": 0,
+});
+
+const toSkipFields = (
+  skipped: Record<PushPlanSkipReason, number>,
+): Record<string, number> =>
+  Object.fromEntries(
+    PUSH_PLAN_SKIP_REASONS.map((reason) => [
+      `push_channel.skipped.${reason.replaceAll("-", "_")}_count`,
+      skipped[reason] ?? 0,
+    ]),
+  );
 
 const createCounters = (): ManageCounters => ({
   activatedProviderChannelIds: new Set<string>(),
@@ -77,7 +110,7 @@ const createCounters = (): ManageCounters => ({
   planErrors: 0,
   registered: 0,
   renewed: 0,
-  skippedFree: 0,
+  skipped: createSkipCounters(),
 });
 
 const resolveScopeLockKey = (action: PushChannelAction): string => {
@@ -642,8 +675,8 @@ const runManagePushChannels = async (
       calendars,
       channels,
       now: dependencies.now(),
-      onFreeCalendarSkipped: () => {
-        counters.skippedFree += 1;
+      onCalendarSkipped: (_calendar, reason) => {
+        counters.skipped[reason] = (counters.skipped[reason] ?? 0) + 1;
       },
       onPlanError: (_userId, error) => {
         counters.planErrors += 1;
@@ -677,7 +710,7 @@ const runManagePushChannels = async (
       "push_channel.plan_error_count": counters.planErrors,
       "push_channel.registered_count": counters.registered,
       "push_channel.renewed_count": counters.renewed,
-      "push_channel.skipped_free_count": counters.skippedFree,
+      ...toSkipFields(counters.skipped),
     });
     await dependencies.releaseLock(TICK_LOCK_KEY);
   }

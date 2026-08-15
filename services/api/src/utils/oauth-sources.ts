@@ -588,7 +588,10 @@ interface ImportOAuthAccountDependencies {
   canAddAccount: (userId: string, currentCount: number) => Promise<boolean>;
   countUserAccounts: (userId: string) => Promise<number>;
   createAccountId: (
-    options: Pick<ImportOAuthAccountOptions, "userId" | "provider" | "oauthCredentialId" | "email">,
+    options: Pick<
+      ImportOAuthAccountOptions,
+      "userId" | "provider" | "oauthCredentialId" | "email" | "providerAccountId"
+    >,
   ) => Promise<string>;
   findExistingAccountId: (options: {
     userId: string;
@@ -615,11 +618,12 @@ const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDepend
     return premiumService.canAddAccount(userId, currentCount);
   },
   countUserAccounts,
-  createAccountId: async ({ userId, provider, oauthCredentialId, email }) => {
+  createAccountId: async ({ userId, provider, oauthCredentialId, email, providerAccountId }) => {
     const { database } = await import("@/context");
     const [insertedAccount] = await database
       .insert(calendarAccountsTable)
       .values({
+        accountId: providerAccountId,
         authType: "oauth",
         displayName: email,
         email,
@@ -710,7 +714,7 @@ const importOAuthAccountCalendarsWithDependencies = async (
   options: ImportOAuthAccountOptions,
   dependencies: ImportOAuthAccountDependencies,
 ): Promise<string> => {
-  const { userId, provider, oauthCredentialId, accessToken, email } = options;
+  const { userId, provider, oauthCredentialId, accessToken, email, providerAccountId } = options;
 
   const existingAccountId = await dependencies.findExistingAccountId({
     oauthCredentialId,
@@ -730,6 +734,7 @@ const importOAuthAccountCalendarsWithDependencies = async (
       email,
       oauthCredentialId,
       provider,
+      providerAccountId,
       userId,
     });
   }
@@ -762,17 +767,22 @@ interface ImportOAuthAccountOptions {
   oauthCredentialId: string;
   accessToken: string;
   email: string | null;
+  providerAccountId: string | null;
 }
 
 const createOAuthAccountIdWithDatabase = async (
   databaseClient: OAuthSourceDatabase,
-  options: Pick<ImportOAuthAccountOptions, "userId" | "provider" | "oauthCredentialId" | "email">,
+  options: Pick<
+    ImportOAuthAccountOptions,
+    "userId" | "provider" | "oauthCredentialId" | "email" | "providerAccountId"
+  >,
 ): Promise<string> => {
-  const { userId, provider, oauthCredentialId, email } = options;
+  const { userId, provider, oauthCredentialId, email, providerAccountId } = options;
 
   const [insertedAccount] = await databaseClient
     .insert(calendarAccountsTable)
     .values({
+      accountId: providerAccountId,
       authType: "oauth",
       displayName: email,
       email,

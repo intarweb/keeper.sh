@@ -530,7 +530,61 @@ describe("runManagePushChannels teardown", () => {
 
     await runManagePushChannels(dependencies);
 
-    expect(observedFields(dependencies.observe)["push_channel.skipped_free_count"]).toBe(2);
+    expect(observedFields(dependencies.observe)["push_channel.skipped.free_plan_count"]).toBe(2);
+    expect(dependencies.registrar.register).not.toHaveBeenCalled();
+  });
+
+  it("registers a Google calendar whose account carries no provider account id", async () => {
+    const callLog: string[] = [];
+    const dependencies = makeDependencies(callLog, {
+      selectEligibleCalendars: vi.fn(() => Promise.resolve([
+        makeCalendar({ providerAccountId: null }),
+      ])),
+    });
+
+    await runManagePushChannels(dependencies);
+
+    expect(dependencies.registrar.register).toHaveBeenCalledOnce();
+    const fields = observedFields(dependencies.observe);
+    expect(fields["push_channel.registered_count"]).toBe(1);
+    expect(fields["push_channel.skipped.missing_provider_account_id_count"]).toBe(0);
+  });
+
+  it("withholds an Outlook calendar whose account carries no provider account id", async () => {
+    const callLog: string[] = [];
+    const dependencies = makeDependencies(callLog, {
+      selectEligibleCalendars: vi.fn(() => Promise.resolve([
+        makeCalendar({ provider: "outlook", providerAccountId: null }),
+      ])),
+    });
+
+    await runManagePushChannels(dependencies);
+
+    expect(dependencies.registrar.register).not.toHaveBeenCalled();
+    const fields = observedFields(dependencies.observe);
+    expect(fields["push_channel.skipped.missing_provider_account_id_count"]).toBe(1);
+  });
+
+  it("attributes a withheld calendar to the reason that withheld it", async () => {
+    const callLog: string[] = [];
+    const dependencies = makeDependencies(callLog, {
+      selectEligibleCalendars: vi.fn(() => Promise.resolve([
+        makeCalendar({ calendarId: "cal-1", externalCalendarId: null }),
+        makeCalendar({ calendarId: "cal-2", externalCalendarId: "external-2", provider: "outlook", providerAccountId: null }),
+        makeCalendar({ calendarId: "cal-3", externalCalendarId: "external-3", needsReauthentication: true }),
+        makeCalendar({ calendarId: "cal-4", externalCalendarId: "external-4", provider: "caldav" }),
+        makeCalendar({ calendarId: "cal-5", externalCalendarId: "external-5", disabled: true }),
+      ])),
+    });
+
+    await runManagePushChannels(dependencies);
+
+    const fields = observedFields(dependencies.observe);
+    expect(fields["push_channel.skipped.missing_external_calendar_id_count"]).toBe(1);
+    expect(fields["push_channel.skipped.missing_provider_account_id_count"]).toBe(1);
+    expect(fields["push_channel.skipped.needs_reauthentication_count"]).toBe(1);
+    expect(fields["push_channel.skipped.unsupported_provider_count"]).toBe(1);
+    expect(fields["push_channel.skipped.not_pull_count"]).toBe(1);
     expect(dependencies.registrar.register).not.toHaveBeenCalled();
   });
 

@@ -78,6 +78,7 @@ const GET = withWideEvent(async ({ request, params }) => {
       email: userInfo.email,
       oauthCredentialId: credentialId,
       provider,
+      providerAccountId: userInfo.id,
       userId,
     });
 

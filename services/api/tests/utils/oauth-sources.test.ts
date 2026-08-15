@@ -33,6 +33,7 @@ describe("importOAuthAccountCalendarsWithDependencies", () => {
           email: "person@example.com",
           oauthCredentialId: "credential-1",
           provider: "google",
+          providerAccountId: "google-account-1",
           userId: "user-1",
         },
         {
@@ -65,6 +66,7 @@ describe("importOAuthAccountCalendarsWithDependencies", () => {
         email: "person@example.com",
         oauthCredentialId: "credential-1",
         provider: "google",
+        providerAccountId: "google-account-1",
         userId: "user-1",
       },
       {
