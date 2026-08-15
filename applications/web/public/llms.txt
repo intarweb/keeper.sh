@@ -59,3 +59,4 @@ Keeper.sh is for people whose commitments are split across accounts that cannot 
 - [How Calendar Sync Actually Works: Tokens, DST, Deletions](https://www.keeper.sh/blog/how-calendar-sync-actually-works): why changes arrive late, and repeating events.
 - [Stop Getting Double-Booked Across Google, Outlook and iCloud](https://www.keeper.sh/blog/why-i-built-an-open-source-calendar-syncing-tool): why the project exists, and what it costs.
 - [Building an MCP Server with OAuth 2.1](https://www.keeper.sh/blog/building-an-mcp-server-with-oauth): discovery, dynamic client registration, PKCE and token lifetimes.
+- [What an AI Agent Can Actually Do With Your Calendar](https://www.keeper.sh/blog/what-an-ai-agent-can-do-with-your-calendar): all fourteen MCP tools, and what is not on the list.
