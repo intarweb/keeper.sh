@@ -68,7 +68,7 @@ const waitForDatabaseMigrations = async (
     if (await database.isReady()) {
       return;
     }
-    await Bun.sleep(MIGRATION_READINESS_POLL_MS);
+    await new Promise((resolve) => { setTimeout(resolve, MIGRATION_READINESS_POLL_MS); });
   }
   if (!(await database.isReady())) {
     throw new Error("Database migrations did not reach the required runtime state");

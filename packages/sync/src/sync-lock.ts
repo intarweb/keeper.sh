@@ -342,7 +342,7 @@ const createSyncLock = (
             return { acquired: false };
           }
           if (currentWaiter !== holderId) {
-            await Bun.sleep(POLL_INTERVAL_MS);
+            await new Promise((resolve) => { setTimeout(resolve, POLL_INTERVAL_MS); });
             continue;
           }
         }
@@ -370,7 +370,7 @@ const createSyncLock = (
           }
         }
 
-        await Bun.sleep(POLL_INTERVAL_MS);
+        await new Promise((resolve) => { setTimeout(resolve, POLL_INTERVAL_MS); });
       }
 
       return { acquired: false };
