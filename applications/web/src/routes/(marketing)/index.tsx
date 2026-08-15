@@ -21,6 +21,17 @@ import {
   MarketingTestimonialsGrid,
   MarketingTestimonialsSection,
 } from '../../features/marketing/components/marketing-testimonials'
+import {
+  MarketingHowItWorksCard,
+  MarketingHowItWorksRow,
+  MarketingHowItWorksSection,
+  MarketingHowItWorksStepBody,
+  MarketingHowItWorksStepIllustration,
+} from '../../features/marketing/components/marketing-how-it-works'
+import { HOW_IT_WORKS_STEPS } from '../../features/marketing/how-it-works-steps'
+import { HowItWorksConnect } from '../../illustrations/how-it-works-connect'
+import { HowItWorksConfigure } from '../../illustrations/how-it-works-configure'
+import { HowItWorksSync } from '../../illustrations/how-it-works-sync'
 import { MarketingIllustrationContributors } from '../../illustrations/marketing-illustration-contributors'
 import { MarketingIllustrationProviders } from '../../illustrations/marketing-illustration-providers'
 import { MarketingIllustrationSync } from '../../illustrations/marketing-illustration-sync'
@@ -232,6 +243,44 @@ function MarketingPage() {
               ))}
             </MarketingFeatureBentoGrid>
           </MarketingFeatureBentoSection>
+
+          <MarketingHowItWorksSection>
+            <Heading2 className="text-center">How your calendars stay in step</Heading2>
+            <Text size="sm" align="center" tone="muted" className="mt-2">
+              You set a connection up once. After that, Keeper.sh keeps the copies right.
+            </Text>
+            <MarketingHowItWorksCard>
+              <MarketingHowItWorksRow>
+                <MarketingHowItWorksStepBody step={1}>
+                  <Heading3 as="h3">{HOW_IT_WORKS_STEPS[0].title}</Heading3>
+                  <Text size="sm" tone="muted">{HOW_IT_WORKS_STEPS[0].body}</Text>
+                </MarketingHowItWorksStepBody>
+                <MarketingHowItWorksStepIllustration align="right">
+                  <HowItWorksConnect />
+                </MarketingHowItWorksStepIllustration>
+              </MarketingHowItWorksRow>
+
+              <MarketingHowItWorksRow reverse>
+                <MarketingHowItWorksStepBody step={2}>
+                  <Heading3 as="h3">{HOW_IT_WORKS_STEPS[1].title}</Heading3>
+                  <Text size="sm" tone="muted">{HOW_IT_WORKS_STEPS[1].body}</Text>
+                </MarketingHowItWorksStepBody>
+                <MarketingHowItWorksStepIllustration align="left">
+                  <HowItWorksConfigure />
+                </MarketingHowItWorksStepIllustration>
+              </MarketingHowItWorksRow>
+
+              <MarketingHowItWorksRow>
+                <MarketingHowItWorksStepBody step={3}>
+                  <Heading3 as="h3">{HOW_IT_WORKS_STEPS[2].title}</Heading3>
+                  <Text size="sm" tone="muted">{HOW_IT_WORKS_STEPS[2].body}</Text>
+                </MarketingHowItWorksStepBody>
+                <MarketingHowItWorksStepIllustration align="right">
+                  <HowItWorksSync />
+                </MarketingHowItWorksStepIllustration>
+              </MarketingHowItWorksRow>
+            </MarketingHowItWorksCard>
+          </MarketingHowItWorksSection>
 
           {TESTIMONIALS.length > 0 && (
             <MarketingTestimonialsSection id="testimonials">

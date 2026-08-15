@@ -25,6 +25,7 @@ import { MarketingIllustrationSync } from "@/illustrations/marketing-illustratio
 import { HowItWorksConnect } from "@/illustrations/how-it-works-connect";
 import { HowItWorksConfigure } from "@/illustrations/how-it-works-configure";
 import { HowItWorksSync } from "@/illustrations/how-it-works-sync";
+import { HOW_IT_WORKS_STEPS } from "@/features/marketing/how-it-works-steps";
 import { canonicalUrl, jsonLdScript, seoMeta, webPageSchema, breadcrumbSchema, breadcrumbTrail } from "@/lib/seo";
 import { Breadcrumb } from "@/components/ui/primitives/breadcrumb";
 import { ANALYTICS_EVENTS } from "@/lib/analytics";
@@ -77,26 +78,6 @@ const FEATURE_CARDS: FeatureCard[] = [
     body: "Check exactly what Keeper.sh sends to your calendars, or run it on your own server. It is open source under AGPL-3.0, with Docker images ready to deploy.",
     gridClassName: "lg:col-start-6 lg:col-span-5 lg:row-start-3",
     illustration: <MarketingIllustrationContributors />,
-  },
-];
-
-type UpdateStep = {
-  title: string;
-  body: string;
-};
-
-const UPDATE_STEPS: UpdateStep[] = [
-  {
-    title: "Connect a calendar, then say where it copies to",
-    body: "Connect a calendar with a sign-in or a pasted link, then choose which calendar its events copy into.",
-  },
-  {
-    title: "Choose what each calendar shows",
-    body: "By default a copy shows only the name of the calendar it came from. On Pro you set that per calendar.",
-  },
-  {
-    title: "Keeper.sh takes it from there",
-    body: "Your calendars are checked every minute. Changes reach your other calendars within 30 minutes on Free, a minute on Pro.",
   },
 ];
 
@@ -156,8 +137,8 @@ function FeaturesPage() {
         <MarketingHowItWorksCard>
           <MarketingHowItWorksRow>
             <MarketingHowItWorksStepBody step={1}>
-              <Heading3 as="h3">{UPDATE_STEPS[0].title}</Heading3>
-              <Text size="sm" tone="muted">{UPDATE_STEPS[0].body}</Text>
+              <Heading3 as="h3">{HOW_IT_WORKS_STEPS[0].title}</Heading3>
+              <Text size="sm" tone="muted">{HOW_IT_WORKS_STEPS[0].body}</Text>
             </MarketingHowItWorksStepBody>
             <MarketingHowItWorksStepIllustration align="right">
               <HowItWorksConnect />
@@ -166,8 +147,8 @@ function FeaturesPage() {
 
           <MarketingHowItWorksRow reverse>
             <MarketingHowItWorksStepBody step={2}>
-              <Heading3 as="h3">{UPDATE_STEPS[1].title}</Heading3>
-              <Text size="sm" tone="muted">{UPDATE_STEPS[1].body}</Text>
+              <Heading3 as="h3">{HOW_IT_WORKS_STEPS[1].title}</Heading3>
+              <Text size="sm" tone="muted">{HOW_IT_WORKS_STEPS[1].body}</Text>
             </MarketingHowItWorksStepBody>
             <MarketingHowItWorksStepIllustration align="left">
               <HowItWorksConfigure />
@@ -176,8 +157,8 @@ function FeaturesPage() {
 
           <MarketingHowItWorksRow>
             <MarketingHowItWorksStepBody step={3}>
-              <Heading3 as="h3">{UPDATE_STEPS[2].title}</Heading3>
-              <Text size="sm" tone="muted">{UPDATE_STEPS[2].body}</Text>
+              <Heading3 as="h3">{HOW_IT_WORKS_STEPS[2].title}</Heading3>
+              <Text size="sm" tone="muted">{HOW_IT_WORKS_STEPS[2].body}</Text>
             </MarketingHowItWorksStepBody>
             <MarketingHowItWorksStepIllustration align="right">
               <HowItWorksSync />
