@@ -1,0 +1,264 @@
+---
+title: "Building an MCP Server with OAuth 2.1"
+description: "How Keeper.sh's MCP server does OAuth 2.1: protected-resource discovery from a 401, dynamic client registration, authorization code with PKCE, a hosted consent screen, six scopes, and 30/90-day tokens."
+blurb: "What it actually takes to put OAuth 2.1 in front of a remote MCP server — the discovery chain, dynamic client registration, PKCE, a consent screen you host yourself, and the scope decisions I would make differently."
+slug: "building-an-mcp-server-with-oauth"
+createdAt: "2026-08-14"
+updatedAt: "2026-08-14"
+tags:
+  - "mcp"
+  - "oauth"
+  - "engineering"
+  - "open-source"
+---
+
+There is a lot written about building an MCP server and almost nothing about authenticating one. The spec tells you which RFCs apply and stops there, which is the correct thing for a spec to do and unhelpful when you have a client in front of you that is failing at a step you cannot name.
+
+We put OAuth 2.1 in front of [Keeper.sh](https://github.com/ridafkih/keeper.sh)'s remote MCP server. This is what that involved: the pieces, the decisions, the two places the spec left us guessing, and the one decision I would make differently. Every claim below is checkable — the repository is AGPL-3.0, and I have linked the files.
+
+If you want the reference material rather than the reasoning — the server address, the tool list, the scope table — that lives on the [MCP documentation page](/docs/mcp). If you just want to connect an assistant to a calendar, [the setup guide](/blog/how-to-give-claude-access-to-your-calendar-mcp) is the shorter read.
+
+## What OAuth 2.1 asks an MCP server to do
+
+The premise is that the MCP server is a *protected resource* and not an authorization server. It does not run a login page, it does not mint tokens, and it does not know what a password is. It verifies bearer tokens and it tells unauthenticated callers where to go.
+
+That leaves four moving parts, and a client walks them in order without being told anything in advance:
+
+1. It calls the server with no credentials and reads the `401`.
+2. It fetches the protected-resource metadata the `401` points at, which names the authorization server.
+3. It registers itself with that authorization server, because nobody created an OAuth app for it.
+4. It runs an authorization code flow with PKCE, the user approves on a consent screen, and it gets a token.
+
+Only step four involves a human. The first three are the parts you have to get exactly right, because when they are wrong the client's error message is a shrug.
+
+## Discovery starts with a 401
+
+The whole chain hangs off one header. An unauthenticated request to `/mcp` gets a `401` carrying a `WWW-Authenticate` with a `resource_metadata` pointer:
+
+```ts
+const protectedResourceMetadataUrl = new URL(
+  "/.well-known/oauth-protected-resource",
+  mcpPublicUrl,
+).toString();
+
+const wwwAuthenticateHeader = `Bearer resource_metadata="${protectedResourceMetadataUrl}"`;
+```
+
+Two details in that response are not in any spec and both came from clients failing.
+
+The first is `Access-Control-Expose-Headers: WWW-Authenticate`. A browser-based client reading the response through `fetch` cannot see the header at all unless you say so, and the failure looks exactly like a server that never sent it.
+
+The second is that we repeat the header inside the JSON-RPC error body as well:
+
+```ts
+return createJsonRpcErrorResponse(
+  401,
+  JSON_RPC_ERROR_UNAUTHORIZED,
+  "Unauthorized: Authentication required",
+  {
+    "Access-Control-Expose-Headers": "WWW-Authenticate",
+    "WWW-Authenticate": wwwAuthenticateHeader,
+    Allow: ALLOW_HEADER_VALUE,
+  },
+  {
+    "www-authenticate": wwwAuthenticateHeader,
+  },
+);
+```
+
+Belt and braces. Some clients read the transport response, some read the JSON-RPC error, and the cost of putting the pointer in both is one string.
+
+The document it points at is small, and the server builds it from the request's own origin rather than from a compiled-in constant:
+
+```json
+{
+  "resource": "https://www.keeper.sh/mcp",
+  "authorization_servers": ["https://www.keeper.sh/api/auth"],
+  "scopes_supported": ["keeper.read", "keeper.events.read", "..."]
+}
+```
+
+Deriving it from the origin — honouring `x-forwarded-proto` and `x-forwarded-host` — is what makes self-hosting work. Somebody running their own copy on their own domain gets a document describing their deployment, not ours, without setting a variable.
+
+## The well-known paths are where it broke
+
+Our authorization server is not at the root. It is Better Auth, mounted under `/api/auth`, and the resource lives at `/mcp` on the same origin. Clients do not care where you mounted it: they take the issuer, apply the discovery rules, and fetch what those rules produce.
+
+There are two rule sets, and they disagree. OpenID Connect Discovery says to append `/.well-known/openid-configuration` to the issuer. RFC 8414 says to *insert* `/.well-known/oauth-authorization-server` between the host and the issuer's path. For an issuer of `https://www.keeper.sh/api/auth` that is four plausible URLs, and real clients ask for all four.
+
+So we map all four, at the edge, in the web server:
+
+```ts
+const internalProxyPaths = {
+  "/.well-known/oauth-authorization-server": "/api/auth/.well-known/oauth-authorization-server",
+  "/.well-known/openid-configuration": "/api/auth/.well-known/openid-configuration",
+  "/.well-known/oauth-authorization-server/api/auth":
+    "/api/auth/.well-known/oauth-authorization-server",
+  "/.well-known/openid-configuration/api/auth":
+    "/api/auth/.well-known/openid-configuration",
+} as const;
+```
+
+It is four lines of routing and it was most of a day. **If you mount your authorization server anywhere other than the origin root, plan for this.** The alternative — mounting it at the root — is a bigger change than the routing table, and the routing table is honest about what clients actually request.
+
+## Dynamic client registration, unauthenticated on purpose
+
+Nobody is going to create an OAuth app before adding your server to their assistant. They paste a URL. So registration has to happen at runtime, from the client, with no credential:
+
+```ts
+allowDynamicClientRegistration: true,
+allowUnauthenticatedClientRegistration: true,
+clientRegistrationAllowedScopes: KEEPER_MCP_OAUTH_SCOPES,
+clientRegistrationDefaultScopes: ["offline_access", ...KEEPER_API_RESOURCE_SCOPES],
+```
+
+The second line is the one worth arguing about. Unauthenticated registration means anyone can create a client record on our authorization server. That sounds worse than it is: a registered client is not an authorization. It is a name, a redirect URI, and a set of scopes it is permitted to *ask* for. It reaches nothing until a signed-in human presses Allow, and the token it then receives is scoped to that human.
+
+What it does cost is rows. Client records accumulate, most of them created by a client that was configured once and never completed a flow. That is a housekeeping problem, and it is a much smaller problem than the alternative, which is telling every user to go create an OAuth app first.
+
+`clientRegistrationDefaultScopes` matters more than it looks. A client that registers without naming scopes gets the full set plus `offline_access`, because a client that asks for nothing and then discovers it can read nothing is a support ticket. Clients that do name scopes are held to `clientRegistrationAllowedScopes`.
+
+## PKCE, and the detour through our own login page
+
+Authorization is the standard code flow with PKCE. The interesting part is not PKCE itself — it is that the consent screen is a page in our own application, which means the browser leaves the authorization server mid-flow and has to come back to exactly where it was.
+
+A user arriving at `/oauth/consent` may not be signed in. They get sent to `/login`, and after logging in the original authorization request has to be reassembled and resumed. So the app has to recognise an in-progress MCP authorization by its query string alone:
+
+```ts
+const mcpAuthorizationSearchSchema = type({
+  client_id: "string > 0",
+  code_challenge: "string > 0",
+  code_challenge_method: "string > 0",
+  redirect_uri: "string > 0",
+  response_type: "string > 0",
+  scope: "string > 0",
+  state: "string > 0",
+  "+": "delete",
+});
+```
+
+PKCE parameters are part of the recognition test, not just a thing we pass along: a query string without `code_challenge` is not an MCP continuation and does not get resumed.
+
+The subtle bug is in the last line. `"+": "delete"` strips unknown keys, which is what you want from validation and precisely wrong here — `prompt` and `resource` are optional, not unknown, and dropping `resource` silently produces a token with the wrong audience. So validation is used as a predicate and the original parameters are what get forwarded:
+
+```ts
+// Return the full string params (including optional OAuth keys like
+// prompt, resource) rather than just the validated required subset.
+return stringParams;
+```
+
+Validate to decide, forward what arrived. Any hand-rolled consent page has this shape of bug available to it.
+
+## What the consent screen has to say
+
+The screen is ours to write, which means the scope strings are ours to translate. `keeper.sync-status.read` means nothing to the person deciding:
+
+```ts
+const SCOPE_LABELS: Record<string, string> = {
+  "keeper.read": "Read your Keeper data",
+  "keeper.sources.read": "View your calendar sources",
+  "keeper.destinations.read": "View your sync destinations",
+  "keeper.mappings.read": "View your source-destination mappings",
+  "keeper.events.read": "View your calendar events",
+  "keeper.sync-status.read": "View sync status",
+  "offline_access": "Stay connected when you're away",
+};
+```
+
+Unrecognised scopes fall through to the raw string rather than being hidden. A permission you cannot describe is still a permission the user is granting, and showing an ugly identifier beats showing nothing.
+
+## Six scopes, all of them named read
+
+Here is the part I would do differently.
+
+```ts
+const KEEPER_API_READ_SCOPE = "keeper.read";
+const KEEPER_API_SOURCE_SCOPE = "keeper.sources.read";
+const KEEPER_API_DESTINATION_SCOPE = "keeper.destinations.read";
+const KEEPER_API_MAPPING_SCOPE = "keeper.mappings.read";
+const KEEPER_API_EVENT_SCOPE = "keeper.events.read";
+const KEEPER_API_SYNC_SCOPE = "keeper.sync-status.read";
+```
+
+Six scopes, shaped around the resources rather than the tools, which I still think is right: tools get added and renamed, and a scope that names a tool ages badly. Reading events, reading the calendars events come from, reading the calendars they go to, reading which feeds which, reading sync state.
+
+Every one of them ends in `.read`. The server has tools that create, update, delete and RSVP to events.
+
+That is not a bug in the enforcement — the enforcement does what it says. Exactly one check runs at the door:
+
+```ts
+if (!hasScope(scopes, KEEPER_API_READ_SCOPE)) {
+  const insufficientScopeHeader =
+    `${wwwAuthenticateHeader}, error="insufficient_scope", scope="${KEEPER_API_READ_SCOPE}"`;
+  // → 403
+}
+```
+
+Past that gate, the caller's bearer token is put into the tool context and passed straight through to our REST API, which authorizes it as the account:
+
+```ts
+const toolContext: KeeperToolContext = {
+  bearerToken,
+  apiBaseUrl,
+};
+```
+
+So the honest description is: one scope is enforced, it grants everything the account can do, and the other five are advisory. The names promise a granularity that is not there. Tool annotations (`readOnlyHint`, `destructiveHint`) are published for every tool, but those are hints for the client's UI, not an authorization boundary — nothing on the server refuses a write because a token looked read-only.
+
+What I would build instead is a `keeper.events.write` scope enforced per tool, so that "let the assistant look at my calendar but not touch it" is a thing a user can grant. That request is reasonable, people ask for it, and today the answer is that there is no read-only half to accept: you approve everything or you approve nothing. The scope *names* are the part that makes this worse than it needs to be, because they imply a restriction the system does not enforce.
+
+If you are designing scopes for an MCP server now: decide whether a scope is a boundary or a label before you name it, and do not use `.read` for something that is not.
+
+## Audience validation, where the spec left room
+
+Tokens are JWTs, verified against the authorization server's JWKS, with issuer and audience both checked. Audience is where implementations diverge.
+
+The resource identifier in our metadata is `https://www.keeper.sh/mcp`. Clients send a `resource` parameter through the authorization request, and they do not agree on what belongs in it — some send the full resource URL, some send the origin. Rejecting the ones that disagree with us would have been defensible and would also have meant "does not work with popular client X".
+
+So we accept both, explicitly and narrowly:
+
+```ts
+const resolveValidAudiences = (resourceBaseUrl: string): string[] => {
+  const normalized = normalizeUrl(resourceBaseUrl);
+  const { origin } = new URL(resourceBaseUrl);
+  const audiences = new Set([origin, normalized]);
+  return [...audiences];
+};
+```
+
+Two values, both ours, both derived from the configured resource URL. That is a real widening of what a token is valid for and it is the trade I would make again — the point of audience binding is that a token minted for us is not usable elsewhere, and both accepted values satisfy that.
+
+The claims we then trust are deliberately two:
+
+```ts
+const mcpJwtClaimsSchema = type({
+  scope: "string",
+  sub: "string",
+  "+": "delete",
+});
+```
+
+Everything else the token carries is discarded before it reaches any code that could be tempted to read it.
+
+## Thirty days, and ninety
+
+```ts
+const MCP_ACCESS_TOKEN_EXPIRES_IN = 2_592_000;
+const MCP_REFRESH_TOKEN_EXPIRES_IN = 7_776_000;
+```
+
+Thirty days of access token, ninety days of refresh. Both are long by web-session standards, and that is a deliberate consequence of who the client is.
+
+A person notices being logged out and fixes it in ten seconds. An assistant does not notice — it fails a tool call, says something vague about not being able to reach your calendar, and the user concludes the integration is broken. Re-consent is a much worse experience for an agent than for a browser, so the tokens are long, and what bounds the exposure is elsewhere: the token is bound to this resource by audience, and it grants only what one account can already do.
+
+A client that asks for `offline_access` refreshes quietly for those ninety days without sending the user back through consent. One that does not gets thirty days and then a fresh approval.
+
+The other reason the numbers are not shorter is that verification is stateless — signature, issuer, audience, expiry — so a short access token would mean a refresh round trip regularly on a path where the user is waiting. The cost of that choice is that nothing on the request path can cut an issued token off early: once minted, it is good until it expires.
+
+## What I would keep
+
+Three things earned their place. Deriving the metadata document from the request origin, because it made self-hosting work with no configuration. Repeating the `WWW-Authenticate` pointer in the JSON-RPC body, because clients read different things. And treating the four well-known paths as a routing problem rather than arguing that clients should only ask for one.
+
+Two things I would change. Scopes that describe reading should not be the thing that authorizes writing. And a thirty-day token wants a revocation check on the verification path, so that withdrawing access does not mean waiting for an expiry.
+
+The server is about four files — [`mcp-handler.ts`](https://github.com/ridafkih/keeper.sh/blob/main/services/mcp/src/mcp-handler.ts) for the resource, [`mcp-config.ts`](https://github.com/ridafkih/keeper.sh/blob/main/packages/auth/src/mcp-config.ts) for the provider options, [`scopes.ts`](https://github.com/ridafkih/keeper.sh/blob/main/packages/constants/src/constants/scopes.ts) for the six, and [`consent.tsx`](https://github.com/ridafkih/keeper.sh/blob/main/applications/web/src/routes/%28oauth%29/oauth/consent.tsx) for the screen. It is all [open source](https://github.com/ridafkih/keeper.sh), so where the description above is kinder than the code deserves, the code is there to check.
