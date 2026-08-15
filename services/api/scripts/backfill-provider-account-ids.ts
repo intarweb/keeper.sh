@@ -1,6 +1,7 @@
 import { calendarAccountsTable, oauthCredentialsTable } from "@keeper.sh/database/schema";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { database, oauthProviders } from "@/context";
+import { context, destroy, widelog } from "@/utils/logging";
 
 const PUSH_PROVIDERS = ["google", "outlook"];
 const EXPIRY_SKEW_MS = 60_000;
@@ -20,7 +21,6 @@ interface BackfillTally {
   updated: number;
   skippedReauth: number;
   failed: number;
-  unchanged: number;
 }
 
 const selectCandidates = (): Promise<BackfillRow[]> =>
@@ -72,53 +72,76 @@ const resolveProviderAccountId = async (row: BackfillRow): Promise<string> => {
   const userInfo = await provider.fetchUserInfo(accessToken);
 
   if (!userInfo.id) {
-    throw new Error(`${row.provider} returned no account id for ${row.email ?? row.accountRowId}`);
+    throw new Error(`${row.provider} returned no account id for account ${row.accountRowId}`);
   }
 
   return userInfo.id;
 };
 
-const backfillRow = async (row: BackfillRow, tally: BackfillTally): Promise<void> => {
-  if (row.accountNeedsReauthentication || row.credentialNeedsReauthentication) {
-    tally.skippedReauth += 1;
-    console.log(`skip ${row.provider} ${row.email ?? row.accountRowId}: needs reauthentication`);
-    return;
+const backfillRow = (row: BackfillRow, tally: BackfillTally): Promise<void> =>
+  context(async () => {
+    widelog.set("operation.name", "backfill-provider-account-id");
+    widelog.set("operation.type", "script");
+    widelog.set("provider.name", row.provider);
+    widelog.set("account.id", row.accountRowId);
+
+    if (row.accountNeedsReauthentication || row.credentialNeedsReauthentication) {
+      tally.skippedReauth += 1;
+      widelog.set("outcome", "skipped");
+      widelog.set("skip.reason", "needs-reauthentication");
+      widelog.flush();
+      return;
+    }
+
+    try {
+      const providerAccountId = await resolveProviderAccountId(row);
+
+      await database
+        .update(calendarAccountsTable)
+        .set({ accountId: providerAccountId })
+        .where(eq(calendarAccountsTable.id, row.accountRowId));
+
+      tally.updated += 1;
+      widelog.set("provider.account_id", providerAccountId);
+      widelog.set("outcome", "success");
+    } catch (error) {
+      tally.failed += 1;
+      widelog.set("outcome", "error");
+      widelog.errorFields(error, { slug: "backfill-provider-account-id-failed" });
+    } finally {
+      widelog.flush();
+    }
+  });
+
+const resolveOutcome = (failed: number): "partial" | "success" => {
+  if (failed > 0) {
+    return "partial";
   }
-
-  try {
-    const providerAccountId = await resolveProviderAccountId(row);
-
-    await database
-      .update(calendarAccountsTable)
-      .set({ accountId: providerAccountId })
-      .where(eq(calendarAccountsTable.id, row.accountRowId));
-
-    tally.updated += 1;
-    console.log(`ok   ${row.provider} ${row.email ?? row.accountRowId} -> ${providerAccountId}`);
-  } catch (error) {
-    tally.failed += 1;
-    const reason = error instanceof Error ? error.message : String(error);
-    console.error(`fail ${row.provider} ${row.email ?? row.accountRowId}: ${reason}`);
-  }
+  return "success";
 };
 
-const run = async (): Promise<void> => {
-  const rows = await selectCandidates();
-  console.log(`found ${rows.length} account(s) missing a provider account id`);
+const run = (): Promise<void> =>
+  context(async () => {
+    const rows = await selectCandidates();
+    const tally: BackfillTally = { updated: 0, skippedReauth: 0, failed: 0 };
 
-  const tally: BackfillTally = { updated: 0, skippedReauth: 0, failed: 0, unchanged: 0 };
+    for (const row of rows) {
+      await backfillRow(row, tally);
+    }
 
-  for (const row of rows) {
-    await backfillRow(row, tally);
-  }
+    widelog.set("operation.name", "backfill-provider-account-ids");
+    widelog.set("operation.type", "script");
+    widelog.set("backfill.candidate_count", rows.length);
+    widelog.set("backfill.updated_count", tally.updated);
+    widelog.set("backfill.skipped_reauth_count", tally.skippedReauth);
+    widelog.set("backfill.failed_count", tally.failed);
+    widelog.set("outcome", resolveOutcome(tally.failed));
+    widelog.flush();
 
-  console.log(
-    `done: ${tally.updated} updated, ${tally.skippedReauth} skipped (reauth), ${tally.failed} failed`,
-  );
-
-  if (tally.failed > 0) {
-    process.exitCode = 1;
-  }
-};
+    if (tally.failed > 0) {
+      process.exitCode = 1;
+    }
+  });
 
 await run();
+await destroy();
