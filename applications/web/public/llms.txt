@@ -1,8 +1,8 @@
 # Keeper.sh
 
-> Keep your personal, work, business and school calendars in sync automatically, so a booking on one shows up as busy on the others. Open source, and yours to self-host.
+> Keep your personal, work, business and school calendars in sync automatically, so a booking on one shows up as busy on the others, and your event titles stay private.
 
-Keeper.sh keeps your calendars in step with each other. Connect the calendars you already use — Google Calendar, Outlook, FastMail, iCloud, CalDAV, and iCal feeds. Then pick which calendar's events get copied onto which. You also choose how much detail travels with them: your work calendar can show a personal commitment as busy without showing what it is. Pro is $5 a month however many calendars you connect, and there is a free tier. Keeper.sh is open source (AGPL-3.0), so you can run it on your own server instead.
+Keeper.sh keeps your calendars in step with each other. Connect the calendars you already use — Google Calendar, Outlook, FastMail, iCloud, CalDAV, and iCal feeds. Then pick which calendar's events get copied onto which. You also choose how much detail travels with them: by default a copy in your work calendar carries only the name of the calendar it came from, so the time is blocked and the title stays private. Pro is $5 a month however many calendars you connect, and there is a free tier.
 
 ## Key Features
 
@@ -10,9 +10,9 @@ Keeper.sh keeps your calendars in step with each other. Connect the calendars yo
 - Per-source-calendar privacy controls for event titles, descriptions, and locations; the shared iCal feed hides all three by default
 - Aggregated iCal feed generation for sharing availability externally
 - MCP (Model Context Protocol) server for AI agent calendar access via OAuth 2.1, with read and write tools
-- Self-hostable with Docker Compose (standalone, services-only, or individual containers)
-- Sources are read every minute on every plan; how often those changes are written out to destinations is what differs by plan
-- Free tier (2 linked accounts, 3 sync mappings, destinations refreshed every 30 minutes) and Pro tier ($5/month, unlimited accounts and mappings, destinations refreshed every minute)
+- Open source under AGPL-3.0, and self-hostable with Docker Compose (standalone, services-only, or individual containers)
+- Every calendar is read every minute on every plan; how quickly those changes reach your other calendars is what differs by plan
+- Free tier (2 linked accounts, 3 connections, 1 shared calendar link, other calendars updated every 30 minutes) and Pro tier ($5/month or $42/year, unlimited accounts and connections, other calendars updated every minute)
 
 ## Links
 

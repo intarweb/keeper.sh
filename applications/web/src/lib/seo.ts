@@ -138,7 +138,7 @@ export function softwareApplicationSchema() {
     "@id": `${SITE_URL}/#software`,
     name: SITE_NAME,
     description:
-      "Keep your personal, work, business and school calendars in sync automatically — a booking on one shows up as busy on the others. Open source and self-hostable.",
+      "Keeper.sh keeps your personal, work and school calendars in sync, so a booking on one shows you as busy on the others. Your event titles stay private.",
     url: SITE_URL,
     image: `${SITE_URL}/open-graph.png`,
     applicationCategory: "BusinessApplication",
@@ -150,7 +150,7 @@ export function softwareApplicationSchema() {
         price: "0",
         priceCurrency: "USD",
         description:
-          "For users that just want to get basic calendar syncing up and running.",
+          "For keeping two calendar accounts from double-booking each other.",
       },
       {
         "@type": "Offer",
@@ -164,7 +164,7 @@ export function softwareApplicationSchema() {
           billingDuration: "P1M",
         },
         description:
-          "For power users who want minutely syncs and unlimited linked accounts.",
+          "For more than two calendar accounts, or when you need updates within the minute.",
       },
     ],
     provider: { "@id": `${SITE_URL}/#organization` },

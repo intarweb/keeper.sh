@@ -317,7 +317,7 @@ function MarketingPage() {
               </Text>
               <div className="flex items-center gap-2 mt-2">
                 <LinkButton to="/register" size="compact" variant="inverse" data-visitors-event={ANALYTICS_EVENTS.marketing_cta_clicked} data-visitors-cta="bottom">
-                  <ButtonText>Get Started</ButtonText>
+                  <ButtonText>Sync Calendars</ButtonText>
                   <ButtonIcon>
                     <ArrowRightIcon size={16} />
                   </ButtonIcon>

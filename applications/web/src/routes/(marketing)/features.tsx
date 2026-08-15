@@ -34,7 +34,7 @@ import ArrowUpRightIcon from "lucide-react/dist/esm/icons/arrow-up-right";
 const breadcrumbs = breadcrumbTrail({ name: "Features", path: "/features" });
 
 const PAGE_DESCRIPTION =
-  "Keeper.sh copies events from one calendar into another and combines everything you connect into a single feed. Works with Google Calendar, Outlook, iCloud, Fastmail, and more.";
+  "Keeper.sh copies events from one calendar into another, and puts everything you connect behind one calendar link you can share. Works with Google Calendar, Outlook, iCloud, Fastmail, and more.";
 
 type FeatureCard = {
   title: string;
@@ -57,24 +57,24 @@ const FEATURE_CARDS: FeatureCard[] = [
     illustration: <MarketingIllustrationSync />,
   },
   {
-    title: "Share that you are busy, not what you are doing",
-    body: "The link hides titles, descriptions, and locations by default. Every event reads “Busy”, so you can hand it to a colleague without handing over your schedule. On Pro you pick which details it keeps and what the stand-in title says.",
+    title: "Keep your event details off the link you share",
+    body: "Every event on the link reads “Busy”, with no title, description or location. On Pro you choose which details it keeps.",
     gridClassName: "lg:col-start-1 lg:col-span-6 lg:row-start-2",
   },
   {
-    title: "Connections go one way",
-    body: "A connection copies events from one calendar into another. If you want both calendars to match, connect them in both directions.",
+    title: "Choose which calendar copies into which",
+    body: "You pick the calendar events come from and the calendar they land in. Want two calendars to match each other? Connect them both ways.",
     gridClassName: "lg:col-start-7 lg:col-span-4 lg:row-start-2",
     illustration: <MarketingIllustrationSetup />,
   },
   {
-    title: "Copies that stay right",
-    body: "Move an event and the copy moves. Delete it and the copy goes too. Your other calendar gets corrected instead of collecting duplicates.",
+    title: "Move an event and the copy moves with it",
+    body: "Delete it and the copy goes too. Your other calendar gets corrected, so duplicates never pile up.",
     gridClassName: "lg:col-start-1 lg:col-span-5 lg:row-start-3",
   },
   {
-    title: "Open-source, and yours to run",
-    body: "Keeper.sh is open-source under AGPL-3.0, with Docker images ready to deploy. Run it yourself and every account on it gets the Pro feature set, with no plan limits.",
+    title: "Anyone can read the code",
+    body: "Check exactly what Keeper.sh sends to your calendars, or run it on your own server. It is open source under AGPL-3.0, with Docker images ready to deploy.",
     gridClassName: "lg:col-start-6 lg:col-span-5 lg:row-start-3",
     illustration: <MarketingIllustrationContributors />,
   },
@@ -110,12 +110,12 @@ export const Route = createFileRoute("/(marketing)/features")({
   head: () => ({
     links: [{ rel: "canonical", href: canonicalUrl("/features") }],
     meta: seoMeta({
-      title: "Features",
+      title: "What Keeper.sh Does for Your Calendars",
       description: PAGE_DESCRIPTION,
       path: "/features",
     }),
     scripts: [
-      jsonLdScript(webPageSchema("Features", PAGE_DESCRIPTION, "/features")),
+      jsonLdScript(webPageSchema("What Keeper.sh Does for Your Calendars", PAGE_DESCRIPTION, "/features")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),
     ],
   }),
@@ -126,7 +126,7 @@ function FeaturesPage() {
     <div className="flex flex-col gap-6 py-16">
       <Breadcrumb items={breadcrumbs} />
       <header className="flex flex-col gap-1.5">
-        <Heading1>Features</Heading1>
+        <Heading1>What Keeper.sh does for your calendars</Heading1>
         <Text size="base" tone="muted" className="max-w-[64ch] leading-6">
           {PAGE_DESCRIPTION}
         </Text>
@@ -194,7 +194,7 @@ function FeaturesPage() {
         <MarketingFeatureBentoGrid>
           <MarketingFeatureBentoCard className="lg:col-start-1 lg:col-span-5 lg:row-start-1">
             <MarketingFeatureBentoBody>
-              <Heading3 as="h3">REST API</Heading3>
+              <Heading3 as="h3">Drive your calendars from your own code</Heading3>
               <Text size="sm" className="text-left">
                 Keeper.sh exposes a REST API under /api/v1, authenticated with a bearer token you create under Settings → API Tokens.
                 It covers accounts, calendars, events, invites, and the calendar link.
@@ -207,10 +207,10 @@ function FeaturesPage() {
 
           <MarketingFeatureBentoCard className="lg:col-start-6 lg:col-span-5 lg:row-start-1">
             <MarketingFeatureBentoBody>
-              <Heading3 as="h3">MCP server</Heading3>
+              <Heading3 as="h3">Let AI agents view and manage your calendar</Heading3>
               <Text size="sm" className="text-left">
-                An assistant can read and write your calendars through Keeper.sh&rsquo;s MCP server. You approve it once on a consent
-                screen in your browser, and it signs in with OAuth 2.1 rather than a password.
+                Claude, Cursor or any MCP client can read and write your calendars through Keeper.sh&rsquo;s MCP server. You
+                approve it once on a consent screen in your browser, and it signs in with OAuth 2.1. No password is shared.
               </Text>
               <ul className="list-disc list-inside flex flex-col gap-1 ml-2 text-sm tracking-tight text-foreground-muted">
                 <li>{MCP_READ_TOOLS}</li>
@@ -235,7 +235,7 @@ function FeaturesPage() {
               data-visitors-event={ANALYTICS_EVENTS.marketing_cta_clicked}
               data-visitors-cta="features"
             >
-              <ButtonText>Get Started</ButtonText>
+              <ButtonText>Sync Calendars</ButtonText>
               <ButtonIcon>
                 <ArrowRightIcon size={16} />
               </ButtonIcon>

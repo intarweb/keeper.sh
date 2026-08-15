@@ -152,7 +152,7 @@ function AboutPage() {
               data-visitors-event={ANALYTICS_EVENTS.marketing_cta_clicked}
               data-visitors-cta="about"
             >
-              <ButtonText>Get Started</ButtonText>
+              <ButtonText>Sync Calendars</ButtonText>
               <ButtonIcon>
                 <ArrowRightIcon size={16} />
               </ButtonIcon>

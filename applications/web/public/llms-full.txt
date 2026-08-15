@@ -1,8 +1,8 @@
 # Keeper.sh — Full Context
 
-> Keep your personal, work, business and school calendars in sync automatically, so a booking on one shows up as busy on the others. Open source, and yours to self-host.
+> Keep your personal, work, business and school calendars in sync automatically, so a booking on one shows up as busy on the others, and your event titles stay private.
 
-Keeper.sh keeps your calendars in step with each other. Connect the calendars you already use — Google Calendar, Outlook, iCloud, FastMail, CalDAV, and iCal feeds. Then choose which calendar's events get copied onto which, so a booking on one shows up as busy on the others. The hosted service at keeper.sh is $5 a month however many calendars you connect, with a free tier to start. Keeper.sh was built by Rida F'kih and is open source (AGPL-3.0), so you can run it on your own server instead.
+Keeper.sh keeps your calendars in step with each other. Connect the calendars you already use — Google Calendar, Outlook, iCloud, FastMail, CalDAV, and iCal feeds. Then choose which calendar's events get copied onto which, so a booking on one shows up as busy on the others. The hosted service at keeper.sh is $5 a month however many calendars you connect, with a free tier to start. Keeper.sh was built by Rida F'kih. It is open source under AGPL-3.0, so you can also run it on your own server.
 
 ## Problem
 
