@@ -43,7 +43,7 @@ export const MCP_TOOL_GROUPS: McpToolGroup[] = [
       {
         name: "get_ical_feed",
         summary:
-          "Returns the URL of the aggregated iCal feed, for subscribing to it from another calendar app.",
+          "Returns the URL of the shareable calendar link, for subscribing to it from another calendar app.",
         arguments: "No arguments",
       },
     ],
@@ -67,7 +67,7 @@ export const MCP_TOOL_GROUPS: McpToolGroup[] = [
       {
         name: "get_event_count",
         summary:
-          "Returns only how many events fall in a range, so a busy week can be measured without pulling it.",
+          "Returns only how many events fall in a range, so a busy week can be measured without listing it.",
         arguments: "from and to, both optional",
       },
       {
@@ -85,7 +85,7 @@ export const MCP_TOOL_GROUPS: McpToolGroup[] = [
       {
         name: "create_event",
         summary:
-          "Creates an event on a connected calendar. Pass a timezone so CalDAV providers render it in local time rather than GMT.",
+          "Creates an event on a connected calendar. Pass a timezone so CalDAV providers show it in local time.",
         arguments: "calendarId, title, startTime, endTime, and optional description, location, isAllDay, availability, timezone",
       },
       {
@@ -108,7 +108,7 @@ export const MCP_TOOL_GROUPS: McpToolGroup[] = [
   {
     title: "Scheduling and sync",
     description:
-      "The tools that do work rather than report it: finding a slot, and controlling when syncing happens.",
+      "Finding an open slot, and controlling when syncing happens.",
     tools: [
       {
         name: "find_free_time",
@@ -126,7 +126,7 @@ export const MCP_TOOL_GROUPS: McpToolGroup[] = [
       {
         name: "pause_sync",
         summary:
-          "Pauses or resumes one calendar without disconnecting it. A paused calendar is neither polled nor pushed to, and its stored events are kept.",
+          "Pauses or resumes one calendar without disconnecting it. Nothing is read from it or written to it while paused, and its stored events are kept.",
         arguments: "calendarId, paused",
       },
     ],
@@ -136,9 +136,9 @@ export const MCP_TOOL_GROUPS: McpToolGroup[] = [
 export const MCP_OAUTH_SCOPES: OauthScope[] = [
   { scope: "keeper.read", description: "Required by every tool call. Without it the server answers 403." },
   { scope: "keeper.events.read", description: "Reading events and invitations." },
-  { scope: "keeper.sources.read", description: "Reading the calendars events are pulled from." },
-  { scope: "keeper.destinations.read", description: "Reading the calendars events are pushed to." },
-  { scope: "keeper.mappings.read", description: "Reading which source calendar feeds which destination." },
+  { scope: "keeper.sources.read", description: "Reading the calendars events are copied from." },
+  { scope: "keeper.destinations.read", description: "Reading the calendars events are copied into." },
+  { scope: "keeper.mappings.read", description: "Reading which calendar is copied into which." },
   { scope: "keeper.sync-status.read", description: "Reading sync state and triggering a sync." },
 ];
 

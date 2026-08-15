@@ -1,166 +1,176 @@
 # Keeper.sh — Full Context
 
-> Keep the same time blocked on every calendar you own. Keeper.sh mirrors busy time between Google Calendar, Outlook, Microsoft 365, iCloud, Fastmail, CalDAV servers and iCal/ICS links, stripping event titles, descriptions and locations before anything is written to another calendar.
+> Keeper.sh copies your events between Google Calendar, Outlook, Microsoft 365, iCloud, Fastmail and CalDAV calendars, so every one of them shows you as busy at the same times.
 
-Keeper.sh is a calendar synchronization service for people whose commitments are split across accounts that cannot see one another — a work Outlook calendar, a personal Google one, a shared iCloud one. You nominate which calendars are sources and which are destinations, and a pull-compare-push engine writes a matching busy block on each destination. What crosses over is the time, not the content: a source calendar withholds event titles, descriptions and locations by default, and attendee lists are never copied at all. The service is AGPL-3.0 and self-hostable, so that privacy behaviour can be read in the source and run on your own hardware rather than taken on trust. It is built by Rida F'kih and hosted at keeper.sh.
+Keeper.sh is for people whose commitments are split across accounts that cannot see one another — a work Outlook calendar, a personal Google one, a shared iCloud one. You pick which calendar's events are copied into which, and Keeper.sh writes a matching busy block on the other. Event titles, descriptions and locations stay behind by default, and guest lists are never copied on any plan.
+
+It is built by Rida F'kih and hosted at keeper.sh. It is open source under AGPL-3.0, so you can read what it does with your calendars and run it on your own server.
 
 ## Problem
 
-People with calendars across multiple providers (Google Calendar, Outlook, iCloud, Fastmail) end up with fragmented availability. Different people see incomplete windows into their schedule, causing constant overlap and scheduling friction. Existing tools were too manual, had finicky sync behavior, lacked privacy controls, or didn't offer self-hosting.
+People with calendars across several providers end up with a split picture of their week. Each group of people sees only part of it, so meetings land on top of each other. Existing tools were too manual, hid too little, or could not be run by the people using them.
 
 ## How It Works
 
 ### Sync Engine
 
-Keeper.sh uses a pull-compare-push architecture, split across two schedules:
+Keeper.sh runs on two schedules: reading your calendars, and writing changes out to the others.
 
-1. **Pull**: Events are fetched from configured source calendars into Keeper.sh's own database. This runs every minute on every plan
-2. **Compare**: Events are compared against known state
-3. **Push**: Changes are written out to destination calendars. This runs every minute on Pro and every thirty minutes on Free
+1. **Read**: Events are fetched into Keeper.sh's own database. This runs every minute on every plan
+2. **Compare**: Events are checked against what Keeper.sh already knows about
+3. **Write**: Changes go out to your other calendars. Every minute on Pro, every thirty minutes on Free
 
-Core sync operations:
-- **Add**: Source event with no mapping on destination gets created
-- **Delete**: Mapping exists but source event is gone — destination event gets removed
-- **Cleanup**: Keeper.sh-created events with no mapping are cleaned up
+Three things can happen to a copy:
+- **Add**: An event with no copy yet gets one created
+- **Delete**: The original is gone, so the copy is removed
+- **Cleanup**: A copy Keeper.sh made with no original left is cleared away
 
-Events created by Keeper.sh are tagged with a `@keeper.sh` suffix on their remote UID. For Outlook (which doesn't support custom UIDs), a `"keeper.sh"` category is used instead.
+Events Keeper.sh creates are tagged with a `@keeper.sh` suffix on their remote UID. Outlook does not allow custom UIDs, so a `"keeper.sh"` category is used there instead.
 
-Race conditions are prevented using Redis-backed generation counters. If two syncs target the same calendar simultaneously, the later one backs off.
+Two runs on the same calendar cannot collide. Counters held in Redis make the later run back off.
 
-For Google and Outlook, Keeper.sh uses incremental sync tokens — only fetching what changed since the last sync, making cycles fast even for calendars with thousands of events.
+For Google and Outlook, Keeper.sh asks only for what changed since last time. That keeps a run quick even on a calendar with thousands of events.
 
 ### Supported Providers
 
-**OAuth providers:**
-- **Google Calendar** — full read/write, supports filtering Focus Time, Working Location, and Out of Office events
-- **Microsoft Outlook** — full read/write via Microsoft Graph API. Personal Outlook, Hotmail and Live accounts connect through "Connect Outlook"; work and school tenants connect through "Connect Microsoft 365"
+**Sign-in providers:**
+- **Google Calendar** — full read and write. Can skip Focus Time, Working Location and Out of Office events
+- **Microsoft Outlook** — full read and write through the Microsoft Graph API. Personal Outlook, Hotmail and Live accounts connect through "Connect Outlook". Work and school tenants connect through "Connect Microsoft 365"
 
-**CalDAV-based providers:**
-- **Fastmail** — pre-configured CalDAV
-- **iCloud** — pre-configured CalDAV with app-specific password support
+**CalDAV providers:**
+- **Fastmail** — CalDAV, already configured
+- **iCloud** — CalDAV, already configured, with app-specific password support
 - **Generic CalDAV** — any CalDAV-compatible server
-- **iCal/ICS feeds** — read-only URL-based calendars
+- **iCal/ICS links** — read-only calendars you subscribe to by URL
 
-Each calendar has capability flags: "pull" (read events from) and "push" (write events to). iCal feeds are pull-only. OAuth and CalDAV calendars support both.
+Each calendar can be read from, written to, or both. A pasted iCal link can only be read from. Sign-in and CalDAV calendars do both.
 
 ### Privacy Controls
 
-Stripping is the default on both routes out of Keeper.sh: the copies written to your destination calendars, and the iCal feeds you share.
+Leaving detail behind is the default on both routes out of Keeper.sh: the copies written to your other calendars, and the links you share.
 
-A calendar set up as a source withholds event titles, descriptions and locations from the copies written to destination calendars. The mirrored title comes from a template that defaults to `{{calendar_name}}`, so a colleague sees the calendar's name in the slot rather than the appointment. Turning any of the three back on is a per-source-calendar setting, and it is a deliberate act.
+A calendar you copy events from holds back their titles, descriptions and locations. The copy's title comes from a template that starts as `{{calendar_name}}`, so a colleague sees the calendar's name in the slot. Turning any of the three back on is a per-calendar setting, and a deliberate act.
 
-The iCal feeds hide event names, descriptions and locations by default too, showing time blocks labelled "Busy".
+Shared iCal links hide event names, descriptions and locations too. They show time blocks labelled "Busy".
 
-Attendee lists are never copied to destination calendars or to an iCal feed, and there is no setting that turns that on. They are read only when you use the invite and RSVP features.
+Guest lists are never copied to another calendar or to a shared link, and no setting turns that on. They are read only when you use the invite and RSVP features.
 
-Per-source calendar settings:
-- Include or exclude event titles (withheld by default)
-- Include or exclude descriptions and locations (withheld by default)
-- Custom event name templates using `{{event_name}}` or `{{calendar_name}}` placeholders
+Per-calendar settings:
+- Show or hide event titles (hidden by default)
+- Show or hide descriptions and locations (hidden by default)
+- A custom title template using `{{event_name}}` or `{{calendar_name}}`
 - Skip all-day events
-- Skip Google-specific event types (Focus Time, Working Location, Out of Office)
+- Skip Google's own event types (Focus Time, Working Location, Out of Office)
 
-### iCal Feed
+Changing the title template, the event filters and the date range covered are Pro settings. Hiding titles, descriptions and locations is the default on every plan.
 
-Keeper.sh generates a unique, token-authenticated URL combining events from selected source calendars. Subscribable from any calendar app supporting iCal (Apple Calendar, Thunderbird, etc.). Respects all privacy settings.
+### Shareable Calendar Link
 
-Feeds are named and each one has its own selection of calendars and its own privacy settings, so a feed shared with a client can carry different detail from one shared at home. Free covers one feed; Pro is unlimited.
+Keeper.sh gives you a private URL combining events from the calendars you choose. Any calendar app that reads iCal can subscribe to it, including Apple Calendar and Thunderbird. It follows all your privacy settings.
 
-### Source and Destination Mappings
+Links are named, and each has its own calendars and its own privacy settings. A link shared with a client can carry different detail from one shared at home. Free covers one link; Pro is unlimited.
 
-Connect calendar accounts, then configure which calendars are sources and which are destinations. A single source can push to multiple destinations. A single destination can receive from multiple sources.
+### Connections
 
-Setup flow:
-1. Connect an account (OAuth, CalDAV, or iCal URL)
-2. Select calendars
-3. Rename for clearer labels
-4. Map sources to destinations
+Connect your calendar accounts, then say which calendar's events are copied into which. One calendar can be copied into several others. One calendar can receive from several others.
+
+Setup:
+1. Connect an account by sign-in, CalDAV, or a pasted iCal URL
+2. Pick calendars
+3. Rename them for clearer labels
+4. Say which one copies into which
+
+A connection runs one way. If you want two calendars to match each other, that is two connections.
 
 ## Pricing
 
-- **Free**: 2 linked accounts, 3 sync mappings, 1 iCal feed, destinations refreshed every 30 minutes, 25 API requests per day
-- **Pro ($5/month, or $42/year)**: Unlimited linked accounts, sync mappings and iCal feeds, destinations refreshed every minute, event filters, iCal feed customization, uncapped API requests, priority support
+- **Free**: 2 calendar accounts, 3 connections, 1 shared link, changes landing every 30 minutes, 25 API requests a day
+- **Pro ($5 a month, or $42 a year)**: Unlimited accounts, connections and shared links, changes landing every minute, event filters, link customization, uncapped API requests, priority support
 
-There is no cap on how many calendars an account exposes. A linked account is one connected Google, Outlook, iCloud, Fastmail, or CalDAV account, or one iCal/ICS subscription. A sync mapping is one source calendar wired to one destination calendar.
+There is no cap on how many calendars an account holds. An account is one connected Google, Outlook, iCloud, Fastmail or CalDAV login, or one iCal subscription. A connection is one calendar wired into one other calendar.
 
-Reading from your sources into Keeper.sh runs every minute on every plan. The refresh interval above is how often Keeper.sh writes those changes out to your destination calendars, and that is the only part that differs by plan.
+Every calendar is read every minute on every plan. The interval above is how often Keeper.sh writes changes out to your other calendars, and that is the only part that differs by plan.
 
-## Self-Hosting
+## Running It Yourself
 
-The entire stack runs on PostgreSQL, Redis, Bun, and Vite + React. Self-hosting costs a server, a domain, upgrades, backups, your own Google and Microsoft OAuth apps, and being the person paged when it stops; the hosted service at keeper.sh is the recommended path for most people. Plan entitlements under each model are set out in the repository README.
+The stack runs on PostgreSQL, Redis, Bun, and Vite with React. Every account on a server you run gets the Pro feature set, with no plan limits. Plan entitlements under each model are set out in the repository README.
 
-Three deployment models:
-- **Standalone**: Single `compose.yaml` bundling Caddy, PostgreSQL, Redis, API, web, and cron
-- **Services-only**: Application containers only (bring your own PostgreSQL and Redis)
+Running it yourself costs a server, a domain, upgrades, backups, your own Google and Microsoft sign-in apps, and being the person paged when it stops. The hosted service at keeper.sh is the easier path for most people.
+
+Three ways to deploy:
+- **Standalone**: One `compose.yaml` bundling Caddy, PostgreSQL, Redis, API, web, and cron
+- **Services-only**: Application containers only, with your own PostgreSQL and Redis
 - **Individual containers**: Separate `keeper-web`, `keeper-api`, `keeper-cron`, and `keeper-mcp` images
 
-Google Calendar and Outlook require OAuth app setup (Google Cloud / Azure). CalDAV providers and iCal feeds work without OAuth.
+Google Calendar and Outlook need their own sign-in apps set up in Google Cloud and Azure. CalDAV providers and iCal links work without that.
 
 ## REST API
 
-Keeper.sh exposes a REST API under `/api/v1`. It is the same interface the dashboard and the MCP server use, so anything an agent can do over MCP can be done with `curl`.
+Keeper.sh exposes a REST API under `/api/v1`. It is the same interface the dashboard and the MCP server use. Anything an agent can do over MCP can be done with `curl`.
 
-Authenticate with an API token created from Settings → API Tokens in the dashboard. Tokens are prefixed with `kpr_`, are shown once at creation, and are passed as a bearer token. The same routes also accept a logged-in browser session or an MCP OAuth access token, so all three callers reach the same handlers.
+Authenticate with an API token created from Settings → API Tokens in the dashboard. Tokens start with `kpr_`, are shown once at creation, and are passed as a bearer token. A logged-in browser session and an MCP access token reach the same handlers.
 
 Endpoints:
 - `GET /api/v1/calendars` — List connected calendars, with an optional comma-delimited `provider` filter
-- `PATCH /api/v1/calendars/{calendarId}` — Pause or resume syncing for a calendar in both directions without disconnecting it
-- `GET /api/v1/calendars/{calendarId}/invites` — List invitations on a calendar that have not been responded to, within a date range
+- `PATCH /api/v1/calendars/{calendarId}` — Pause or resume a calendar in both directions without disconnecting it
+- `GET /api/v1/calendars/{calendarId}/invites` — List invitations on a calendar with no reply yet, within a date range
 - `GET /api/v1/accounts` — List connected calendar accounts and how many calendars each has
 - `GET /api/v1/events` — List events in a date range, with `calendarId`, `availability` and `isAllDay` filters, and `count=true` for a count only
 - `POST /api/v1/events` — Create an event, given `calendarId`, `title`, `startTime` and `endTime`
 - `GET /api/v1/events/{id}` — Get a single event
-- `PATCH /api/v1/events/{id}` — Update an event's fields, or send `rsvpStatus` to respond to an invitation
+- `PATCH /api/v1/events/{id}` — Update an event's fields, or send `rsvpStatus` to answer an invitation
 - `DELETE /api/v1/events/{id}` — Delete an event
 - `GET /api/v1/events/free-time` — Find free slots of at least `durationMinutes`, with working-hours and working-day options read against a given IANA timezone
-- `POST /api/v1/sync` — Trigger a sync immediately, throttled to one request per minute per user
-- `GET /api/v1/ical` — Get the URL of your iCal feed
+- `POST /api/v1/sync` — Run a sync immediately, throttled to one request a minute per user
+- `GET /api/v1/ical` — Get the URL of your shareable calendar link
 
-Range parameters `from` and `to` are ISO 8601 datetimes. If omitted, `from` defaults to now and `to` to a week later. A range may not exceed 732 days.
+Range parameters `from` and `to` are ISO 8601 datetimes. Left out, `from` defaults to now and `to` to a week later. A range may not exceed 732 days.
 
-On the free plan the API is capped at 25 requests per day, after which requests return `429`. Pro is uncapped, as are self-hosted instances running without commercial mode.
+On the free plan the API is capped at 25 requests a day, after which requests return `429`. Pro is uncapped, as are servers you run yourself.
 
 ## MCP (Model Context Protocol)
 
-Keeper.sh includes an optional MCP server that gives AI agents (such as Claude) read and write access to calendar data. It is not a read-only bridge: the toolset books, amends, deletes and RSVPs to events, searches for open time, and pauses or forces a sync. The server authenticates via OAuth 2.1 with a user consent flow and is proxied through the web service at `/mcp`.
+Keeper.sh includes an optional MCP server. It gives AI agents such as Claude read and write access to your calendar data. The toolset books, amends, deletes and answers events, searches for open time, and pauses or forces a sync.
+
+The server authenticates with OAuth 2.1 and a consent screen you approve. It is served through the web service at `/mcp`.
 
 ### Available Tools
 
 Fourteen tools, covering the same ground as the REST API above.
 
 Reading:
-- **list_calendars** — List all calendars connected to Keeper.sh, including provider name and account
-- **list_accounts** — List all connected calendar accounts with provider information
-- **get_events** — Get calendar events within a date range (ISO 8601 datetimes + IANA timezone), returned localized to that timezone
-- **get_event** — Get a single calendar event by its ID
-- **get_event_count** — Get the number of calendar events, optionally within a date range
-- **get_pending_invites** — List invites on a calendar awaiting a response, within a date range
-- **get_ical_feed** — Get the user's iCal feed URL
+- **list_calendars** — List every calendar connected to Keeper.sh, with its provider and account
+- **list_accounts** — List connected calendar accounts, with provider information
+- **get_events** — Get events in a date range, returned in the timezone you pass in
+- **get_event** — Get a single event by its ID
+- **get_event_count** — Get how many events there are, optionally within a date range
+- **get_pending_invites** — List invites on a calendar awaiting a reply, within a date range
+- **get_ical_feed** — Get the URL of your shareable calendar link
 
 Scheduling:
-- **find_free_time** — Find open slots of at least a given duration across every synced calendar, optionally restricted to working hours, working days or named calendars. Events marked free or working-elsewhere never block; busy, out-of-office and all-day events do
-- **create_event** — Create an event on a connected calendar, optionally in a named IANA timezone so CalDAV copies render in local time rather than GMT
-- **update_event** — Update an existing event; only the fields provided are changed
+- **find_free_time** — Find open slots of at least a given length across every synced calendar. Can be limited to working hours, working days or named calendars. Events marked free or working-elsewhere never block; busy, out-of-office and all-day events do
+- **create_event** — Create an event on a connected calendar, optionally in a named IANA timezone so CalDAV copies show local time
+- **update_event** — Update an event; only the fields you send are changed
 - **delete_event** — Delete an event by its ID
-- **rsvp_event** — Respond to an event invite with `accepted`, `declined` or `tentative`
+- **rsvp_event** — Answer an invite with `accepted`, `declined` or `tentative`
 
 Sync control:
-- **trigger_sync** — Force a sync now rather than waiting for the next scheduled run, throttled to one request per minute per user
-- **pause_sync** — Pause or resume syncing for a single calendar without disconnecting it, keeping its stored events
+- **trigger_sync** — Run a sync now instead of waiting for the next one, throttled to one request a minute per user
+- **pause_sync** — Pause or resume a single calendar without disconnecting it, keeping its stored events
 
 ### Connecting
 
-Point any MCP-compatible client at the `/mcp` endpoint of a Keeper.sh instance. The client will be guided through the OAuth consent flow to authorize read and write access. Full documentation for the MCP server and the REST API it wraps lives at https://www.keeper.sh/docs/mcp.
+Point any MCP-compatible client at the `/mcp` endpoint of a Keeper.sh instance. The client walks you through the consent screen for read and write access. Full documentation lives at https://www.keeper.sh/docs/mcp.
 
-MCP is fully optional — all related environment variables are optional across every service. Existing deployments are unaffected when upgrading.
+MCP is optional. Every related environment variable is optional across every service, so existing deployments are unaffected when upgrading.
 
-## Technical Architecture
+## Technical Notes
 
-- **CalDAV as universal protocol**: RFC 4791 as the common layer for Fastmail, iCloud, and standards-compliant servers
-- **Encrypted credentials at rest**: CalDAV passwords and OAuth tokens encrypted with configurable key
-- **Content hashing for iCal feeds**: Skips processing if feed content unchanged, keeps snapshots for 6 hours
-- **Real-time sync status**: WebSocket endpoint broadcasts sync progress to dashboard
-- **MCP via OAuth 2.1**: Separate MCP server with JWT-based session resolution, proxied through the web service at `/mcp`
+- **CalDAV as the common layer**: RFC 4791 covers Fastmail, iCloud, and standards-compliant servers
+- **Encrypted credentials at rest**: CalDAV passwords and sign-in tokens encrypted with a configurable key
+- **Content hashing for shared links**: Skips work when a link's contents have not changed, keeping snapshots for 6 hours
+- **Live sync status**: A WebSocket endpoint sends sync progress to the dashboard
+- **MCP over OAuth 2.1**: A separate MCP server with JWT-based sessions, served through the web service at `/mcp`
 
 ## Links
 

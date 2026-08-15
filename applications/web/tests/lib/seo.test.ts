@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  BRAND_DISAMBIGUATION,
   blogPostingSchema,
   canonicalUrl,
   collectionPageSchema,
@@ -57,14 +56,13 @@ describe("organizationSchema", () => {
     );
   });
 
-  it("separates the organization from the password manager of a similar name", () => {
-    expect(organizationSchema["@graph"]).toContainEqual(
-      expect.objectContaining({
-        "@type": "Organization",
-        disambiguatingDescription: BRAND_DISAMBIGUATION,
-      }),
+  it("carries no defensive brand copy", () => {
+    const organization = organizationSchema["@graph"].find(
+      (entry) => entry["@type"] === "Organization",
     );
-    expect(BRAND_DISAMBIGUATION).toContain("Keeper Security");
+
+    expect(organization).toBeDefined();
+    expect(organization).not.toHaveProperty("disambiguatingDescription");
   });
 });
 

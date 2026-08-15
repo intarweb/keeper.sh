@@ -13,6 +13,7 @@ import {
 import { MarketingFaqSection, MarketingFaqList, MarketingFaqItem, MarketingFaqQuestion } from '../../features/marketing/components/marketing-faq'
 import { MarketingCtaSection, MarketingCtaCard } from '../../features/marketing/components/marketing-cta'
 import { Collapsible } from '../../components/ui/primitives/collapsible'
+import { TextLink } from '../../components/ui/primitives/text-link'
 import { ButtonIcon, ButtonText, ExternalLinkButton, LinkButton } from '../../components/ui/primitives/button'
 import { MarketingIllustrationCalendar, MarketingIllustrationCalendarCard, type Skew, type SkewTuple } from '../../features/marketing/components/marketing-illustration-calendar'
 import {
@@ -25,7 +26,6 @@ import {
 import { MarketingIllustrationContributors } from '../../illustrations/marketing-illustration-contributors'
 import { MarketingIllustrationProviders } from '../../illustrations/marketing-illustration-providers'
 import { MarketingIllustrationSync } from '../../illustrations/marketing-illustration-sync'
-import { MarketingIllustrationSetup } from '../../illustrations/marketing-illustration-setup'
 import { HowItWorksConnect } from '../../illustrations/how-it-works-connect'
 import { HowItWorksConfigure } from '../../illustrations/how-it-works-configure'
 import { HowItWorksSync } from '../../illustrations/how-it-works-sync'
@@ -46,6 +46,9 @@ import { calendarEmphasizedAtom } from '../../state/calendar-emphasized'
 import { ANALYTICS_EVENTS } from '../../lib/analytics'
 import ArrowRightIcon from "lucide-react/dist/esm/icons/arrow-right";
 import ArrowUpRightIcon from "lucide-react/dist/esm/icons/arrow-up-right";
+
+const PAGE_DESCRIPTION =
+  "Keeper.sh copies your events between Google Calendar, Outlook, iCloud and Fastmail so all of them show you as busy at the same times. Event titles stay private."
 
 const createSkew = (rotate: number, x: number, y: number): Skew => ({ rotate, x, y });
 
@@ -78,34 +81,40 @@ type MarketingFeature = {
 const MARKETING_FEATURES: MarketingFeature[] = [
   {
     id: 1,
-    title: 'Universal Calendar Sync',
+    title: 'One booking blocks every calendar',
     description:
-      'Google Calendar, Outlook, Apple Calendar, and more. Automatically sync events between all your calendars no matter the provider.',
+      'Book something in one calendar and that time shows as busy in all the others.',
     gridClassName: 'lg:col-start-1 lg:col-span-6 lg:row-start-1',
-    illustration: <MarketingIllustrationProviders />,
-  },
-  {
-    id: 2,
-    title: 'Simple Synchronization Engine',
-    description:
-      'Your events are aggregated and synced across all linked calendars. Keeper.sh tracks every copy it creates and checks them on each run, updating and removing them as the original changes.',
-    gridClassName: 'lg:col-start-7 lg:col-span-4 lg:row-start-1',
     illustration: <MarketingIllustrationSync />,
   },
   {
-    id: 3,
-    title: 'Quick Setup',
+    id: 2,
+    title: 'Works with the calendars you already use',
     description:
-      'Link your Google, Outlook, iCloud, or CalDAV accounts in seconds. On the hosted version there is nothing to configure. Sign in and go.',
-    gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-2',
-    illustration: <MarketingIllustrationSetup />,
+      'Google, Outlook, iCloud and Fastmail sign in directly. For anything else, paste a calendar link.',
+    gridClassName: 'lg:col-start-7 lg:col-span-4 lg:row-start-1',
+    illustration: <MarketingIllustrationProviders />,
+  },
+  {
+    id: 3,
+    title: 'Synced events stay private by default',
+    description:
+      'A copy carries the calendar name in place of your event title. No description, location or guest list.',
+    gridClassName: 'lg:col-start-1 lg:col-span-10 lg:row-start-2',
   },
   {
     id: 4,
-    title: 'Privacy-First & Open Source',
+    title: 'Let AI agents view and manage your calendar',
     description:
-      'Open-source, released under an AGPL-3.0 license. Community driven, and anyone can read the code to check what it does with your calendars. Here are some of the latest contributors.',
-    gridClassName: 'lg:col-start-5 lg:col-span-6 lg:row-start-2',
+      'Connect Claude or any MCP client and let it check your week, book events and reschedule.',
+    gridClassName: 'lg:col-start-1 lg:col-span-4 lg:row-start-3',
+  },
+  {
+    id: 5,
+    title: 'Anyone can read the code',
+    description:
+      'Check exactly what Keeper.sh sends to your calendars, or run it on your own server.',
+    gridClassName: 'lg:col-start-5 lg:col-span-6 lg:row-start-3',
     illustration: <MarketingIllustrationContributors />,
   },
 ]
@@ -119,17 +128,17 @@ const HOW_IT_WORKS_STEPS: HowItWorksStep[] = [
   {
     title: 'Connect your calendars',
     description:
-      'Link your Google, Outlook, iCloud, or CalDAV accounts using OAuth or ICS feeds. It takes seconds.',
+      'Sign in with Google, Outlook, iCloud or Fastmail. For anything else, paste a calendar link.',
   },
   {
-    title: 'Configure sync rules',
+    title: 'Say where your events should land',
     description:
-      'Choose which calendars to sync and how events should appear. Keeper.sh handles the rest automatically.',
+      'Point each calendar at the one you want its events copied into, and choose how much detail travels.',
   },
   {
-    title: 'Stay in sync',
+    title: 'Keeper.sh takes it from there',
     description:
-      'Events are aggregated and pushed out across all your linked calendars on a schedule. Discrepancies are reconciled.',
+      'Your calendars are read every minute. Changes reach the others every 30 minutes on Free, and every minute on Pro.',
   },
 ]
 
@@ -141,49 +150,43 @@ type FaqItem = {
 
 const FAQ_ITEMS: FaqItem[] = [
   {
-    question: 'Can I use ICS or iCal links as a source?',
+    question: 'My calendar only gives me a link to paste. Does that work?',
     answer:
-      'Yes. Any publicly accessible ICS or iCal link can be used as a calendar source in Keeper.sh. This means you can pull events from services that only offer read-only calendar feeds.',
+      'Yes. Paste the link and those events copy to your other calendars. Copying goes one way, so nothing you change reaches the original calendar.',
   },
   {
-    question: 'Which calendar providers does Keeper.sh support?',
+    question: 'Which calendars does Keeper.sh work with?',
     answer:
-      'Keeper.sh works with Google Calendar, Microsoft Outlook, Apple iCloud, FastMail, and any provider that supports CalDAV or ICS feeds. If your calendar supports one of these, it should work with Keeper.sh.',
+      'Google Calendar, Outlook, iCloud and Fastmail sign in directly. Most others work too, as long as yours gives you a calendar link or a CalDAV login.',
   },
   {
-    question: 'Can I self-host Keeper.sh?',
+    question: 'Can my colleagues see what my personal events are?',
     answer:
-      'Yes. Keeper.sh is open-source under the AGPL-3.0 license. Check the README on GitHub for setup instructions, or use one of the many Docker images we offer for quick deployment.',
-    content: <>Yes. Keeper.sh is open-source under the AGPL-3.0 license. Check the <a href="https://github.com/ridafkih/keeper.sh#readme" target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">README on GitHub</a> for setup instructions, or use one of the many Docker images we offer for quick deployment.</>,
+      'No. A copy carries the calendar name in place of your event title, with no description, location or guest list. Pro lets you show the title, description and location; guest lists are never copied on any plan.',
   },
   {
-    question: 'How often do calendars sync?',
+    question: 'How often do calendars update?',
     answer:
-      'Keeper.sh reads your calendars every minute on both plans. What differs is how often it writes those changes back out to your other calendars: every 30 minutes on the free plan, and every minute on Pro.',
+      'Keeper.sh reads every calendar every minute on both plans. Your changes reach the other calendars every 30 minutes on Free, and every minute on Pro.',
   },
   {
-    question: 'Are my event details visible to others?',
+    question: 'Can I run Keeper.sh myself?',
     answer:
-      'Only if you want them to be. You can choose whether events display details, or just show a generic event summary. You can customize the title, and choose to hide the details you want to keep private. These are configurable per-calendar.',
+      'Yes. Keeper.sh is open source under AGPL-3.0, and the README on GitHub has the Docker setup steps. Every account on a server you run gets the Pro feature set, with no plan limits.',
+    content: <>Yes. Keeper.sh is open source under AGPL-3.0, and the <a href="https://github.com/ridafkih/keeper.sh#readme" target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">README on GitHub</a> has the Docker setup steps. Every account on a server you run gets the Pro feature set, with no plan limits.</>,
   },
   {
-    question: 'Can I control how synced events appear?',
+    question: 'Can I cancel any time?',
     answer:
-      'Yes. You configure how events are displayed on each destination calendar. Titles, descriptions, and other details can be customized or stripped entirely.',
-  },
-  {
-    question: 'Can I cancel my subscription anytime?',
-    answer:
-      'Yes. You can cancel at any time from your account settings. Your access continues until the end of the current billing period.',
+      'Yes. Cancel in your account settings and keep access until the period you paid for ends.',
   },
 ]
 
 export const Route = createFileRoute('/(marketing)/')({
   component: MarketingPage,
   head: () => seoHead({
-    title: "Open-Source Calendar Syncing for Google, Outlook & iCloud",
-    description:
-      "Keep your personal, work, and school calendars in sync automatically. Open source, and works with Google Calendar, Outlook, iCloud, Fastmail and more.",
+    title: "Sync Google Calendar with Outlook & iCloud",
+    description: PAGE_DESCRIPTION,
     path: "/",
     brandPosition: "before",
     scripts: [
@@ -198,9 +201,9 @@ function MarketingPage() {
 
   return (
     <div className="flex flex-col gap-2 pt-8">
-      <Heading1 className="text-center">All of your calendars in-sync.</Heading1>
+      <Heading1 className="text-center">Stop double-booking yourself.</Heading1>
       <Text align="center" className="max-w-[48ch] mx-auto">
-        Synchronize events between your personal, work, business and school calendars automatically. Works with Google Calendar, Outlook, iCloud, CalDAV, and ICS/iCal feeds. Open-source under AGPL-3.0.
+        Keeper.sh copies your events between your personal, work and school calendars, so all of them show you as busy at the same times. Works with Google Calendar, Outlook, iCloud and Fastmail.
       </Text>
       <div className="contents *:z-20">
         <div className="flex items-center gap-2 mx-auto pt-1">
@@ -258,9 +261,10 @@ function MarketingPage() {
 
           <MarketingPricingSection id="pricing">
             <MarketingPricingIntro>
-              <Heading2 className="text-center">Hosted Pricing</Heading2>
-              <Text size='sm' align="center">
-                Keeper.sh uses a low-cost freemium model to give you a solid range of choice. Check the GitHub repository for self-hosting options.
+              <Heading2 className="text-center">Pricing</Heading2>
+              <Text size="sm" align="center" tone="muted">
+                Not sure which you need?{' '}
+                <TextLink to="/pricing" size="sm" tone="default">See what each plan includes</TextLink>.
               </Text>
             </MarketingPricingIntro>
 
@@ -301,7 +305,7 @@ function MarketingPage() {
           <MarketingHowItWorksSection>
             <Heading2 className="text-center">How It Works</Heading2>
             <Text size="sm" align="center" className="mt-2 max-w-[48ch] mx-auto">
-              Three steps to keep every calendar on the same page. Connect, configure, and forget about it.
+              Three steps, and then you can forget about it.
             </Text>
             <MarketingHowItWorksCard>
               <MarketingHowItWorksRow>
@@ -339,7 +343,7 @@ function MarketingPage() {
           <MarketingFaqSection>
             <Heading2 className="text-center">Frequently Asked Questions</Heading2>
             <Text size="sm" align="center" className="mt-2 max-w-[48ch] mx-auto">
-              Everything you need to know about Keeper.sh. Can't find what you're looking for? Reach out at{' '}
+              Anything else, write to{' '}
               <a href="mailto:support@keeper.sh" className="text-foreground underline underline-offset-2">support@keeper.sh</a>.
             </Text>
             <MarketingFaqList>
@@ -359,7 +363,7 @@ function MarketingPage() {
             <MarketingCtaCard>
               <Heading2 className="text-center text-white">Ready to sync your calendars?</Heading2>
               <Text size="sm" align="center" tone="highlight" className="max-w-[46ch]">
-                Start syncing your calendars in seconds. Free to use, no credit card required.
+                Free for two calendar accounts. No credit card.
               </Text>
               <div className="flex items-center gap-2 mt-2">
                 <LinkButton to="/register" size="compact" variant="inverse" data-visitors-event={ANALYTICS_EVENTS.marketing_cta_clicked} data-visitors-cta="bottom">

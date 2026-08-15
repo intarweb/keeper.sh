@@ -3,9 +3,6 @@ const SITE_NAME = "Keeper.sh";
 const SITE_ALTERNATE_NAME = "Keeper";
 const DEFAULT_IMAGE_PATH = "/open-graph.png";
 
-export const BRAND_DISAMBIGUATION =
-  "Keeper.sh is a calendar syncing tool. It is not affiliated with Keeper Security, the password manager.";
-
 export function canonicalUrl(path: string): string {
   return `${SITE_URL}/${path.replace(/^\/+/, "")}`;
 }
@@ -93,7 +90,6 @@ export const organizationSchema = {
       "@id": `${SITE_URL}/#organization`,
       name: SITE_NAME,
       alternateName: SITE_ALTERNATE_NAME,
-      disambiguatingDescription: BRAND_DISAMBIGUATION,
       url: SITE_URL,
       logo: {
         "@type": "ImageObject",
@@ -168,7 +164,7 @@ export function softwareApplicationSchema() {
     "@id": `${SITE_URL}/#software`,
     name: SITE_NAME,
     description:
-      "Open-source calendar event syncing tool. Synchronize events between your personal, work, business and school calendars.",
+      "Copies your events between your personal, work and school calendars, so all of them show you as busy at the same times.",
     url: SITE_URL,
     image: `${SITE_URL}/open-graph.png`,
     applicationCategory: "BusinessApplication",
@@ -180,7 +176,7 @@ export function softwareApplicationSchema() {
         price: "0",
         priceCurrency: "USD",
         description:
-          "For users that just want to get basic calendar syncing up and running.",
+          "Enough for two calendar accounts and three connections.",
       },
       {
         "@type": "Offer",
@@ -194,7 +190,7 @@ export function softwareApplicationSchema() {
           billingDuration: "P1M",
         },
         description:
-          "For power users who want minutely syncs and unlimited linked accounts.",
+          "As many calendars as you want, and changes that land within a minute.",
       },
     ],
     provider: { "@id": `${SITE_URL}/#organization` },

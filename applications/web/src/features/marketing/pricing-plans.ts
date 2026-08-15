@@ -28,7 +28,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     price: '$0',
     period: 'per month',
     description:
-      'For personal use and getting started with calendar sync.',
+      'Enough for two calendar accounts and three connections.',
     ctaLabel: 'Get Started',
   },
   {
@@ -37,7 +37,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     price: '$5',
     period: 'per month',
     description:
-      'For power users who need fast syncs, advanced feed controls, and unlimited syncing.',
+      'As many calendars as you want, and changes that land within a minute.',
     ctaLabel: 'Get Started',
     tone: "inverse" as const,
   },
@@ -46,12 +46,12 @@ export const PRICING_PLANS: PricingPlan[] = [
 export const PRICING_FEATURES: PricingFeature[] = [
   { label: 'Reading Your Calendars', free: 'Every 1 minute', pro: 'Every 1 minute' },
   { label: 'Updating Your Calendars', free: 'Every 30 minutes', pro: 'Every 1 minute' },
-  { label: 'Linked Accounts', free: 'Up to 2', pro: 'infinity' },
-  { label: 'Sync Mappings', free: 'Up to 3', pro: 'infinity' },
-  { label: 'Aggregated iCal Feed', free: 'check', pro: 'check' },
-  { label: 'iCal Feed Customization', free: 'minus', pro: 'check' },
-  { label: 'Event Filters & Exclusions', free: 'minus', pro: 'check' },
-  { label: 'API & MCP Access', free: '25 calls/day', pro: 'infinity' },
+  { label: 'Calendar Accounts', free: 'Up to 2', pro: 'infinity' },
+  { label: 'Connections', free: 'Up to 3', pro: 'infinity' },
+  { label: 'Shareable Calendar Link', free: 'check', pro: 'check' },
+  { label: 'Choose What The Link Shows', free: 'minus', pro: 'check' },
+  { label: 'Event Filters', free: 'minus', pro: 'check' },
+  { label: 'API & AI Agent Access', free: '25 calls/day', pro: 'infinity' },
   { label: 'Priority Support', free: 'minus', pro: 'check' },
 ];
 

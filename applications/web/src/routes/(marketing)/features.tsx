@@ -34,7 +34,7 @@ import ArrowUpRightIcon from "lucide-react/dist/esm/icons/arrow-up-right";
 const breadcrumbs = breadcrumbTrail({ name: "Features", path: "/features" });
 
 const PAGE_DESCRIPTION =
-  "Keeper.sh copies events from one calendar into another and combines everything you connect into a single feed. Works with Google Calendar, Outlook, iCloud, Fastmail, and more.";
+  "Keeper.sh copies your events between calendars, so every one of them shows you as busy at the same times. Works with Google Calendar, Outlook, iCloud, Fastmail and more.";
 
 type FeatureCard = {
   title: string;
@@ -46,46 +46,46 @@ type FeatureCard = {
 const FEATURE_CARDS: FeatureCard[] = [
   {
     title: "Works with the calendars you already use",
-    body: "Sign in to Google Calendar, Outlook, iCloud, or Fastmail. Other calendars connect with a link you paste in, or over the CalDAV standard they already support.",
+    body: "Google, Outlook, iCloud and Fastmail sign in directly. Anything else connects with a link you paste in, or over CalDAV.",
     gridClassName: "lg:col-start-1 lg:col-span-4 lg:row-start-1",
     illustration: <MarketingIllustrationProviders />,
   },
   {
-    title: "One calendar link with everything in it",
-    body: "Every calendar you connect also lands in a single link. Subscribe to it from any calendar app and your whole week shows up in one place.",
+    title: "See your whole week in one place",
+    body: "Every calendar you connect also lands in a single link. Subscribe to it from any calendar app.",
     gridClassName: "lg:col-start-5 lg:col-span-6 lg:row-start-1",
     illustration: <MarketingIllustrationSync />,
   },
   {
-    title: "Share that you are busy, not what you are doing",
-    body: "The link hides titles, descriptions, and locations by default. Every event reads “Busy”, so you can hand it to a colleague without handing over your schedule. On Pro you pick which details it keeps and what the stand-in title says.",
+    title: "Share your free time and keep your diary private",
+    body: "Every event in that link reads “Busy”. Titles, descriptions and locations stay behind. Pro lets you choose what it shows instead.",
     gridClassName: "lg:col-start-1 lg:col-span-6 lg:row-start-2",
   },
   {
-    title: "Connections go one way",
-    body: "A connection copies events from one calendar into another. If you want both calendars to match, connect them in both directions.",
+    title: "Pick which calendar your events land in",
+    body: "You choose where each calendar's events are copied to. Copying runs one way, so set up both directions if you want the two to match.",
     gridClassName: "lg:col-start-7 lg:col-span-4 lg:row-start-2",
     illustration: <MarketingIllustrationSetup />,
   },
   {
-    title: "Copies that stay right",
-    body: "Move an event and the copy moves. Delete it and the copy goes too. Your other calendar gets corrected instead of collecting duplicates.",
+    title: "Move an event and the copy moves too",
+    body: "Delete it and the copy goes with it. Your other calendar gets corrected instead of collecting duplicates.",
     gridClassName: "lg:col-start-1 lg:col-span-5 lg:row-start-3",
   },
   {
-    title: "Open-source, and yours to run",
-    body: "Keeper.sh is open-source under AGPL-3.0, with Docker images ready to deploy. Run it yourself and every account on it gets the Pro feature set, with no plan limits.",
+    title: "Anyone can read the code",
+    body: "Check exactly what Keeper.sh sends to your calendars. It is open source under AGPL-3.0, with Docker images ready to deploy, and a server you run yourself has no plan limits.",
     gridClassName: "lg:col-start-6 lg:col-span-5 lg:row-start-3",
     illustration: <MarketingIllustrationContributors />,
   },
   {
-    title: "Let an assistant handle the scheduling",
-    body: "Keeper.sh is an MCP server, so Claude, Cursor, or any MCP client can read your week and make changes across every calendar you have connected — not just one account. You approve it once on a consent screen, and you can revoke it whenever you like.",
+    title: "Let AI agents view and manage your calendar",
+    body: "Connect Claude, Cursor or any MCP client and let it check your week, book events and reschedule. Revoke it whenever you like.",
     gridClassName: "lg:col-start-1 lg:col-span-6 lg:row-start-4",
   },
   {
-    title: "Or build on it yourself",
-    body: "A REST API under /api/v1, authenticated with a token you create under Settings → API Tokens. The free plan allows 25 calls a day; Pro is uncapped.",
+    title: "Build your own tools on top",
+    body: "A REST API under /api/v1, with a token you create under Settings → API Tokens. Free allows 25 calls a day; Pro is uncapped.",
     gridClassName: "lg:col-start-7 lg:col-span-4 lg:row-start-4",
   },
 ];
@@ -103,23 +103,23 @@ const UPDATE_STEPS: UpdateStep[] = [
   },
   {
     title: "Choose what each calendar shows",
-    body: "You set this per calendar. A work calendar can carry the title, description, and location while a shared one shows a plain block. On Pro you can also filter out events you would rather not copy at all.",
+    body: "You set this per calendar. One can carry the full title, description and location while another shows a plain block. Pro adds filters to skip events.",
   },
   {
     title: "Keeper.sh takes it from there",
-    body: "Your calendars are checked every minute on both plans. Google and Outlook only report what changed, so checking stays quick even on a packed calendar. A change reaches your other calendars within 30 minutes on Free, and within a minute on Pro.",
-    note: "Calendars connected by a link are read in full each time.",
+    body: "Your calendars are read every minute on both plans. A change reaches your other calendars within 30 minutes on Free, and within a minute on Pro.",
+    note: "Calendars you connect with a pasted link are read in full each time.",
   },
 ];
 
 export const Route = createFileRoute("/(marketing)/features")({
   component: FeaturesPage,
   head: () => seoHead({
-    title: "Features",
+    title: "Calendar Sync Features",
     description: PAGE_DESCRIPTION,
     path: "/features",
     scripts: [
-      jsonLdScript(webPageSchema("Features", PAGE_DESCRIPTION, "/features")),
+      jsonLdScript(webPageSchema("Calendar Sync Features", PAGE_DESCRIPTION, "/features")),
       jsonLdScript(breadcrumbSchema(breadcrumbs)),
     ],
   }),
@@ -155,7 +155,7 @@ function FeaturesPage() {
       <MarketingHowItWorksSection>
         <Heading2>How your calendars stay in step</Heading2>
         <Text size="sm" tone="muted" className="mt-2 max-w-[64ch]">
-          You set a connection up once. After that, Keeper.sh keeps the copies right.
+          You set this up once. After that, Keeper.sh keeps every copy up to date.
         </Text>
         <MarketingHowItWorksCard>
           <MarketingHowItWorksRow>
@@ -195,7 +195,7 @@ function FeaturesPage() {
         <MarketingCtaCard>
           <Heading2 className="text-center text-white">Ready to sync your calendars?</Heading2>
           <Text size="sm" align="center" tone="highlight" className="max-w-[46ch]">
-            Start syncing your calendars in seconds. Free to use, no credit card required.
+            Free for two calendar accounts. No credit card.
           </Text>
           <div className="flex items-center gap-2 mt-2">
             <LinkButton
