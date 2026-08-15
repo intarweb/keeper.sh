@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { type } from "arktype";
 import useSWR from "swr";
-import { planSchema } from "@keeper.sh/data-schemas";
+import { planSchema } from "@keeper.sh/data-schemas/core";
 import { fetcher, HttpError } from "@/lib/fetcher";
 import { getCommercialMode } from "@/config/commercial";
 import { retainKnownInterval } from "@/lib/upgrade-mode";

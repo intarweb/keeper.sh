@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GoogleEvent } from "@keeper.sh/data-schemas";
+import type { GoogleEvent } from "@keeper.sh/data-schemas/google";
 import { syncCalendar } from "../../../src/core/sync-engine/index";
 import type { CalendarSyncProvider, PendingChanges } from "../../../src/core/sync-engine/types";
 import type {

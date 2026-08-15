@@ -4,7 +4,7 @@ import {
   icalFeedsTable,
 } from "@keeper.sh/database/schema";
 import { user as userTable } from "@keeper.sh/database";
-import { DEFAULT_FEED_NAME, DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_NAME, DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas/constants";
 import { and, arrayContains, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { database as databaseInstance } from "@/context";
 import { generateFeedToken } from "./ical-feed-tokens";

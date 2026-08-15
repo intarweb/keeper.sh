@@ -1,4 +1,4 @@
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 import { calendarsTable } from "@keeper.sh/database/schema";
 import { and, arrayContains, eq, isNotNull } from "drizzle-orm";
 import type { KeeperSyncTriggerResult } from "@/types";

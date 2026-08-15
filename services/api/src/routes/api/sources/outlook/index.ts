@@ -1,4 +1,4 @@
-import { createOAuthSourceSchema } from "@keeper.sh/data-schemas";
+import { createOAuthSourceSchema } from "@keeper.sh/data-schemas/api";
 import { HTTP_STATUS } from "@keeper.sh/constants";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { ErrorResponse } from "@/utils/responses";

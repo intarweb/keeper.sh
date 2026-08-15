@@ -1,11 +1,6 @@
 import { HTTP_STATUS } from "@keeper.sh/constants";
-import {
-  googleApiErrorSchema,
-  googleEventSchema,
-  googleEventWithAttendeesListSchema,
-  googleEventWithAttendeesSchema,
-} from "@keeper.sh/data-schemas";
-import type { GoogleAttendee, GoogleEvent, GoogleEventWithAttendees } from "@keeper.sh/data-schemas";
+import { googleApiErrorSchema, googleEventSchema, googleEventWithAttendeesListSchema, googleEventWithAttendeesSchema } from "@keeper.sh/data-schemas/google";
+import type { GoogleAttendee, GoogleEvent, GoogleEventWithAttendees } from "@keeper.sh/data-schemas/google";
 import type {
   EventActionResult,
   EventInput,

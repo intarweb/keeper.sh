@@ -1,6 +1,6 @@
 import { calendarsTable, icalFeedCalendarsTable } from "@keeper.sh/database/schema";
 import type { database as contextDatabase } from "@/context";
-import { applySourceSyncDefaults } from "@keeper.sh/data-schemas";
+import { applySourceSyncDefaults } from "@keeper.sh/data-schemas/constants";
 import { ensureDefaultFeedForClient } from "./ical-feeds";
 
 const EMPTY_LIST_COUNT = 0;

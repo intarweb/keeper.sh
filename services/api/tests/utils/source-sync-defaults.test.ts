@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_SOURCE_SYNC_RULES,
-  applySourceSyncDefaults,
-} from "@keeper.sh/data-schemas";
+import { DEFAULT_SOURCE_SYNC_RULES, applySourceSyncDefaults } from "@keeper.sh/data-schemas/constants";
 
 describe("DEFAULT_SOURCE_SYNC_RULES", () => {
   it("disables event title, description, and location sync and includes sources in iCal by default", () => {

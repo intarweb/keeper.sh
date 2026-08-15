@@ -4,7 +4,7 @@ import useSWR, { preload } from "swr";
 import Check from "lucide-react/dist/esm/icons/check";
 import Copy from "lucide-react/dist/esm/icons/copy";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
-import { icalFeedNameSchema } from "@keeper.sh/data-schemas";
+import { icalFeedNameSchema } from "@keeper.sh/data-schemas/core";
 import { apiFetch, fetcher } from "@/lib/fetcher";
 import { track, ANALYTICS_EVENTS } from "@/lib/analytics";
 import { serializedPatch } from "@/lib/serialized-mutate";

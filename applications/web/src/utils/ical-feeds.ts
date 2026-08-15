@@ -1,4 +1,4 @@
-import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas/constants";
 import { canAddMore } from "@/hooks/use-entitlements";
 import type { EntitlementLimit } from "@/hooks/use-entitlements";
 import type { CalendarSource } from "@/types/api";

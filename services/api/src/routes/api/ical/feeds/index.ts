@@ -1,4 +1,4 @@
-import { icalFeedNameSchema } from "@keeper.sh/data-schemas";
+import { icalFeedNameSchema } from "@keeper.sh/data-schemas/core";
 import { HTTP_STATUS } from "@keeper.sh/constants";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { database } from "@/context";

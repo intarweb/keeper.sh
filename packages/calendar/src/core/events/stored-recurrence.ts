@@ -1,7 +1,4 @@
-import {
-  icsExceptionDatesSchema,
-  storedIcsRecurrenceRuleSchema,
-} from "@keeper.sh/data-schemas";
+import { icsExceptionDatesSchema, storedIcsRecurrenceRuleSchema } from "@keeper.sh/data-schemas/ics";
 import type { IcsDuration, IcsExceptionDates, IcsRecurrenceRule } from "ts-ics";
 import { getErrorMessage } from "../utils/error";
 

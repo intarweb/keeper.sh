@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getTableConfig } from "drizzle-orm/pg-core";
-import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas/constants";
 import {
   calendarAccountsTable,
   calendarsTable,

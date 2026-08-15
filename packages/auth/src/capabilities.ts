@@ -1,5 +1,5 @@
-import { authCapabilitiesSchema } from "@keeper.sh/data-schemas";
-import type { AuthCapabilities } from "@keeper.sh/data-schemas";
+import { authCapabilitiesSchema } from "@keeper.sh/data-schemas/api";
+import type { AuthCapabilities } from "@keeper.sh/data-schemas/api";
 
 interface ResolveAuthCapabilitiesConfig {
   commercialMode?: boolean;

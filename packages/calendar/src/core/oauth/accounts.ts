@@ -5,7 +5,7 @@ import {
   userSubscriptionsTable,
 } from "@keeper.sh/database/schema";
 import { and, arrayContains, eq } from "drizzle-orm";
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 
 interface OAuthAccount {

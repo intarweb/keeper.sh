@@ -1,7 +1,4 @@
-import {
-  googleCalendarListEntrySchema,
-  googleCalendarListResponseSchema,
-} from "@keeper.sh/data-schemas";
+import { googleCalendarListEntrySchema, googleCalendarListResponseSchema } from "@keeper.sh/data-schemas/google";
 import type { GoogleCalendarListEntry } from "../types";
 import { GOOGLE_CALENDAR_LIST_URL } from "../../shared/api";
 import { isSimpleAuthError } from "../../shared/errors";

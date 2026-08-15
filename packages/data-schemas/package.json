@@ -5,7 +5,13 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./src/client.ts"
+    "./api": "./src/api.ts",
+    "./client": "./src/client.ts",
+    "./constants": "./src/constants.ts",
+    "./core": "./src/core.ts",
+    "./google": "./src/google.ts",
+    "./ics": "./src/ics.ts",
+    "./microsoft": "./src/microsoft.ts"
   },
   "scripts": {
     "types": "tsc --noEmit",

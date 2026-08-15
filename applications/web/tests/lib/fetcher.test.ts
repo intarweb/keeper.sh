@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readApiErrorMessage } from "@keeper.sh/data-schemas";
+import { readApiErrorMessage } from "@keeper.sh/data-schemas/core";
 import { apiFetch, fetcher, HttpError } from "../../src/lib/fetcher";
 import { createJsonFetcher } from "../../src/lib/json-fetcher";
 import { resolveErrorMessage } from "../../src/utils/errors";

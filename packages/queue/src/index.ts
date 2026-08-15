@@ -1,6 +1,6 @@
 import { Queue } from "bullmq";
 import type { ConnectionOptions } from "bullmq";
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 
 const PUSH_SYNC_QUEUE_NAME = "push-sync-v2";
 const USER_TIMEOUT_MS = 300_000;

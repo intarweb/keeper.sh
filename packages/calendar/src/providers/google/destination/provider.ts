@@ -10,12 +10,8 @@ import type {
   PushResult,
   RemoteEvent,
 } from "../../../core/types";
-import {
-  googleApiErrorSchema,
-  googleEventListSchema,
-  googleEventSchema,
-} from "@keeper.sh/data-schemas";
-import type { GoogleEvent } from "@keeper.sh/data-schemas";
+import { googleApiErrorSchema, googleEventListSchema, googleEventSchema } from "@keeper.sh/data-schemas/google";
+import type { GoogleEvent } from "@keeper.sh/data-schemas/google";
 import { HTTP_STATUS, PROVIDER_PUSH_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GOOGLE_CALENDAR_MAX_RESULTS, GONE_STATUS } from "../shared/api";

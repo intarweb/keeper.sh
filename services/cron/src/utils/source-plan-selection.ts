@@ -1,4 +1,4 @@
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 
 interface SourceWithUserId {
   userId: string;

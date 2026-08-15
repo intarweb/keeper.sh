@@ -1,4 +1,4 @@
-import { readApiErrorMessage } from "@keeper.sh/data-schemas";
+import { readApiErrorMessage } from "@keeper.sh/data-schemas/core";
 import { HttpError } from "@/lib/fetcher";
 
 export function resolveErrorMessage(error: unknown, fallback: string): string {

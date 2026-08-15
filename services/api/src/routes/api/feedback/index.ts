@@ -1,4 +1,4 @@
-import { feedbackRequestSchema } from "@keeper.sh/data-schemas";
+import { feedbackRequestSchema } from "@keeper.sh/data-schemas/api";
 import { feedbackTable } from "@keeper.sh/database/schema";
 import { user as userTable } from "@keeper.sh/database/auth-schema";
 import { eq } from "drizzle-orm";

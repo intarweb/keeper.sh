@@ -1,7 +1,7 @@
 import { syncStatusTable, calendarsTable, sourceDestinationMappingsTable } from "@keeper.sh/database/schema";
 import { createWebsocketHandler } from "@keeper.sh/broadcast";
 import type { Socket } from "@keeper.sh/broadcast";
-import { syncAggregateSchema } from "@keeper.sh/data-schemas";
+import { syncAggregateSchema } from "@keeper.sh/data-schemas/api";
 import { and, eq, inArray, max } from "drizzle-orm";
 import { database, getCachedSyncAggregate, getCurrentSyncAggregate } from "@/context";
 import { resolveSyncAggregatePayload } from "./websocket-payload";

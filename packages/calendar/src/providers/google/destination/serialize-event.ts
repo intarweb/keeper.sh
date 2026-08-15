@@ -1,4 +1,4 @@
-import type { GoogleEvent } from "@keeper.sh/data-schemas";
+import type { GoogleEvent } from "@keeper.sh/data-schemas/google";
 import type { MaterializedSyncableEvent } from "../../../core/types";
 import { resolveIsAllDayEvent } from "../../../core/events/all-day";
 import { normalizeGoogleEvent } from "./normalize-event";

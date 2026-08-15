@@ -1,6 +1,6 @@
 import { HTTP_STATUS } from "@keeper.sh/constants";
-import { microsoftApiErrorSchema, outlookCalendarViewListSchema, outlookEventListSchema, outlookEventSchema } from "@keeper.sh/data-schemas";
-import type { OutlookEvent } from "@keeper.sh/data-schemas";
+import { microsoftApiErrorSchema, outlookCalendarViewListSchema, outlookEventListSchema, outlookEventSchema } from "@keeper.sh/data-schemas/microsoft";
+import type { OutlookEvent } from "@keeper.sh/data-schemas/microsoft";
 import type {
   EventActionResult,
   EventInput,

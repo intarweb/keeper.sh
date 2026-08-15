@@ -1,5 +1,5 @@
 import { HTTP_STATUS } from "@keeper.sh/constants";
-import { googleApiErrorSchema } from "@keeper.sh/data-schemas";
+import { googleApiErrorSchema } from "@keeper.sh/data-schemas/google";
 import type { GoogleApiError } from "../types";
 
 const GOOGLE_PERMISSION_REAUTH_REASONS = new Set([

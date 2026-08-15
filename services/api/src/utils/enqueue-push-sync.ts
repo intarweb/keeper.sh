@@ -1,6 +1,6 @@
 import { createPushSyncQueue } from "@keeper.sh/queue";
 import type { PushSyncJobPayload } from "@keeper.sh/queue";
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 import { calendarsTable, userSyncRequestsTable } from "@keeper.sh/database/schema";
 import { and, arrayContains, eq } from "drizzle-orm";
 

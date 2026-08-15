@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { icalFeedSettingsTable, icalFeedsTable } from "@keeper.sh/database/schema";
-import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas/constants";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { ErrorResponse } from "@/utils/responses";
 import { database, premiumService } from "@/context";

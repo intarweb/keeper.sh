@@ -1,5 +1,5 @@
-import { googleTokenResponseSchema, googleUserInfoSchema } from "@keeper.sh/data-schemas";
-import type { GoogleTokenResponse, GoogleUserInfo } from "@keeper.sh/data-schemas";
+import { googleTokenResponseSchema, googleUserInfoSchema } from "@keeper.sh/data-schemas/google";
+import type { GoogleTokenResponse, GoogleUserInfo } from "@keeper.sh/data-schemas/google";
 import { generateState } from "./state";
 import type { ValidatedState, OAuthStateStore } from "./state";
 

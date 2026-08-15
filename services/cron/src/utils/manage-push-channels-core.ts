@@ -17,7 +17,7 @@ import type {
   SourcePushRegistrar,
   StoredPushChannel,
 } from "@keeper.sh/calendar";
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 
 const TICK_LOCK_KEY = "push-channel:tick";
 const TICK_LOCK_TTL_SECONDS = 300;

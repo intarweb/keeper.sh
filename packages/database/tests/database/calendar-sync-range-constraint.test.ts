@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
-import { SYNC_RANGE_DEFINITIONS } from "@keeper.sh/data-schemas";
+import { SYNC_RANGE_DEFINITIONS } from "@keeper.sh/data-schemas/constants";
 
 const administrativeUrl = process.env.KEEPER_TEST_DATABASE_URL;
 const migrationScript = `${import.meta.dirname}/../../scripts/migrate.ts`;

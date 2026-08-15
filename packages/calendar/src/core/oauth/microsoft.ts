@@ -1,5 +1,5 @@
-import { microsoftTokenResponseSchema, microsoftUserInfoSchema } from "@keeper.sh/data-schemas";
-import type { MicrosoftTokenResponse, MicrosoftUserInfo } from "@keeper.sh/data-schemas";
+import { microsoftTokenResponseSchema, microsoftUserInfoSchema } from "@keeper.sh/data-schemas/microsoft";
+import type { MicrosoftTokenResponse, MicrosoftUserInfo } from "@keeper.sh/data-schemas/microsoft";
 import { generateState, validateState } from "./state";
 import type { ValidatedState, OAuthStateStore } from "./state";
 

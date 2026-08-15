@@ -1,4 +1,4 @@
-import { caldavDiscoverRequestSchema } from "@keeper.sh/data-schemas";
+import { caldavDiscoverRequestSchema } from "@keeper.sh/data-schemas/api";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { widelog } from "@/utils/logging";
 import { ErrorResponse } from "@/utils/responses";

@@ -10,13 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { eq, isNotNull, isNull, sql } from "drizzle-orm";
-import {
-  DEFAULT_FEED_NAME,
-  DEFAULT_FEED_SETTINGS,
-  DEFAULT_FUTURE_SYNC_RANGE,
-  DEFAULT_HISTORIC_SYNC_RANGE,
-  SYNC_RANGE_DEFINITIONS,
-} from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_NAME, DEFAULT_FEED_SETTINGS, DEFAULT_FUTURE_SYNC_RANGE, DEFAULT_HISTORIC_SYNC_RANGE, SYNC_RANGE_DEFINITIONS } from "@keeper.sh/data-schemas/constants";
 import { user } from "./auth-schema";
 
 const DEFAULT_EVENT_COUNT = 0;

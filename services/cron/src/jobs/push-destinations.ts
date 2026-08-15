@@ -1,5 +1,5 @@
 import type { CronOptions } from "cronbake";
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 import { createPushSyncQueue } from "@keeper.sh/queue";
 import { withCronWideEvent } from "@/utils/with-wide-event";
 import { widelog } from "@/utils/logging";

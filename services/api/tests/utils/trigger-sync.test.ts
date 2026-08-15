@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runTriggerSync } from "../../src/utils/trigger-sync";
 import type { TriggerSyncDependencies } from "../../src/utils/trigger-sync";
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 
 interface EnqueueCall {
   userId: string;

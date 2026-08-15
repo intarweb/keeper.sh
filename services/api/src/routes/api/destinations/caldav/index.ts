@@ -1,4 +1,4 @@
-import { caldavConnectRequestSchema } from "@keeper.sh/data-schemas";
+import { caldavConnectRequestSchema } from "@keeper.sh/data-schemas/api";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { ErrorResponse } from "@/utils/responses";
 import { labelFailureResponse } from "@/utils/error-labelling";

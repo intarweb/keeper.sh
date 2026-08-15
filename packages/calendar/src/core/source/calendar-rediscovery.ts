@@ -1,4 +1,4 @@
-import type { GoogleCalendarListEntry } from "@keeper.sh/data-schemas";
+import type { GoogleCalendarListEntry } from "@keeper.sh/data-schemas/google";
 import { normalizeCalDAVCalendarKey } from "../../providers/caldav/shared/calendar-identity";
 import type { CalendarInfo } from "../../providers/caldav/types";
 

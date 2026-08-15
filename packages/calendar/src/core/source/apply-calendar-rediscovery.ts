@@ -1,4 +1,4 @@
-import { applySourceSyncDefaults } from "@keeper.sh/data-schemas";
+import { applySourceSyncDefaults } from "@keeper.sh/data-schemas/constants";
 import {
   calendarAccountsTable,
   caldavCredentialsTable,

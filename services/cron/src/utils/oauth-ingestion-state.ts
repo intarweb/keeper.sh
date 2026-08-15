@@ -1,4 +1,4 @@
-import { syncRangeSchema } from "@keeper.sh/data-schemas";
+import { syncRangeSchema } from "@keeper.sh/data-schemas/core";
 import type { RequiredSourceRanges } from "@keeper.sh/calendar";
 
 interface StoredOAuthIngestionState {

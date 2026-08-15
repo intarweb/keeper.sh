@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import useSWR, { preload, useSWRConfig } from "swr";
 import CheckIcon from "lucide-react/dist/esm/icons/check";
 import { useAtomValue, useStore } from "jotai";
-import type { SyncRange } from "@keeper.sh/data-schemas";
+import type { SyncRange } from "@keeper.sh/data-schemas/core";
 import { useEntitlements, useMutateEntitlements, canAddMore } from "@/hooks/use-entitlements";
 import { BackButton } from "@/components/ui/primitives/back-button";
 import { UpgradeHint, PremiumFeatureGate } from "@/components/ui/primitives/upgrade-hint";

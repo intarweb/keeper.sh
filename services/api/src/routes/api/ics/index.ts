@@ -1,4 +1,4 @@
-import { createSourceSchema } from "@keeper.sh/data-schemas";
+import { createSourceSchema } from "@keeper.sh/data-schemas/api";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import {
   InvalidSourceUrlError,

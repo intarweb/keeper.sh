@@ -1,5 +1,5 @@
 import { TraversalError } from "arktype";
-import { createCalDAVSourceSchema } from "@keeper.sh/data-schemas";
+import { createCalDAVSourceSchema } from "@keeper.sh/data-schemas/api";
 import { HTTP_STATUS } from "@keeper.sh/constants";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { ErrorResponse } from "@/utils/responses";

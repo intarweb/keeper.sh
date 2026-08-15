@@ -1,4 +1,4 @@
-import { syncRangeSchema, type SyncRange } from "@keeper.sh/data-schemas";
+import { syncRangeSchema, type SyncRange } from "@keeper.sh/data-schemas/core";
 import {
   DEFAULT_FUTURE_SYNC_RANGE,
   DEFAULT_HISTORIC_SYNC_RANGE,

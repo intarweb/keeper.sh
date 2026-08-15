@@ -1,5 +1,5 @@
 import { type } from "arktype";
-import { syncRangeSchema } from "@keeper.sh/data-schemas";
+import { syncRangeSchema } from "@keeper.sh/data-schemas/core";
 
 const calendarIdsBodySchema = type({
   calendarIds: "string[]",

@@ -14,11 +14,7 @@ import {
   shouldConsolidateLegacyRecurringStates,
   type LegacyRecurringStateCompatibility,
 } from "../src/database/legacy-recurring-state-consolidation";
-import {
-  DEFAULT_FUTURE_SYNC_RANGE,
-  DEFAULT_HISTORIC_SYNC_RANGE,
-  SYNC_RANGE_DEFINITIONS,
-} from "@keeper.sh/data-schemas";
+import { DEFAULT_FUTURE_SYNC_RANGE, DEFAULT_HISTORIC_SYNC_RANGE, SYNC_RANGE_DEFINITIONS } from "@keeper.sh/data-schemas/constants";
 
 const connectionString = Bun.env.DATABASE_URL;
 

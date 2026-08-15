@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OutlookEvent } from "@keeper.sh/data-schemas";
+import type { OutlookEvent } from "@keeper.sh/data-schemas/microsoft";
 import type { MaterializedSyncableEvent, RemoteEvent } from "../../../../src/core/types";
 import type { EventMapping } from "../../../../src/index";
 import type { PendingChanges } from "../../../../src/core/sync-engine/types";

@@ -14,8 +14,8 @@ import {
   intersectSyncWindows,
 } from "@keeper.sh/calendar";
 import { OUTLOOK_REQUESTS_PER_MINUTE } from "@keeper.sh/constants";
-import { syncRangeSchema } from "@keeper.sh/data-schemas";
-import type { Plan } from "@keeper.sh/data-schemas";
+import { syncRangeSchema } from "@keeper.sh/data-schemas/core";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 import type { RedisRateLimiter } from "@keeper.sh/calendar";
 import type {
   EventMapping,

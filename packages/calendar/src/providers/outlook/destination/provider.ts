@@ -1,9 +1,5 @@
 import { HTTP_STATUS, KEEPER_CATEGORY, PROVIDER_PUSH_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
-import {
-  microsoftApiErrorSchema,
-  outlookEventListSchema,
-  outlookEventSchema,
-} from "@keeper.sh/data-schemas";
+import { microsoftApiErrorSchema, outlookEventListSchema, outlookEventSchema } from "@keeper.sh/data-schemas/microsoft";
 import type {
   DeleteResult,
   ListRemoteEventsOptions,
@@ -13,7 +9,7 @@ import type {
   PushResult,
   RemoteEvent,
 } from "../../../core/types";
-import type { OutlookEvent } from "@keeper.sh/data-schemas";
+import type { OutlookEvent } from "@keeper.sh/data-schemas/microsoft";
 import { comparePushEchoObservations } from "../../../core/events/push-echo";
 import type { PushEchoObservation } from "../../../core/events/push-echo";
 import { getErrorMessage } from "../../../core/utils/error";

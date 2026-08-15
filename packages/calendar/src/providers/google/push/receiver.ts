@@ -1,4 +1,4 @@
-import { googleWatchHeadersSchema } from "@keeper.sh/data-schemas";
+import { googleWatchHeadersSchema } from "@keeper.sh/data-schemas/google";
 import type { PushClaimKind } from "../../../core/source/push-channel";
 import type {
   PushClaim,

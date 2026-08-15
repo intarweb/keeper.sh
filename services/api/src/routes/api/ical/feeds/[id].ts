@@ -1,12 +1,12 @@
 import { HTTP_STATUS } from "@keeper.sh/constants";
 import { icalFeedSettingsTable, icalFeedsTable } from "@keeper.sh/database/schema";
-import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas/constants";
 import { and, eq } from "drizzle-orm";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { database, premiumService } from "@/context";
 import { ErrorResponse } from "@/utils/responses";
 import { icalFeedPatchBodySchema } from "@/utils/request-body";
-import { icalFeedNameSchema } from "@keeper.sh/data-schemas";
+import { icalFeedNameSchema } from "@keeper.sh/data-schemas/core";
 import type { IcalFeedPatchBody } from "@/utils/request-body";
 import {
   DefaultFeedDeletionError,

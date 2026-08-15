@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas/constants";
 import { renderFeed } from "../fixtures/render-feed";
 import { formatEventsAsIcal } from "../../src/utils/ical-format";
 import type { FeedSettings } from "../../src/utils/ical-format";

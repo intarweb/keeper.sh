@@ -1,5 +1,6 @@
 import { KEEPER_CATEGORY } from "@keeper.sh/constants";
-import type { GoogleEvent, OutlookEvent } from "@keeper.sh/data-schemas";
+import type { GoogleEvent } from "@keeper.sh/data-schemas/google";
+import type { OutlookEvent } from "@keeper.sh/data-schemas/microsoft";
 import { describe, expect, it } from "vitest";
 import { syncCalendar } from "../../../src/core/sync-engine/index";
 import type {

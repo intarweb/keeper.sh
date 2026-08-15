@@ -1,4 +1,4 @@
-import { pushChannelStateSchema } from "@keeper.sh/data-schemas";
+import { pushChannelStateSchema } from "@keeper.sh/data-schemas/core";
 import { getDeterministicRefreshOffset } from "../oauth/sync-window";
 import {
   resolvePushProviderProfile,

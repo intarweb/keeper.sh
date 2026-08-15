@@ -1,4 +1,5 @@
-import { SYNC_RANGE_DEFINITIONS, type SyncRange } from "@keeper.sh/data-schemas";
+import { SYNC_RANGE_DEFINITIONS } from "@keeper.sh/data-schemas/constants";
+import type { SyncRange } from "@keeper.sh/data-schemas/core";
 
 interface SyncRangeOption {
   label: string;

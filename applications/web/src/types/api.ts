@@ -1,4 +1,4 @@
-import type { SyncRange } from "@keeper.sh/data-schemas";
+import type { SyncRange } from "@keeper.sh/data-schemas/core";
 
 export interface CalendarAccount {
   id: string;

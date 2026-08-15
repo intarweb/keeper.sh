@@ -1,4 +1,4 @@
-import { caldavDiscoverSourceSchema } from "@keeper.sh/data-schemas";
+import { caldavDiscoverSourceSchema } from "@keeper.sh/data-schemas/api";
 import { createCalDAVClient } from "@keeper.sh/calendar/caldav";
 import { handleCalDAVDiscoverRoute } from "./discover-route";
 import { withAuth, withWideEvent } from "@/utils/middleware";

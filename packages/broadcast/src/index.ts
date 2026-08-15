@@ -1,5 +1,5 @@
-import { broadcastMessageSchema } from "@keeper.sh/data-schemas";
-import type { BroadcastMessage } from "@keeper.sh/data-schemas";
+import { broadcastMessageSchema } from "@keeper.sh/data-schemas/api";
+import type { BroadcastMessage } from "@keeper.sh/data-schemas/api";
 import { connections } from "./state";
 import type { Socket } from "./types";
 import type Redis from "ioredis";

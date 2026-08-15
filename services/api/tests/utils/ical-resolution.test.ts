@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas";
+import { DEFAULT_FEED_SETTINGS } from "@keeper.sh/data-schemas/constants";
 import { resolveFeedIdentifier } from "../../src/utils/ical";
 import type { ResolveFeedIdentifierDependencies, ResolvedFeed } from "../../src/utils/ical";
 import type { FeedSettings } from "../../src/utils/ical-format";

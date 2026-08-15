@@ -1,5 +1,5 @@
 import type { SourceEvent } from "../types";
-import type { SyncRange } from "@keeper.sh/data-schemas";
+import type { SyncRange } from "@keeper.sh/data-schemas/core";
 import type { SyncWindow } from "../sync/sync-range";
 import {
   findSourceEventsExceedingRecurrenceBudget,

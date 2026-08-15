@@ -6,8 +6,8 @@ import {
   parseStoredIcsExceptionDates,
   parseStoredIcsRecurrence,
 } from "@keeper.sh/calendar";
-import { syncRangeSchema } from "@keeper.sh/data-schemas";
-import type { SyncRange } from "@keeper.sh/data-schemas";
+import { syncRangeSchema } from "@keeper.sh/data-schemas/core";
+import type { SyncRange } from "@keeper.sh/data-schemas/core";
 import { formatEventsAsIcal, shouldIncludeEvent } from "./ical-format";
 import type { CalendarEvent, FeedSettings } from "./ical-format";
 

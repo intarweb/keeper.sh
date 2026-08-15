@@ -9,8 +9,8 @@ import {
   PRO_FEED_LIMIT,
   PRO_MAPPING_LIMIT,
 } from "./constants";
-import { planSchema } from "@keeper.sh/data-schemas";
-import type { Plan } from "@keeper.sh/data-schemas";
+import { planSchema } from "@keeper.sh/data-schemas/core";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 
 const FIRST_RESULT_LIMIT = 1;
 

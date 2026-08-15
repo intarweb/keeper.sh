@@ -1,5 +1,5 @@
 import { KEEPER_CATEGORY } from "@keeper.sh/constants";
-import type { OutlookEvent } from "@keeper.sh/data-schemas";
+import type { OutlookEvent } from "@keeper.sh/data-schemas/microsoft";
 import type { MaterializedSyncableEvent } from "../../../core/types";
 import type { OutlookDateTime } from "../types";
 import { resolveIsAllDayEvent } from "../../../core/events/all-day";

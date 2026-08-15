@@ -1,4 +1,4 @@
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 
 const MAX_DRAIN_BATCH = 50;
 const MAX_PENDING_FAILURES = 5;

@@ -12,7 +12,7 @@ import {
 } from "../../shared/api";
 import { isAuthError } from "../../shared/errors";
 import type { GoogleApiError } from "../../types";
-import { googleApiErrorSchema, googleEventListSchema } from "@keeper.sh/data-schemas";
+import { googleApiErrorSchema, googleEventListSchema } from "@keeper.sh/data-schemas/google";
 import { parseEventTime } from "../../shared/date-time";
 import { isKeeperEvent } from "../../../../core/events/identity";
 import { withBackoff } from "../../../../core/utils/backoff";

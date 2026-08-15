@@ -1,9 +1,5 @@
-import {
-  DEFAULT_FUTURE_SYNC_RANGE,
-  DEFAULT_HISTORIC_SYNC_RANGE,
-  SYNC_RANGE_DEFINITIONS,
-  type SyncRange,
-} from "@keeper.sh/data-schemas";
+import { DEFAULT_FUTURE_SYNC_RANGE, DEFAULT_HISTORIC_SYNC_RANGE, SYNC_RANGE_DEFINITIONS } from "@keeper.sh/data-schemas/constants";
+import type { SyncRange } from "@keeper.sh/data-schemas/core";
 
 const SYNC_RANGE_ORDER = new Map<SyncRange, number>(
   SYNC_RANGE_DEFINITIONS.map(({ value }, index) => [value, index]),

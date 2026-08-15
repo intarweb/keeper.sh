@@ -1,5 +1,5 @@
 import { calendarAccountsTable, icalFeedsTable } from "@keeper.sh/database/schema";
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 import { eq } from "drizzle-orm";
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { database, premiumService, webhookConfig } from "@/context";

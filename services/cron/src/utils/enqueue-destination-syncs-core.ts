@@ -1,4 +1,4 @@
-import type { Plan } from "@keeper.sh/data-schemas";
+import type { Plan } from "@keeper.sh/data-schemas/core";
 import type { PushDestinationJob } from "./push-destination-jobs";
 import { buildPushDestinationJobs } from "./push-destination-jobs";
 

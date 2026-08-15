@@ -1,5 +1,5 @@
-import { graphNotificationCollectionSchema } from "@keeper.sh/data-schemas";
-import type { GraphNotification } from "@keeper.sh/data-schemas";
+import { graphNotificationCollectionSchema } from "@keeper.sh/data-schemas/microsoft";
+import type { GraphNotification } from "@keeper.sh/data-schemas/microsoft";
 import type { PushClaimKind } from "../../../core/source/push-channel";
 import type {
   PushClaim,

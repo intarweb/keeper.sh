@@ -9,7 +9,7 @@ import type { MicrosoftApiError, OutlookDateTime } from "../../types";
 import { MICROSOFT_GRAPH_API, GONE_STATUS } from "../../shared/api";
 import { isAuthError, isSimpleAuthError } from "../../shared/errors";
 import { parseEventTime } from "../../shared/date-time";
-import { microsoftApiErrorSchema, outlookEventListSchema } from "@keeper.sh/data-schemas";
+import { microsoftApiErrorSchema, outlookEventListSchema } from "@keeper.sh/data-schemas/microsoft";
 import { KEEPER_CATEGORY } from "@keeper.sh/constants";
 import { isKeeperEvent } from "../../../../core/events/identity";
 import { resolveTimeZone } from "../../../../ics/utils/timezone-instant";
