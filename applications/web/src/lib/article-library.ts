@@ -2,7 +2,7 @@ import { blogPosts, type BlogPost } from "./blog-posts";
 import { comparePages } from "./compare-pages";
 import { selectLatestArticles, type ArticleSummary } from "./related-articles";
 
-const LATEST_GUIDE_COUNT = 6;
+const LATEST_ARTICLE_COUNT = 6;
 
 function toArticleSummary(page: BlogPost, basePath: string): ArticleSummary {
   return {
@@ -25,9 +25,7 @@ export const articleLibrary: ArticleSummary[] = [
 
 const COMPARE_PATH_PREFIX = "/compare/";
 
-/* The homepage block is headed "Latest Guides", and a guide is what a reader
- * clicking it expects — not three pages named after other products. */
-export const latestGuides: ArticleSummary[] = selectLatestArticles(
+export const latestArticles: ArticleSummary[] = selectLatestArticles(
   articleLibrary.filter((article) => !article.path.startsWith(COMPARE_PATH_PREFIX)),
-  LATEST_GUIDE_COUNT,
+  LATEST_ARTICLE_COUNT,
 );

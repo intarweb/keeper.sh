@@ -11,7 +11,7 @@ import {
   MarketingHowItWorksStepIllustration,
 } from '../../features/marketing/components/marketing-how-it-works'
 import { MarketingFaqSection, MarketingFaqList, MarketingFaqItem, MarketingFaqQuestion } from '../../features/marketing/components/marketing-faq'
-import { MarketingGuideCard, MarketingGuidesGrid, MarketingGuidesSection } from '../../features/marketing/components/marketing-guides-section'
+import { MarketingArticleCard, MarketingArticleGrid, MarketingArticleSection } from '../../features/marketing/components/marketing-article-section'
 import { MarketingCtaSection, MarketingCtaCard } from '../../features/marketing/components/marketing-cta'
 import { Collapsible } from '../../components/ui/primitives/collapsible'
 import { ButtonIcon, ButtonText, ExternalLinkButton, LinkButton } from '../../components/ui/primitives/button'
@@ -44,7 +44,7 @@ import {
   MarketingPricingSection,
 } from '../../features/marketing/components/marketing-pricing-section'
 import { PRICING_FEATURES, PRICING_PLANS } from '../../features/marketing/pricing-plans'
-import { latestGuides } from '../../lib/article-library'
+import { latestArticles } from '../../lib/article-library'
 import { calendarEmphasizedAtom } from '../../state/calendar-emphasized'
 import { ANALYTICS_EVENTS } from '../../lib/analytics'
 import ArrowRightIcon from "lucide-react/dist/esm/icons/arrow-right";
@@ -341,25 +341,25 @@ function MarketingPage() {
             </MarketingHowItWorksCard>
           </MarketingHowItWorksSection>
 
-          <MarketingGuidesSection>
-            <Heading2 className="text-center">Latest Guides</Heading2>
+          <MarketingArticleSection>
+            <Heading2 className="text-center">Latest content</Heading2>
             <Text size="sm" align="center" className="mt-2 max-w-[48ch] mx-auto">
               Step-by-step guides for the calendars you use, and comparisons with the other
               sync tools. Browse them all on the{' '}
               <TextLink size="sm" to="/blog">blog</TextLink> and the{' '}
               <TextLink size="sm" to="/compare">comparison pages</TextLink>.
             </Text>
-            <MarketingGuidesGrid>
-              {latestGuides.map((guide) => (
-                <MarketingGuideCard
+            <MarketingArticleGrid>
+              {latestArticles.map((guide) => (
+                <MarketingArticleCard
                   key={guide.path}
                   blurb={guide.blurb}
                   path={guide.path}
                   title={guide.title}
                 />
               ))}
-            </MarketingGuidesGrid>
-          </MarketingGuidesSection>
+            </MarketingArticleGrid>
+          </MarketingArticleSection>
 
           <MarketingFaqSection>
             <Heading2 className="text-center">Frequently Asked Questions</Heading2>

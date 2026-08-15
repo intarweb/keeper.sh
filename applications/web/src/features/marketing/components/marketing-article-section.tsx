@@ -2,11 +2,11 @@ import type { PropsWithChildren } from "react";
 import { Link } from "@tanstack/react-router";
 import { Text } from "@/components/ui/primitives/text";
 
-export function MarketingGuidesSection({ children }: PropsWithChildren) {
+export function MarketingArticleSection({ children }: PropsWithChildren) {
   return <section className="w-full pt-16 pb-4">{children}</section>;
 }
 
-export function MarketingGuidesGrid({ children }: PropsWithChildren) {
+export function MarketingArticleGrid({ children }: PropsWithChildren) {
   return (
     <ul className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2 list-none">
       {children}
@@ -14,7 +14,7 @@ export function MarketingGuidesGrid({ children }: PropsWithChildren) {
   );
 }
 
-export function MarketingGuideCard({
+export function MarketingArticleCard({
   blurb,
   path,
   title,
