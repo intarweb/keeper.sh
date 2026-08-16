@@ -51,6 +51,20 @@ class SourceWriteRefusedError extends Error {
   }
 }
 
+/*
+ * The provider was asked and answered, and the answer was no: a rate limit, a permission,
+ * a 5xx. Nothing on the source was destroyed or changed by any of them, which is what
+ * separates this from an answer that never arrived at all. It is still a failure — the
+ * epoch budget is spent on it and the pair quarantines once that runs out — but it must
+ * not be recorded as a source event Keeper.sh deleted today.
+ */
+class SourceWriteRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SourceWriteRejectedError";
+  }
+}
+
 const QUARANTINE_REASONS_BY_REFUSAL: Record<string, string> = {
   event_authored_by_someone_else: "source_event_authored_by_someone_else",
   event_has_attendees: "source_event_has_attendees",
@@ -68,7 +82,7 @@ const assertWriteAccepted = (written: {
     throw new SourceWriteRefusedError(written.refused);
   }
   if (!written.success) {
-    throw new Error(written.error ?? fallback);
+    throw new SourceWriteRejectedError(written.error ?? fallback);
   }
 };
 
@@ -548,12 +562,19 @@ const applyDelete = async (
 
   /*
    * The tombstone was committed on its own transaction before the provider was asked, so
-   * the refusal has to release it explicitly: nothing rolls it back.
+   * every answer that destroyed nothing has to release it explicitly: nothing rolls it
+   * back. A tombstone left standing for a deletion the provider declined would spend one
+   * of the day's slots, and enough of them would refuse the real deletions that follow —
+   * telling the user their originals were being deleted in bulk when none of them were.
+   * The record itself survives: an abandoned row keeps its snapshot, it is only uncounted.
    */
   return run.catch(async (error: unknown) => {
     if (error instanceof SourceWriteRefusedError) {
       await input.store.abandonTombstone(tombstoneId);
       return quarantineRefusal(input, target, error);
+    }
+    if (error instanceof SourceWriteRejectedError) {
+      await input.store.abandonTombstone(tombstoneId);
     }
     throw error;
   });
@@ -585,8 +606,23 @@ const recordNonProgress = async (
   classification: ActionableClassification,
 ): Promise<boolean> => {
   const spent = await input.store.recordFailure(target.mappingId);
-  if (spent < TWO_WAY_EPOCH_QUARANTINE_LIMIT || classification.type !== "delete") {
+  if (spent < TWO_WAY_EPOCH_QUARANTINE_LIMIT) {
     return false;
+  }
+  if (classification.type !== "delete") {
+    /*
+     * The epoch this abandon just spent is the mapping's last, and a spent epoch is sticky:
+     * the classifier refuses every further write-back for that mapping and suppresses the
+     * one-way repair with it, recording the destination's edited values as the new
+     * baseline. Left unsaid that is one event frozen in both directions for good, so the
+     * pair reverts to one-way and says so, exactly as a runaway write-back does.
+     */
+    await input.store.quarantineMapping(
+      target.sourceCalendarId,
+      target.destinationCalendarId,
+      "runaway_write_back",
+    );
+    return true;
   }
   await input.store.requestDeleteConfirmation?.(
     target.sourceCalendarId,

@@ -409,6 +409,7 @@ export {
   WRITE_BACK_WITNESS_RESET,
 } from "./core/sync/write-back-policy";
 export type {
+  WriteBackFieldExclusions,
   WriteBackMode,
   WriteBackPolicy,
   WriteBackUpdates,

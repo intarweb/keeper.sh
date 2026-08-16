@@ -1,17 +1,20 @@
+import { resolveWriteBackFieldNames } from "@keeper.sh/data-schemas";
+import type {
+  WriteBackFieldExclusions,
+  WriteBackFieldName,
+} from "@keeper.sh/data-schemas";
+
 const WRITE_BACK_MODES = ["edits", "edits_and_deletes", "off"] as const;
 
 type WriteBackMode = typeof WRITE_BACK_MODES[number];
 
 type WriteBackState = "delete_confirmation_required" | "ok" | "quarantined";
 
-type WriteBackField =
-  | "description"
-  | "endTime"
-  | "isAllDay"
-  | "location"
-  | "startTime"
-  | "startTimeZone"
-  | "summary";
+/*
+ * The set of fields two-way sync may write to a real calendar is declared once, beside the
+ * labels the dashboard discloses them under, so the payload and the disclosure cannot drift.
+ */
+type WriteBackField = WriteBackFieldName;
 
 interface WriteBackPolicy {
   /*
@@ -67,13 +70,6 @@ interface WriteBackUpdates {
   summary?: string;
 }
 
-const PROJECTION_IDENTITY_FIELDS: WriteBackField[] = [
-  "endTime",
-  "isAllDay",
-  "startTime",
-  "startTimeZone",
-];
-
 const isWriteBackMode = (value: string): value is WriteBackMode =>
   WRITE_BACK_MODES.includes(value as WriteBackMode);
 
@@ -109,18 +105,7 @@ const resolveWriteBackEligibleFields = (
   if (!policy) {
     throw new Error("Write-back eligibility requires a source calendar policy");
   }
-
-  const fields = new Set<WriteBackField>(PROJECTION_IDENTITY_FIELDS);
-  if (!policy.excludeEventName) {
-    fields.add("summary");
-  }
-  if (!policy.excludeEventDescription) {
-    fields.add("description");
-  }
-  if (!policy.excludeEventLocation) {
-    fields.add("location");
-  }
-  return fields;
+  return resolveWriteBackFieldNames(policy);
 };
 
 const SCHEDULE_FIELDS: WriteBackField[] = ["endTime", "isAllDay", "startTime"];
@@ -153,6 +138,7 @@ export {
 };
 export type {
   WriteBackField,
+  WriteBackFieldExclusions,
   WriteBackMode,
   WriteBackPolicy,
   WriteBackState,

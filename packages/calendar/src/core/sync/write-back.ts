@@ -845,14 +845,27 @@ const resolveProjectedSyncEventHash = (
   return createSyncEventContentHash({ ...localEvent, ...resolution.updates });
 };
 
-const isAvailabilityOnlyRejection = (
+/*
+ * Both availability rejections are the same fact: the edit cannot reach the source. A clamp
+ * is if anything the more dangerous of the two, because the value the copy is supposed to
+ * carry is one Keeper.sh chose for a destination that cannot hold the source's own — so
+ * nothing but the recorded witness knows what the copy is meant to say.
+ */
+const resolveAvailabilityOnlyRejection = (
   drift: DestinationDrift,
   rejectionReason: WriteBackRejectionReason | null,
-): boolean =>
-  rejectionReason === "availability_not_writable"
-  && drift.availability
-  && !drift.content
-  && !drift.time;
+): WriteBackRejectionReason | null => {
+  if (!drift.availability || drift.content || drift.time) {
+    return null;
+  }
+  if (
+    rejectionReason === "availability_not_writable"
+    || rejectionReason === "availability_clamped"
+  ) {
+    return rejectionReason;
+  }
+  return null;
+};
 
 /*
  * Rendering-tolerant, so it reports only what a destination re-encoding what we wrote
@@ -971,11 +984,15 @@ const classifyPresentMirror = (
    * to project. The copy is handed back to the ordinary repair path and the recorded value
    * is left alone, so the divergence stays visible until the repair lands.
    */
-  if (isAvailabilityOnlyRejection(drift, resolution.rejectionReason)) {
+  const availabilityOnlyRejection = resolveAvailabilityOnlyRejection(
+    drift,
+    resolution.rejectionReason,
+  );
+  if (availabilityOnlyRejection) {
     return {
       classification: {
         mappingId: mapping.id,
-        reason: "availability_not_writable",
+        reason: availabilityOnlyRejection,
         type: "rejected",
       },
       suppress: false,

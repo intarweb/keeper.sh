@@ -58,6 +58,7 @@ import {
 import type { ExcludeField } from "@/state/calendar-detail";
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 import { resolveDeleteConfirmationAnswers } from "@/lib/write-back-answers";
+import { buildWriteBackFieldSummary } from "@/features/dashboard/components/write-back-summary";
 import type { DeleteConfirmationAnswer } from "@/lib/write-back-answers";
 import {
   destinationIdsAtom,
@@ -569,21 +570,18 @@ const WRITE_BACK_OPTIONS: { description: string; label: string; mode: WriteBackM
 ];
 
 function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
-  const excludeName = useAtomValue(excludeEventNameAtom);
-  const excludeDescription = useAtomValue(excludeFieldAtoms.excludeEventDescription);
-  const excludeLocation = useAtomValue(excludeFieldAtoms.excludeEventLocation);
-  const hidden = [
-    excludeName && "title",
-    excludeDescription && "description",
-    excludeLocation && "location",
-  ].filter((field): field is string => typeof field === "string");
+  const excludeEventName = useAtomValue(excludeEventNameAtom);
+  const excludeEventDescription = useAtomValue(excludeFieldAtoms.excludeEventDescription);
+  const excludeEventLocation = useAtomValue(excludeFieldAtoms.excludeEventLocation);
+  const summary = buildWriteBackFieldSummary(
+    { excludeEventDescription, excludeEventLocation, excludeEventName },
+    sourceName,
+  );
 
   return (
     <Text size="xs" className="text-muted-foreground">
-      {`Date, time and all-day changes are written back to ${sourceName}. `}
-      {hidden.length > 0
-        ? `${hidden.join(", ")} are hidden on copies from ${sourceName}, so they are not written back. `
-        : ""}
+      {`${summary.written} `}
+      {summary.hidden ? `${summary.hidden} ` : ""}
       Only the fields you actually change are written back. Repeating events stay one-way.
       An edit made in the first minute after Keeper.sh updates a copy may be replaced.
     </Text>

@@ -528,6 +528,77 @@ const googleWatchHeadersSchema = type({
 });
 type GoogleWatchHeaders = typeof googleWatchHeadersSchema.infer;
 
+/*
+ * The one description of what two-way sync writes to a real calendar. The applier builds
+ * its payload from this list and the dashboard builds its sentence from it, so a field the
+ * pass can write to a source event cannot be one the product forgot to tell the user about:
+ * adding a name to WriteBackFieldName without a label here fails to type-check.
+ */
+const WRITE_BACK_PROJECTION_IDENTITY_FIELDS = [
+  "endTime",
+  "isAllDay",
+  "startTime",
+  "startTimeZone",
+] as const;
+
+const WRITE_BACK_REDACTABLE_FIELDS = [
+  { exclusion: "excludeEventName", field: "summary" },
+  { exclusion: "excludeEventDescription", field: "description" },
+  { exclusion: "excludeEventLocation", field: "location" },
+] as const;
+
+type WriteBackFieldName =
+  | typeof WRITE_BACK_PROJECTION_IDENTITY_FIELDS[number]
+  | typeof WRITE_BACK_REDACTABLE_FIELDS[number]["field"];
+
+interface WriteBackFieldExclusions {
+  excludeEventDescription: boolean;
+  excludeEventLocation: boolean;
+  excludeEventName: boolean;
+}
+
+/*
+ * The zone is not an axis a user edits: it travels beside the instants so a provider handed
+ * a bare instant does not re-home the event, and naming it in the sentence would describe a
+ * change nobody can make.
+ */
+const WRITE_BACK_FIELD_LABELS: Record<WriteBackFieldName, string | null> = {
+  description: "description",
+  endTime: "time",
+  isAllDay: "all-day",
+  location: "location",
+  startTime: "date",
+  startTimeZone: null,
+  summary: "title",
+};
+
+const WRITE_BACK_DISCLOSURE_ORDER: WriteBackFieldName[] = [
+  "summary",
+  "description",
+  "location",
+  "startTime",
+  "endTime",
+  "isAllDay",
+  "startTimeZone",
+];
+
+const resolveWriteBackFieldNames = (
+  exclusions: WriteBackFieldExclusions,
+): Set<WriteBackFieldName> =>
+  new Set<WriteBackFieldName>([
+    ...WRITE_BACK_PROJECTION_IDENTITY_FIELDS,
+    ...WRITE_BACK_REDACTABLE_FIELDS
+      .filter(({ exclusion }) => !exclusions[exclusion])
+      .map(({ field }) => field),
+  ]);
+
+const describeWriteBackFields = (exclusions: WriteBackFieldExclusions): string[] => {
+  const eligible = resolveWriteBackFieldNames(exclusions);
+  return WRITE_BACK_DISCLOSURE_ORDER
+    .filter((field) => eligible.has(field))
+    .flatMap((field) => WRITE_BACK_FIELD_LABELS[field] ?? []);
+};
+
 export {
   DEFAULT_FEED_NAME,
   DEFAULT_FEED_SETTINGS,
@@ -593,6 +664,10 @@ export {
   graphNotificationCollectionSchema,
   graphNotificationSchema,
   pushChannelStateSchema,
+  describeWriteBackFields,
+  resolveWriteBackFieldNames,
+  WRITE_BACK_DISCLOSURE_ORDER,
+  WRITE_BACK_FIELD_LABELS,
 };
 
 export type {
@@ -648,4 +723,6 @@ export type {
   GraphNotification,
   GraphNotificationCollection,
   PushChannelStateValue,
+  WriteBackFieldExclusions,
+  WriteBackFieldName,
 };
