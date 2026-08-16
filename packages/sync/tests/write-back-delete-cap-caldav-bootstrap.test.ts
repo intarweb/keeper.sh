@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { TWO_WAY_DELETE_DAILY_CAP } from "@keeper.sh/constants";
-import type { CalendarSourceWriter, InboundClassification } from "@keeper.sh/calendar";
+import { createCalDAVSourceWriter } from "@keeper.sh/calendar";
+import type { InboundClassification } from "@keeper.sh/calendar";
 import { countsTowardDeleteCap, isUnresolvedAttempt } from "../src/write-back";
 import { runWriteBackPass } from "../src/write-back-pass";
 import type {
@@ -12,6 +12,7 @@ import type {
 
 const SOURCE_CALENDAR_ID = "source-calendar-id";
 const DESTINATION_CALENDAR_ID = "destination-calendar-id";
+const CALENDAR_URL = "https://caldav.example.com/calendars/personal";
 const PUSHED_HASH = "the-hash-of-what-we-last-pushed";
 const START_TIME = new Date("2027-05-11T14:00:00.000Z");
 const END_TIME = new Date("2027-05-11T15:00:00.000Z");
@@ -53,27 +54,56 @@ const createDelete = (index: number): InboundClassification => ({
 });
 
 /*
- * The provider removes the event and then answers too slowly: TWO_WAY_SOURCE_WRITE_TIMEOUT_MS
- * aborts the request client side, so Keeper sees a failure for a deletion that really
- * happened. The tombstones table is the only record of how many source events have been
- * destroyed today, and it is the table the daily cap counts.
+ * The whole failure is inside createDAVClient: tsdav runs service discovery, principal and
+ * calendar-home requests before it hands a client back, so an unreachable server rejects the
+ * thunk the writer opens with. Nothing on the calendar was touched.
  */
-const createHarness = (options: { writeAnswerArrivesLate: boolean }) => {
+const createHarness = (options: { serverReachable: () => boolean }) => {
   const destroyedOnTheProvider: string[] = [];
   const tombstones = new Map<string, { appliedAt: Date | null; state: string }>();
   const quarantines: string[] = [];
   const epochs = new Map<string, number>();
 
-  const writer: CalendarSourceWriter = {
-    deleteEvent: (reference) => {
-      destroyedOnTheProvider.push(reference.sourceEventUid);
-      if (options.writeAnswerArrivesLate) {
-        return Promise.reject(new Error("The operation was aborted due to timeout"));
+  const writer = createCalDAVSourceWriter({
+    calendarUrl: CALENDAR_URL,
+    client: () => {
+      if (!options.serverReachable()) {
+        return Promise.reject(new TypeError("fetch failed"));
       }
-      return Promise.resolve({ success: true });
+      return Promise.resolve({
+        deleteCalendarObject: (request: { calendarObject: { url: string } }) => {
+          destroyedOnTheProvider.push(request.calendarObject.url);
+          return Promise.resolve(new Response(null, { status: 204 }));
+        },
+        fetchCalendarObjects: (request: { objectUrls?: string[] }) => {
+          const [url] = request.objectUrls ?? [];
+          if (!url) {
+            return Promise.resolve([]);
+          }
+          const uid = url.slice(CALENDAR_URL.length + 1, -".ics".length);
+          return Promise.resolve([
+            {
+              data: [
+                "BEGIN:VCALENDAR",
+                "VERSION:2.0",
+                "PRODID:-//Example//Example//EN",
+                "BEGIN:VEVENT",
+                `UID:${uid}`,
+                "DTSTAMP:20270101T000000Z",
+                "DTSTART:20270511T140000Z",
+                "DTEND:20270511T150000Z",
+                "SUMMARY:Quarterly review",
+                "END:VEVENT",
+                "END:VCALENDAR",
+              ].join("\r\n"),
+              url,
+            },
+          ]);
+        },
+        updateCalendarObject: () => Promise.resolve(new Response(null, { status: 204 })),
+      });
     },
-    updateEvent: () => Promise.resolve({ success: true }),
-  };
+  });
 
   const locked: LockedWriteBackStore = {
     commitDelete: ({ tombstoneId }) => {
@@ -92,11 +122,6 @@ const createHarness = (options: { writeAnswerArrivesLate: boolean }) => {
       tombstones.set(tombstoneId, { appliedAt: null, state: "abandoned" });
       return Promise.resolve();
     },
-    /*
-     * The rows the real table would hold, filtered by the predicate the real query
-     * carries. Only the translation of that predicate into a drizzle clause lives
-     * outside this test.
-     */
     countRecentDeletes: () =>
       Promise.resolve(
         [...tombstones.values()].filter((row) => countsTowardDeleteCap(row.state)).length,
@@ -127,63 +152,52 @@ const createHarness = (options: { writeAnswerArrivesLate: boolean }) => {
     withSourceLock: (_sourceCalendarId, run) => run(locked),
   };
 
-  return { destroyedOnTheProvider, quarantines, store };
+  return {
+    countedTombstones: () =>
+      [...tombstones.values()].filter((row) => countsTowardDeleteCap(row.state)),
+    destroyedOnTheProvider,
+    quarantines,
+    store,
+  };
 };
 
-/*
- * Every pass carries a fresh batch of mappings, which is what a destination whose copies
- * were wiped in bulk actually produces.
- */
-const runPasses = async (
+const runDeletes = async (
   store: WriteBackStore,
-  passCount: number,
-  perPass: number,
+  indices: number[],
 ): Promise<void> => {
-  let next = 0;
-  for (let pass = 0; pass < passCount; pass += 1) {
-    const classifications: InboundClassification[] = [];
-    for (let index = 0; index < perPass; index += 1) {
-      classifications.push(createDelete(next));
-      next += 1;
-    }
-    await runWriteBackPass({
-      calendarId: DESTINATION_CALENDAR_ID,
-      classifications,
-      store,
-    });
-  }
+  await runWriteBackPass({
+    calendarId: DESTINATION_CALENDAR_ID,
+    classifications: indices.map((index) => createDelete(index)),
+    store,
+  });
 };
 
-describe("the daily source-delete cap", () => {
-  it("bounds the destruction when every provider answer arrives in time", async () => {
-    const harness = createHarness({ writeAnswerArrivesLate: false });
+const range = (start: number, count: number): number[] =>
+  Array.from({ length: count }, (_unused, offset) => start + offset);
 
-    await runPasses(harness.store, 8, 25);
+describe("a CalDAV server that cannot be reached spends no source-deletion budget", () => {
+  it("records no deletion for events it never asked about", async () => {
+    const harness = createHarness({ serverReachable: () => false });
 
-    expect(harness.destroyedOnTheProvider.length).toBeLessThanOrEqual(
-      TWO_WAY_DELETE_DAILY_CAP,
-    );
-    /*
-     * The bound is only worth asserting against a pass that really reaches the provider:
-     * a classification the guards abandon destroys nothing and satisfies the cap for the
-     * wrong reason.
-     */
-    expect(harness.destroyedOnTheProvider.length).toBeGreaterThan(0);
+    await runDeletes(harness.store, range(0, 25));
+    await runDeletes(harness.store, range(25, 25));
+
+    expect(harness.destroyedOnTheProvider).toEqual([]);
+    expect(harness.countedTombstones()).toEqual([]);
   });
 
-  it("bounds the destruction when the provider answer arrives after the timeout", async () => {
-    const harness = createHarness({ writeAnswerArrivesLate: true });
+  it("still allows the genuine deletion once the server is back", async () => {
+    let reachable = false;
+    const harness = createHarness({ serverReachable: () => reachable });
 
-    await runPasses(harness.store, 8, 25);
+    await runDeletes(harness.store, range(0, 25));
+    await runDeletes(harness.store, range(25, 25));
+    reachable = true;
+    await runDeletes(harness.store, [100]);
 
-    expect(harness.destroyedOnTheProvider.length).toBeLessThanOrEqual(
-      TWO_WAY_DELETE_DAILY_CAP,
-    );
-    /*
-     * The bound is only worth asserting against a pass that really reaches the provider:
-     * a classification the guards abandon destroys nothing and satisfies the cap for the
-     * wrong reason.
-     */
-    expect(harness.destroyedOnTheProvider.length).toBeGreaterThan(0);
+    expect(harness.quarantines).not.toContain("delete_daily_cap");
+    expect(harness.destroyedOnTheProvider).toEqual([
+      `${CALENDAR_URL}/source-event-uid-100.ics`,
+    ]);
   });
 });

@@ -121,8 +121,16 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     "Copies on {destination} changed all at once, which reads as something moving the whole"
     + " calendar rather than as edits you made. Keeper.sh did not rewrite the originals on"
     + " {source} and paused two-way sync; the copies go back to matching {source}.",
+  /*
+   * The only pause whose cause ends without the user: restorePlanQuarantinedPairs
+   * (packages/sync/src/sync-user.ts) clears it on the next pass once the plan covers
+   * two-way sync again, and the two-way controls are disabled until then. Saying the mode
+   * has to be picked again would be both an instruction that cannot be followed and a
+   * promise that deleting a copy is safe, right up to the pass that makes it permanent.
+   */
   plan_downgraded: "Two-way sync to {destination} is paused because the plan changed, so"
-    + " the copies go back to matching {source}. Pick the two-way option again to restart it.",
+    + " the copies go back to matching {source}. It starts again on its own once the plan"
+    + " covers two-way sync; to keep it off, pick One-way.",
   source_event_authored_by_someone_else:
     "A copy on {destination} was changed, but the original on {source} was created by"
     + " somebody else on a calendar shared with you. Keeper.sh will not rewrite or delete"

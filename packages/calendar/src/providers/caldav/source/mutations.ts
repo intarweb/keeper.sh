@@ -251,7 +251,7 @@ const describeLookupFailure = (error: unknown): string => {
 };
 
 const isLookupFailure = (
-  located: CalDAVObject | null | { lookupError: string },
+  located: CalDAVObject | CalDAVWriterClient | null | { lookupError: string },
 ): located is { lookupError: string } =>
   located !== null && "lookupError" in located;
 
@@ -315,11 +315,25 @@ const createCalDAVSourceWriter = (
       lookupError: describeLookupFailure(error),
     }));
 
+  /*
+   * Building the client is itself a conversation with the server — tsdav discovers the
+   * service, the principal and the calendar home before it hands one back — so a server
+   * that is down or a password that no longer works rejects here, having touched nothing.
+   * That has to reach the caller as an answer for the same reason the lookup does.
+   */
+  const openClient = (): Promise<CalDAVWriterClient | { lookupError: string }> =>
+    config.client().catch((error: unknown) => ({
+      lookupError: describeLookupFailure(error),
+    }));
+
   const updateEvent = async (
     reference: { sourceEventId: string | null; sourceEventUid: string },
     updates: SourceEventUpdate,
   ): Promise<SourceWriteResult> => {
-    const client = await config.client();
+    const client = await openClient();
+    if (isLookupFailure(client)) {
+      return { error: client.lookupError, success: false };
+    }
     const located = await findObject(client, reference.sourceEventUid);
     if (isLookupFailure(located)) {
       return { error: located.lookupError, success: false };
@@ -375,7 +389,10 @@ const createCalDAVSourceWriter = (
   const deleteEvent = async (
     reference: { sourceEventId: string | null; sourceEventUid: string },
   ): Promise<SourceWriteResult> => {
-    const client = await config.client();
+    const client = await openClient();
+    if (isLookupFailure(client)) {
+      return { error: client.lookupError, success: false };
+    }
     const located = await findObject(client, reference.sourceEventUid);
     if (isLookupFailure(located)) {
       return { error: located.lookupError, success: false };
