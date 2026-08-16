@@ -166,6 +166,24 @@ const completedListing = (
   });
   const cursor = mintCursor(scope, walk.syncToken, { hash });
   surroundings.frontier.advance(deltaFingerprintOf(scope, hash), cursor.value);
+  /*
+   * A walk that began at a continuation enumerated only the pages after the resume point.
+   * The pages handed back earlier are not in this listing, so claiming the requested window
+   * would make every one of them an absence, and absence on a snapshot is a deletion. This
+   * listing proves nothing about the window, so it carries no coverage and stays partial —
+   * a calendar too large to walk before the deadline yields no deletion authority, which is
+   * the safe half of that trade.
+   */
+  if (resumption.kind === "snapshot" && resumption.pageToken !== null) {
+    return {
+      kind: "partial",
+      scope,
+      events: feed.events,
+      withheld: feed.withheld,
+      continuation: mintContinuation(scope, walk.syncToken, { hash }),
+      diagnostics,
+    };
+  }
   const { window: bounds } = scope;
   const shared = {
     scope,
