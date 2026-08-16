@@ -9,7 +9,7 @@ import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { instantToWallTime } from "../../../ics/utils/timezone-instant";
 import {
   attemptSourceWrite,
-  isRetryableWriteStatus,
+  isRetryableOAuthWriteStatus,
   refuseWhenOthersAreInvited,
   refuseWhenSomebodyElseAuthoredIt,
   resolveAudience,
@@ -233,7 +233,7 @@ const createOutlookSourceWriter = (
     if (!response.ok) {
       throw new OutlookSourceLookupError(
         await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
+        isRetryableOAuthWriteStatus(response.status),
       );
     }
     const body = outlookEventWithAttendeesListSchema.assert(await response.json());
@@ -263,7 +263,7 @@ const createOutlookSourceWriter = (
     if (!response.ok) {
       throw new OutlookSourceLookupError(
         await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
+        isRetryableOAuthWriteStatus(response.status),
       );
     }
     return outlookEventWithAttendeesSchema.assert(await response.json());
@@ -377,7 +377,7 @@ const createOutlookSourceWriter = (
     if (!response.ok) {
       return toWriteFailure(
         await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
+        isRetryableOAuthWriteStatus(response.status),
       );
     }
     await response.body?.cancel?.();
@@ -422,7 +422,7 @@ const createOutlookSourceWriter = (
     if (!response.ok && response.status !== HTTP_STATUS.NOT_FOUND) {
       return toWriteFailure(
         await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
+        isRetryableOAuthWriteStatus(response.status),
       );
     }
     await response.body?.cancel?.();

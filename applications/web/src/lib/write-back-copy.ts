@@ -85,6 +85,18 @@ const HELD_WHILE_WAITING =
  * authorise deleting real events on that footing, so both are named.
  */
 const WRITE_BACK_STATE_COPY: Record<string, string> = {
+  /*
+   * The one hold that needs no answer and undoes itself. Everything two-way sync knows
+   * about an original is the copy the last reading of the source stored, so a reading that
+   * has fallen behind is one it will not write against. Unlike every other pause on this
+   * list the copies are not rebuilt either — they are left exactly as the user left them —
+   * so the sentence the others carry would be a false promise here.
+   */
+  source_not_read_recently:
+    "Two-way sync to {destination} is paused: Keeper.sh has not been able to read {source}"
+    + " recently, and it will not change an original it does not have an up-to-date copy"
+    + " of. Changes you make to copies are not written back in the meantime, and the copies"
+    + " are left as they are. It starts again on its own once {source} is read.",
   all_copies_missing:
     "A reading of {destination} came back with none of the copies on it. That is what"
     + " deleting every copy looks like, and it is also what a broken connection to"

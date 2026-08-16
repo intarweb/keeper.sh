@@ -67,6 +67,25 @@ const RETRYABLE_WRITE_STATUSES: ReadonlySet<number> = new Set([
 const isRetryableWriteStatus = (status: number): boolean =>
   RETRYABLE_WRITE_STATUSES.has(status);
 
+const UNAUTHORIZED = 401;
+
+/*
+ * On a provider signed in by OAuth, 401 means the bearer token was stale — and that is the
+ * one write failure a retry provably fixes. The writer is rebuilt from the credential row
+ * on every pass, so a rotation by a concurrent refresh, a revoke-and-regrant or a
+ * reconnected account clears it by itself. Spending it on the permanent budget instead
+ * reverts the pair to one-way inside five passes, discards the edit the user made on the
+ * copy, and — unlike a lapsed plan — nothing ever turns two-way back on. It is still
+ * counted, on the longer budget, so a grant that never comes back still ends in a paused
+ * pair the user is told about.
+ *
+ * It is deliberately not the rule for CalDAV: there the credential is a password the user
+ * stored, no refresh exists to fix it, and asking again with the same password cannot
+ * change the answer. That one has to pause quickly, with something the user can act on.
+ */
+const isRetryableOAuthWriteStatus = (status: number): boolean =>
+  status === UNAUTHORIZED || isRetryableWriteStatus(status);
+
 /*
  * The flag is carried only when it is true, so a failure nothing can retry keeps the exact
  * shape it has always had and reads as the plain answer it is.
@@ -302,6 +321,7 @@ const RICH_BODY_REFUSAL: SourceWriteResult = {
 
 export {
   attemptSourceWrite,
+  isRetryableOAuthWriteStatus,
   isRetryableWriteStatus,
   normalizeAttendeeAddress,
   refuseWhenOthersAreInvited,

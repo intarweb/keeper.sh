@@ -82,6 +82,7 @@ interface EventTimeSlot {
   title?: string;
   description?: string;
   location?: string;
+  recurrenceId?: Date;
 }
 
 export type {

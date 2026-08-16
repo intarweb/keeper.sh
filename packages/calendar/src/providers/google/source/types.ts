@@ -31,6 +31,13 @@ interface GoogleCalendarEvent {
   location?: string;
   start?: GoogleEventDateTime;
   end?: GoogleEventDateTime;
+  /*
+   * Present only on an occurrence of a series. The listing is fetched with
+   * singleEvents=true, so a repeating event arrives as flat one-off rows and this is the
+   * only thing on them that still says they repeat.
+   */
+  recurringEventId?: string | null;
+  originalStartTime?: GoogleEventDateTime;
   created?: string;
   updated?: string;
   eventType?: string;
@@ -81,6 +88,7 @@ interface EventTimeSlot {
   title?: string;
   description?: string;
   location?: string;
+  recurrenceId?: Date;
 }
 
 export type {

@@ -538,6 +538,25 @@ const parseOutlookEventInstant = (
   }
 };
 
+const REPEATING_OUTLOOK_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "exception",
+  "occurrence",
+  "seriesMaster",
+]);
+
+/*
+ * A series is expanded through /instances before it reaches here, so the RRULE is gone and
+ * seriesMasterId — with the instance's own type — is all that still says the event repeats.
+ * The instance's start doubles as its recurrence id, matching what CalDAV stores for an
+ * override, so write-back can tell one occurrence of a series apart from a one-off before
+ * it writes to the real calendar.
+ */
+const isRepeatingOutlookEvent = (
+  event: Pick<OutlookCalendarEvent, "seriesMasterId" | "type">,
+): boolean =>
+  Boolean(event.seriesMasterId)
+  || (typeof event.type === "string" && REPEATING_OUTLOOK_EVENT_TYPES.has(event.type));
+
 interface ParsedOutlookEventDiagnostics {
   events: EventTimeSlot[];
   selfAuthoredCount: number;
@@ -600,6 +619,7 @@ const parseOutlookEventsWithDiagnostics = (
       startTimeZone: instant.startTimeZone,
       ...event.subject && { title: event.subject },
       uid: event.iCalUId,
+      ...isRepeatingOutlookEvent(event) && { recurrenceId: instant.startTime },
     });
   }
 

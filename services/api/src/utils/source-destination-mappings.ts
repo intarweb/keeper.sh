@@ -7,7 +7,7 @@ import {
   userSyncRequestsTable,
 } from "@keeper.sh/database/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { WRITE_BACK_WITNESS_RESET } from "@keeper.sh/calendar";
+import { isSourceSnapshotFresh, WRITE_BACK_WITNESS_RESET } from "@keeper.sh/calendar";
 import { createMappingMutationLockId, createSyncLock } from "@keeper.sh/sync";
 import type { SyncLockHandle } from "@keeper.sh/sync";
 import type { database as databaseInstance } from "@/context";
@@ -29,6 +29,7 @@ const USER_MAPPING_LOCK_NAMESPACE = 9001;
 const MAPPING_LIMIT_ERROR_MESSAGE = "Mapping limit reached. Upgrade to Pro for unlimited sync mappings.";
 const MAPPING_NOT_FOUND_ERROR_MESSAGE = "Mapping not found";
 const WRITE_BACK_MODE_OFF = "off";
+const WRITE_BACK_STATE_OK = "ok";
 
 type DatabaseClient = typeof databaseInstance;
 type DatabaseTransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
@@ -645,6 +646,51 @@ const resolveDeletesUnlocked = (
       < TWO_WAY_DELETE_APPROVAL_TTL_MS;
 };
 
+/*
+ * A source Keeper.sh has not read inside the freshness window suspends every pair hanging
+ * off it: getWriteBackPoliciesForDestination stamps the policy paused and readPairWriteBack
+ * answers "off" under the source lock, so nothing is written back and no copy is rebuilt.
+ * An ingest that starts failing backs off for hours per attempt, so this is not a moment.
+ *
+ * The stored mode is reported unchanged, because the pair is held rather than turned off
+ * and it resumes on its own the moment the source is read again — reporting it as off would
+ * misstate the user's own setting and invite them to re-pick something that was never
+ * unpicked. What the screen was missing is the hold itself, so it is surfaced as a state
+ * the status line renders. It is computed on read and never stored: the row is still 'ok'.
+ */
+const STALE_SOURCE_WRITE_BACK_STATE = "paused";
+const STALE_SOURCE_WRITE_BACK_REASON = "source_not_read_recently";
+
+const resolveReportedWriteBackState = (
+  mapping: {
+    calendarType: string;
+    capabilities: readonly string[];
+    disabled: boolean;
+    ingestLastSucceededAt: Date | null;
+    writeBackMode: string;
+    writeBackState: string;
+    writeBackStateReason: string | null;
+  },
+  now: Date,
+): { reason: string | null; state: string } => {
+  const stored = { reason: mapping.writeBackStateReason, state: mapping.writeBackState };
+  if (stored.state !== WRITE_BACK_STATE_OK) {
+    return stored;
+  }
+  const effectiveMode = resolveWritableWriteBackMode(mapping.writeBackMode, {
+    calendarType: mapping.calendarType,
+    capabilities: mapping.capabilities,
+    disabled: mapping.disabled,
+  });
+  if (effectiveMode === WRITE_BACK_MODE_OFF || isSourceSnapshotFresh(mapping, now)) {
+    return stored;
+  }
+  return {
+    reason: STALE_SOURCE_WRITE_BACK_REASON,
+    state: STALE_SOURCE_WRITE_BACK_STATE,
+  };
+};
+
 const getWriteBackStatesForSource = async (
   userId: string,
   sourceCalendarId: string,
@@ -655,11 +701,16 @@ const getWriteBackStatesForSource = async (
 
   const mappings = await database
     .select({
+      calendarType: calendarsTable.calendarType,
+      capabilities: calendarsTable.capabilities,
       copiesMissingObservedAt: sourceDestinationMappingsTable.copiesMissingObservedAt,
       deleteConfirmationApprovedAt:
         sourceDestinationMappingsTable.deleteConfirmationApprovedAt,
       destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
+      disabled: calendarsTable.disabled,
+      ingestLastSucceededAt: calendarsTable.ingestLastSucceededAt,
       lastHealthyReadAt: sourceDestinationMappingsTable.lastHealthyReadAt,
+      writeBackMode: sourceDestinationMappingsTable.writeBackMode,
       writeBackState: sourceDestinationMappingsTable.writeBackState,
       writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
     })
@@ -679,8 +730,7 @@ const getWriteBackStatesForSource = async (
       mapping.destinationCalendarId,
       {
         deletesUnlocked: resolveDeletesUnlocked(mapping, now),
-        reason: mapping.writeBackStateReason,
-        state: mapping.writeBackState,
+        ...resolveReportedWriteBackState(mapping, now),
       },
     ]),
   );

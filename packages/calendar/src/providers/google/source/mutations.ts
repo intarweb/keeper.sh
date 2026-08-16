@@ -9,7 +9,7 @@ import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
 import { isRateLimitApiError, parseGoogleApiError } from "../shared/errors";
 import {
   attemptSourceWrite,
-  isRetryableWriteStatus,
+  isRetryableOAuthWriteStatus,
   refuseWhenOthersAreInvited,
   refuseWhenSomebodyElseAuthoredIt,
   resolveAudience,
@@ -185,7 +185,7 @@ const describeErrorResponse = async (
   const error = parseGoogleApiError(body);
   return {
     message: error.message ?? fallback,
-    retryable: isRetryableWriteStatus(response.status)
+    retryable: isRetryableOAuthWriteStatus(response.status)
       || isRateLimitApiError(response.status, error),
   };
 };

@@ -344,6 +344,24 @@ const resolveSourceEventType = (
   return "default";
 };
 
+/*
+ * An occurrence expanded out of a series carries recurringEventId and nothing else that
+ * says it repeats: singleEvents=true drops the RRULE. Stamping the occurrence's own start
+ * as its recurrence id is what CalDAV already stores for an override, and it is the only
+ * thing that lets write-back tell a one-off apart from one instance of a repeating event
+ * before it writes to the real calendar. originalStartTime is preferred where Google gives
+ * it, because a moved instance is still the instance of that slot.
+ */
+const resolveGoogleRecurrenceId = (
+  event: Pick<GoogleCalendarEvent, "originalStartTime" | "recurringEventId">,
+  startTime: Date,
+): Date | null => {
+  if (!event.recurringEventId) {
+    return null;
+  }
+  return parseEventTime(event.originalStartTime) ?? startTime;
+};
+
 interface ParsedSourceEventDiagnostics {
   events: EventTimeSlot[];
   selfAuthoredCount: number;
@@ -372,6 +390,7 @@ const parseGoogleEventsWithDiagnostics = (
       selfAuthoredCount += 1;
       continue;
     }
+    const recurrenceId = resolveGoogleRecurrenceId(event, startTime);
     result.push({
       availability: resolveGoogleAvailability(event),
       description: event.description,
@@ -384,6 +403,7 @@ const parseGoogleEventsWithDiagnostics = (
       sourceEventId: event.id,
       title: event.summary,
       uid: event.iCalUID,
+      ...(recurrenceId && { recurrenceId }),
     });
   }
 
