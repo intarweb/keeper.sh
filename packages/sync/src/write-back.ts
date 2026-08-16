@@ -6,6 +6,7 @@ import {
   createMicrosoftTokenRefresher,
   createOutlookSourceWriter,
   isSourceSnapshotFresh,
+  resolveEpochLimit,
   TWO_WAY_EPOCH_WINDOW_MS,
   withSourceIngestLocks,
   WRITE_BACK_WITNESS_RESET,
@@ -482,6 +483,21 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
     projectedSyncEventHash,
     updates,
   }) => {
+    /*
+     * The epoch column counts landed writes and provider rejections alike, and the two are
+     * judged by different limits. The assignment below overwrites the stamps that tell them
+     * apart, so the limit this write is judged by is read from the row as it stands now —
+     * inside the same transaction, under the source lock that keeps it still.
+     */
+    const [before] = await locked
+      .select({
+        writeBackEpochWindowStart: eventMappingsTable.writeBackEpochWindowStart,
+        writeBackLastAppliedAt: eventMappingsTable.writeBackLastAppliedAt,
+      })
+      .from(eventMappingsTable)
+      .where(eq(eventMappingsTable.id, mappingId))
+      .limit(1);
+
     await locked
       .update(eventStatesTable)
       .set(toEventStateAssignment(updates))
@@ -514,6 +530,7 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
     return {
       writeBackDailyCount: row?.writeBackDailyCount ?? NO_EPOCHS,
       writeBackEpoch: row?.writeBackEpoch ?? NO_EPOCHS,
+      writeBackEpochLimit: resolveEpochLimit(before ?? {}),
     };
   },
   /*

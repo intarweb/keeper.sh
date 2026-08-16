@@ -60,9 +60,17 @@ const resolveAdoptedSentence = (sourceName: string): string =>
  * original and the edit made on the copy is gone. Saying which side wins is the only way a
  * user can tell that outcome apart from the edit having been written back.
  */
+/*
+ * The rule is applied per axis: only what the original changed is taken back. A rename on
+ * the original and a move on the copy never meet, so both are kept, and a sentence that
+ * promises the copy's edit is replaced whenever the original changed at all would be read
+ * as "nothing is written to the original" in exactly the case where something is.
+ */
 const resolveConflictSentence = (sourceName: string): string =>
-  `If the original also changed since Keeper.sh last updated the copy, ${sourceName} wins:`
-  + " the copy is rebuilt from the original and the edit made on the copy is replaced.";
+  `If the original also changed since Keeper.sh last updated the copy, ${sourceName} wins`
+  + " on what it changed: the copy is rebuilt from the original there and the edit made on"
+  + " the copy is replaced. An edit to something the original did not change is still"
+  + " written back.";
 
 /*
  * A pass that sees more edited copies than the ceiling writes none of them back and

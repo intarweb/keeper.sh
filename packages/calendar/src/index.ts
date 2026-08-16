@@ -388,6 +388,7 @@ export { createCalDAVSourceWriter } from "./providers/caldav/source/mutations";
 export {
   classifyInboundChanges,
   getDestinationDrift,
+  resolveEpochLimit,
   TWO_WAY_EPOCH_QUARANTINE_LIMIT,
   TWO_WAY_EPOCH_WINDOW_MS,
   TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,

@@ -42,4 +42,17 @@ describe("what the dashboard says when both calendars changed", () => {
 
     expect(sentences).toMatch(/replac|overwrit|lost/i);
   });
+
+  /*
+   * The classifier resolves the argument per axis: a rename on the original and a move on
+   * the copy never meet, so the move IS written to the real event. A sentence that stops at
+   * "the original wins" reads as "nothing is written to the original whenever the original
+   * changed", which is the one case where something is.
+   */
+  it("does not promise the copy's edit is discarded whenever the original changed at all", () => {
+    const summary = buildWriteBackFieldSummary(NO_EXCLUSIONS, SOURCE_NAME);
+
+    expect(summary.conflict).toMatch(/on what it changed/i);
+    expect(summary.conflict).toMatch(/did not change is still written back/i);
+  });
 });

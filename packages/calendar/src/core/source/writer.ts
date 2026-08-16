@@ -263,9 +263,16 @@ const resolveAudience = (input: {
 
 /*
  * The account's own address is the only thing an author can be weighed against, and some
- * of the accounts Keeper.sh holds have none. isAccount is the provider answering the same
- * question directly — Google's creator.self, Graph's isOrganizer — and it is believed only
- * when it says yes: a missing "yes" is not a "no" on either provider.
+ * of the accounts Keeper.sh holds have none. isAccount is the provider answering a NEARBY
+ * question — Google's creator.self, Graph's isOrganizer — and both of them answer it about
+ * the calendar the copy sits on, not about the signed-in account: creator.self is "whether
+ * the creator corresponds to the calendar on which this copy of the event appears", and
+ * isOrganizer is "true if the calendar owner is the organizer". On a calendar a colleague
+ * shared with write access the owner is the colleague, so every booking they make on it
+ * carries the flag — which is exactly the event the refusal exists for. So the flag stands
+ * in only where nothing can contradict it, and two addresses that provably disagree do.
+ * It is still believed only when it says yes: a missing "yes" is not a "no" on either
+ * provider.
  *
  * Both sides have to be addresses before either is weighed. A provider that answers the
  * account's sign-in with a display name and no address is stored under that name, and
@@ -290,14 +297,16 @@ const resolveAuthorship = (input: {
   isAccount?: boolean;
   owner?: string | null | undefined;
 }): SourceEventAuthorship => {
-  if (input.isAccount === true) {
+  const account = normalizeAttendeeAddress(input.account);
+  const author = normalizeAttendeeAddress(input.author);
+  const addressesDisagree =
+    IS_ADDRESS.test(account) && IS_ADDRESS.test(author) && account !== author;
+  if (input.isAccount === true && !addressesDisagree) {
     return "the_account";
   }
-  const account = normalizeAttendeeAddress(input.account);
   if (IS_ADDRESS.test(account) && account === normalizeAttendeeAddress(input.owner)) {
     return "the_account";
   }
-  const author = normalizeAttendeeAddress(input.author);
   if (!IS_ADDRESS.test(account) || !IS_ADDRESS.test(author)) {
     return "unknown";
   }

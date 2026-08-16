@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  TWO_WAY_EPOCH_QUARANTINE_LIMIT,
+  TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
+} from "@keeper.sh/calendar";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import {
   eventMappingsTable,
@@ -66,12 +70,32 @@ const LOAD_TARGET_ROW: LoadTargetRow = {
  * a fake that only models one of the two shapes cannot observe both statements the
  * commit issues.
  */
+/*
+ * The two stamps that tell a landed write apart from a provider rejection on the shared
+ * epoch column. The commit reads them before its own assignment overwrites them, because
+ * the limit the write is judged by depends on which of the two spent the budget.
+ */
+interface PriorStamps {
+  writeBackEpochWindowStart: Date | null;
+  writeBackLastAppliedAt: Date | null;
+}
+
+const WINDOW_OPENED_AT = new Date("2027-05-11T13:00:00.000Z");
+const LANDED_STAMPS: PriorStamps = {
+  writeBackEpochWindowStart: WINDOW_OPENED_AT,
+  writeBackLastAppliedAt: WINDOW_OPENED_AT,
+};
+const REJECTION_STAMPS: PriorStamps = {
+  writeBackEpochWindowStart: new Date("2027-05-11T13:05:00.000Z"),
+  writeBackLastAppliedAt: WINDOW_OPENED_AT,
+};
+
 const createResolvedWrite = (row: Record<string, unknown>) => {
   const settled = Promise.resolve([row]);
   return Object.assign(settled, { returning: () => Promise.resolve([row]) });
 };
 
-const createFakeDatabase = (rows: LoadTargetRow[]) => {
+const createFakeDatabase = (rows: LoadTargetRow[], priorStamps: PriorStamps = LANDED_STAMPS) => {
   const calls: WriteCall[] = [];
 
   const locked = {
@@ -84,7 +108,7 @@ const createFakeDatabase = (rows: LoadTargetRow[]) => {
     execute: () => Promise.resolve([]),
     select: () => ({
       from: () => ({
-        where: () => ({ limit: () => Promise.resolve([]) }),
+        where: () => ({ limit: () => Promise.resolve([priorStamps]) }),
       }),
     }),
     update: (table: unknown) => ({
@@ -114,8 +138,11 @@ const createFakeDatabase = (rows: LoadTargetRow[]) => {
   return { calls, database };
 };
 
-const createStore = (rows: LoadTargetRow[] = [LOAD_TARGET_ROW]) => {
-  const fake = createFakeDatabase(rows);
+const createStore = (
+  rows: LoadTargetRow[] = [LOAD_TARGET_ROW],
+  priorStamps: PriorStamps = LANDED_STAMPS,
+) => {
+  const fake = createFakeDatabase(rows, priorStamps);
   const store = createDatabaseWriteBackStore({
     database: fake.database,
     encryptionKey: "encryption-key",
@@ -200,7 +227,29 @@ describe("the commit that ends a write-back", () => {
     expect(spent).toEqual({
       writeBackDailyCount: RETURNED_DAILY_COUNT,
       writeBackEpoch: RETURNED_EPOCH,
+      writeBackEpochLimit: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
     });
+  });
+
+  /*
+   * The window moved without a landed write behind it, which is what a run of provider
+   * rejections leaves. The epoch it spent is not a run of writes reaching a real calendar,
+   * so the write that lands once the provider recovers must be judged by the failure
+   * budget the applier retries a rejection on — not by the five a runaway is stopped at.
+   */
+  it("judges a budget the provider spent on rejections by the failure limit", async () => {
+    const { store } = createStore([LOAD_TARGET_ROW], REJECTION_STAMPS);
+
+    const spent = await runLocked(store, (locked) =>
+      locked.commitUpdate({
+        eventStateId: EVENT_STATE_ID,
+        mappingId: MAPPING_ID,
+        observed: OBSERVED,
+        projectedSyncEventHash: PROJECTED_HASH,
+        updates: UPDATES,
+      }));
+
+    expect(spent.writeBackEpochLimit).toBe(TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT);
   });
 
   it("moves the mapping's recorded schedule to what it just wrote", async () => {

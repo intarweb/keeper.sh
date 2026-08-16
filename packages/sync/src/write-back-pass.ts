@@ -78,6 +78,31 @@ class SourceWriteRejectedError extends Error {
 }
 
 /*
+ * The attempt never got as far as the provider: the advisory lock the source ingest was
+ * holding timed out, the pool would not hand over a connection, the read of the pair's
+ * own state was cut off. No calendar was contacted and no source event changed — the
+ * writer provably did not run — which makes it the same "not right now" a throttle is,
+ * and it is answered the same way. A deletion's record is released rather than left
+ * standing as a deletion that never happened, and the pair is retried on the long budget
+ * rather than reverted to one-way over contention that clears by itself. The budget is
+ * still spent, so a database that never recovers ends in a paused pair the user is told
+ * about rather than in a silent loop.
+ */
+const describeUnreachedSource = (reason: unknown): string => {
+  if (reason instanceof Error) {
+    return reason.message;
+  }
+  return String(reason);
+};
+
+class SourceUnreachedError extends Error {
+  constructor(reason: unknown) {
+    super(`Source not reached: ${describeUnreachedSource(reason)}`, { cause: reason });
+    this.name = "SourceUnreachedError";
+  }
+}
+
+/*
  * A throttle, a gateway failure or a connection that never opened is the provider saying
  * "not right now", and pausing the pair over one is not a safe default: it reverts to
  * one-way, rebuilds the edited copy from the original and discards the edit the user made
@@ -93,7 +118,34 @@ const resolveQuarantineLimit = (error: unknown): number => {
   if (error instanceof SourceWriteRejectedError && error.retryable) {
     return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
   }
+  if (error instanceof SourceUnreachedError) {
+    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
+  }
   return TWO_WAY_EPOCH_QUARANTINE_LIMIT;
+};
+
+/*
+ * Every answer the provider itself gave is already typed, and the daily cap is the pass
+ * stopping itself. Anything else escaping the locked region is infrastructure — but only
+ * before the writer ran. After it ran the write may have landed, so a failure past that
+ * point keeps its own meaning and a deletion's record keeps standing.
+ */
+interface SourceAttempt {
+  reached: boolean;
+}
+
+const asUnreachedSource = (attempt: SourceAttempt, error: unknown): unknown => {
+  if (attempt.reached) {
+    return error;
+  }
+  if (
+    error instanceof SourceWriteRefusedError
+    || error instanceof SourceWriteRejectedError
+    || error instanceof WriteBackDailyCapError
+  ) {
+    return error;
+  }
+  return new SourceUnreachedError(error);
 };
 
 const QUARANTINE_REASONS_BY_REFUSAL: Record<string, string> = {
@@ -173,7 +225,11 @@ interface LockedWriteBackStore {
   }) => Promise<void>;
   commitUpdate: (
     input: CommitUpdateInput,
-  ) => Promise<{ writeBackDailyCount?: number; writeBackEpoch: number }>;
+  ) => Promise<{
+    writeBackDailyCount?: number;
+    writeBackEpoch: number;
+    writeBackEpochLimit?: number;
+  }>;
   /*
    * The policy the classifier ran under was read before the destination listing, and the
    * user can turn two-way sync off at any point in the seconds that follow. Nothing else
@@ -419,20 +475,43 @@ const quarantineRunaway = async (
   );
 };
 
+/*
+ * The limit travels with the epoch because the two are only meaningful together: the
+ * column counts landed writes and provider rejections alike, and which of them spent it
+ * decides the limit it is judged by.
+ */
+interface LockedUpdateResult {
+  dailyCount: number;
+  epoch: number;
+  epochLimit: number;
+  state: Outcome;
+}
+
 const runLockedUpdate = (
   input: WriteBackPassInput,
   target: WriteBackTarget,
   writer: CalendarSourceWriter,
   classification: Extract<InboundClassification, { type: "write-back" }>,
-): Promise<{ dailyCount: number; epoch: number; state: Outcome }> =>
+  attempt: SourceAttempt,
+): Promise<LockedUpdateResult> =>
   input.store.withSourceLock(
     target.sourceCalendarId,
-    async (locked): Promise<{ dailyCount: number; epoch: number; state: Outcome }> => {
+    async (locked): Promise<LockedUpdateResult> => {
       if (!await isPairStillAuthorized(locked, classification, target)) {
-        return { dailyCount: NO_WORK, epoch: NO_WORK, state: "withheld" };
+        return {
+          dailyCount: NO_WORK,
+          epoch: NO_WORK,
+          epochLimit: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
+          state: "withheld",
+        };
       }
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
-        return { dailyCount: NO_WORK, epoch: NO_WORK, state: "abandoned" };
+        return {
+          dailyCount: NO_WORK,
+          epoch: NO_WORK,
+          epochLimit: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
+          state: "abandoned",
+        };
       }
 
       /*
@@ -452,6 +531,7 @@ const runLockedUpdate = (
         throw new WriteBackDailyCapError(target.mappingId);
       }
 
+      attempt.reached = true;
       const written = await writer.updateEvent(
         { sourceEventId: target.sourceEventId, sourceEventUid: target.sourceEventUid },
         classification.updates,
@@ -462,6 +542,7 @@ const runLockedUpdate = (
       return {
         dailyCount: committed.writeBackDailyCount ?? NO_WORK,
         epoch: committed.writeBackEpoch,
+        epochLimit: committed.writeBackEpochLimit ?? TWO_WAY_EPOCH_QUARANTINE_LIMIT,
         state: "applied",
       };
     },
@@ -481,7 +562,7 @@ const quarantineRefusal = async (
 };
 
 type UpdateOutcome =
-  | { dailyCount: number; epoch: number; kind: "committed"; state: Outcome }
+  | { dailyCount: number; epoch: number; epochLimit: number; kind: "committed"; state: Outcome }
   | { kind: "over-budget" }
   | { kind: "refused"; refusal: SourceWriteRefusedError };
 
@@ -491,14 +572,16 @@ const runBudgetedUpdate = async (
   writer: CalendarSourceWriter,
   classification: Extract<InboundClassification, { type: "write-back" }>,
 ): Promise<UpdateOutcome> => {
+  const attempt: SourceAttempt = { reached: false };
   try {
-    const { dailyCount, epoch, state } = await runLockedUpdate(
+    const { dailyCount, epoch, epochLimit, state } = await runLockedUpdate(
       input,
       target,
       writer,
       classification,
+      attempt,
     );
-    return { dailyCount, epoch, kind: "committed", state };
+    return { dailyCount, epoch, epochLimit, kind: "committed", state };
   } catch (error) {
     if (error instanceof WriteBackDailyCapError) {
       return { kind: "over-budget" };
@@ -506,7 +589,7 @@ const runBudgetedUpdate = async (
     if (error instanceof SourceWriteRefusedError) {
       return { kind: "refused", refusal: error };
     }
-    throw error;
+    throw asUnreachedSource(attempt, error);
   }
 };
 
@@ -532,10 +615,16 @@ const applyUpdate = async (
    * cap, so the budget has to be judged spent at the cap rather than past it. Judging it
    * past the cap leaves the pair silently frozen for the rest of the day with nothing said.
    */
+  /*
+   * The epoch is judged by the limit the classifier would judge the same row by. Five is
+   * what a run of landed writes is allowed; a budget the provider spent on rejections
+   * reached no calendar at all, and the write that finally lands once a throttle lifts is
+   * the second write on the mapping rather than the fifth in a runaway.
+   */
   if (
     outcome.state === "applied"
     && (
-      outcome.epoch >= TWO_WAY_EPOCH_QUARANTINE_LIMIT
+      outcome.epoch >= outcome.epochLimit
       || outcome.dailyCount >= TWO_WAY_WRITE_BACK_DAILY_CAP
     )
   ) {
@@ -647,6 +736,7 @@ const applyDelete = async (
     await input.store.abandonTombstone({ observedAt, tombstoneId });
   };
 
+  const attempt: SourceAttempt = { reached: false };
   const run = input.store.withSourceLock(
     target.sourceCalendarId,
     async (locked): Promise<Outcome> => {
@@ -659,6 +749,7 @@ const applyDelete = async (
         return "abandoned";
       }
 
+      attempt.reached = true;
       const deleted = await writer.deleteEvent(
         { sourceEventId: target.sourceEventId, sourceEventUid: target.sourceEventUid },
         input.signal,
@@ -683,20 +774,26 @@ const applyDelete = async (
    * The record itself survives: an abandoned row keeps its snapshot, it is only uncounted.
    */
   return run.catch(async (error: unknown) => {
-    if (error instanceof SourceWriteRefusedError) {
+    const answer = asUnreachedSource(attempt, error);
+    if (answer instanceof SourceWriteRefusedError) {
       await releaseTombstone();
-      return quarantineRefusal(input, target, error);
+      return quarantineRefusal(input, target, answer);
     }
     /*
-     * Only an answer that says what happened releases the record. A write that never got
-     * one may have deleted the event, so its record stands and the user can read what was
-     * on it; the next pass finds the event gone and completes the deletion, or finds it
-     * there and deletes it then.
+     * Only an answer that says what happened releases the record — plus the case where
+     * there was nothing to answer, because the writer was never reached at all.
+     * A write that got no answer may have deleted the event, so its record stands and the
+     * user can read what was on it; the next pass finds the event gone and completes the
+     * deletion, or finds it there and deletes it then.
      */
-    if (error instanceof SourceWriteRejectedError && !error.indeterminate) {
+    if (answer instanceof SourceUnreachedError) {
+      await releaseTombstone();
+      throw answer;
+    }
+    if (answer instanceof SourceWriteRejectedError && !answer.indeterminate) {
       await releaseTombstone();
     }
-    throw error;
+    throw answer;
   });
 };
 

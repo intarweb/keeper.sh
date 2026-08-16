@@ -284,8 +284,16 @@ const isRecurringMapping = (mapping: EventMapping): boolean =>
  * the window without stamping a landed write, so a stamp no older than the window means the
  * spend landed and five stands — including the write that opened the window itself, which
  * stamps both at once.
+ *
+ * The applier judges the same column when a write lands, against the row as it stood before
+ * that write was counted, and it has to reach the same answer: a write that finally lands
+ * once a throttle lifts is the second write on the mapping, not the fifth in a runaway.
+ * So the rule lives here once and both halves read it.
  */
-const resolveEpochLimit = (mapping: EventMapping): number => {
+const resolveEpochLimit = (mapping: {
+  writeBackEpochWindowStart?: Date | null;
+  writeBackLastAppliedAt?: Date | null;
+}): number => {
   const appliedAt = mapping.writeBackLastAppliedAt;
   if (!(appliedAt instanceof Date)) {
     return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
@@ -947,6 +955,12 @@ const resolveDrift = (
     counters.blockedRedactedField += FIRST_OBSERVATION;
   }
 
+  /*
+   * The argument is resolved per axis, and only where both sides moved the same one. A
+   * rename on the original and a move on the copy are not an argument at all: neither side
+   * touched what the other changed, so both edits are kept and neither is overwritten. The
+   * original only wins where it was itself edited on the axis being written.
+   */
   const wantsScheduleWrite = drift.time || content.allDayChanged;
   if (wantsScheduleWrite) {
     if (sourceTimeDrifted || (content.allDayChanged && sourceNonTimeDrifted)) {
@@ -1647,6 +1661,7 @@ export {
   assertWriteBackPayload,
   classifyInboundChanges,
   getDestinationDrift,
+  resolveEpochLimit,
   resolveWriteBackEligibleFields,
   TWO_WAY_DELETE_ABSOLUTE_FLOOR,
   TWO_WAY_DELETE_GRACE_MS,

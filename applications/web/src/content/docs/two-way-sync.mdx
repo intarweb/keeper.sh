@@ -42,7 +42,9 @@ Who created an event is a question Keeper.sh can only answer when it knows the a
 
 ## When both sides changed
 
-The original wins. If the original also changed since Keeper.sh last updated the copy, the copy is rebuilt from the original and the edit made on the copy is replaced.
+The original wins, on whatever it changed. If the original was edited since Keeper.sh last updated the copy, then for each thing the original changed — its time, or its name, location and description — the copy is rebuilt from the original and the edit made on the copy is replaced.
+
+Edits that do not meet are both kept. If you rename the original and someone moves the copy, the rename reaches the copy and the move is written back to the original: neither side changed what the other did, so nothing is discarded.
 
 There is one window where an edit is neither written back nor undone: a copy Keeper.sh has not observed yet — just after two-way sync is switched on, or in the first minute after Keeper.sh updates that copy. That edit stays on the copy and the two calendars simply stay different until the original changes again.
 
