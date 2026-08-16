@@ -29,14 +29,14 @@ const oauthCredentialsTable = pgTable(
   "oauth_credentials",
   {
     accessToken: text().notNull(),
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     email: text(),
-    expiresAt: timestamp().notNull(),
+    expiresAt: timestamp({ withTimezone: true }).notNull(),
     id: uuid().notNull().primaryKey().defaultRandom(),
     needsReauthentication: boolean().notNull().default(false),
     provider: text().notNull(),
     refreshToken: text().notNull(),
-    updatedAt: timestamp()
+    updatedAt: timestamp({ withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
@@ -53,11 +53,11 @@ const oauthCredentialsTable = pgTable(
 
 const caldavCredentialsTable = pgTable("caldav_credentials", {
   authMethod: text().notNull().default("basic"),
-  createdAt: timestamp().notNull().defaultNow(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   encryptedPassword: text().notNull(),
   id: uuid().notNull().primaryKey().defaultRandom(),
   serverUrl: text().notNull(),
-  updatedAt: timestamp()
+  updatedAt: timestamp({ withTimezone: true })
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
@@ -72,9 +72,9 @@ const calendarAccountsTable = pgTable(
     caldavCredentialId: uuid().references(() => caldavCredentialsTable.id, {
       onDelete: "cascade",
     }),
-    calendarsRefreshAttemptedAt: timestamp(),
-    calendarsRefreshedAt: timestamp(),
-    createdAt: timestamp().notNull().defaultNow(),
+    calendarsRefreshAttemptedAt: timestamp({ withTimezone: true }),
+    calendarsRefreshedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     displayName: text(),
     email: text(),
     id: uuid().notNull().primaryKey().defaultRandom(),
@@ -84,7 +84,7 @@ const calendarAccountsTable = pgTable(
     }),
     provider: text().notNull(),
     reauthenticationSource: text(),
-    updatedAt: timestamp()
+    updatedAt: timestamp({ withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
@@ -112,7 +112,7 @@ const calendarsTable = pgTable(
       .references(() => calendarAccountsTable.id, { onDelete: "cascade" }),
     calendarType: text().notNull(),
     calendarUrl: text(),
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     excludeAllDayEvents: boolean().notNull().default(false),
     excludeEventDescription: boolean().notNull().default(true),
     excludeEventLocation: boolean().notNull().default(true),
@@ -124,16 +124,16 @@ const calendarsTable = pgTable(
     customEventName: text().notNull().default("{{calendar_name}}"),
     disabled: boolean().notNull().default(false),
     failureCount: integer().notNull().default(0),
-    lastFailureAt: timestamp(),
-    nextAttemptAt: timestamp(),
+    lastFailureAt: timestamp({ withTimezone: true }),
+    nextAttemptAt: timestamp({ withTimezone: true }),
     ingestFailureCount: integer().notNull().default(0),
-    ingestLastFailureAt: timestamp(),
-    ingestNextAttemptAt: timestamp(),
+    ingestLastFailureAt: timestamp({ withTimezone: true }),
+    ingestNextAttemptAt: timestamp({ withTimezone: true }),
     ingestFutureRange: text().notNull().default(DEFAULT_FUTURE_SYNC_RANGE),
     ingestHistoricRange: text().notNull().default(DEFAULT_HISTORIC_SYNC_RANGE),
-    ingestWindowEnd: timestamp(),
-    ingestWindowRecordedAt: timestamp(),
-    ingestWindowStart: timestamp(),
+    ingestWindowEnd: timestamp({ withTimezone: true }),
+    ingestWindowRecordedAt: timestamp({ withTimezone: true }),
+    ingestWindowStart: timestamp({ withTimezone: true }),
     externalCalendarId: text(),
     id: uuid().notNull().primaryKey().defaultRandom(),
     capabilities: text().array().notNull().default(["pull"]),
@@ -142,8 +142,8 @@ const calendarsTable = pgTable(
     syncToken: text(),
     syncFutureRange: text().notNull().default(DEFAULT_FUTURE_SYNC_RANGE),
     syncHistoricRange: text().notNull().default(DEFAULT_HISTORIC_SYNC_RANGE),
-    unavailableSince: timestamp(),
-    updatedAt: timestamp()
+    unavailableSince: timestamp({ withTimezone: true }),
+    updatedAt: timestamp({ withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
@@ -180,28 +180,28 @@ const calendarPushChannelsTable = pgTable(
       .notNull()
       .references(() => calendarAccountsTable.id, { onDelete: "cascade" }),
     calendarId: uuid().references(() => calendarsTable.id, { onDelete: "cascade" }),
-    createdAt: timestamp().notNull().defaultNow(),
-    expiresAt: timestamp(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp({ withTimezone: true }),
     failureCount: integer().notNull().default(0),
     id: uuid().notNull().primaryKey().defaultRandom(),
-    lastFailureAt: timestamp(),
-    lastNotificationAt: timestamp(),
-    nextAttemptAt: timestamp(),
+    lastFailureAt: timestamp({ withTimezone: true }),
+    lastNotificationAt: timestamp({ withTimezone: true }),
+    nextAttemptAt: timestamp({ withTimezone: true }),
     provider: text().notNull(),
     providerChannelId: text(),
     providerResourceId: text(),
-    reauthorizeRequestedAt: timestamp(),
+    reauthorizeRequestedAt: timestamp({ withTimezone: true }),
     resourcePath: text(),
     secretHash: text().notNull(),
     state: text().notNull().default("registering"),
-    updatedAt: timestamp()
+    updatedAt: timestamp({ withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
     userId: text()
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    verifiedAt: timestamp(),
+    verifiedAt: timestamp({ withTimezone: true }),
   },
   (table) => [
     index("calendar_push_channels_account_idx").on(table.accountId),
@@ -221,7 +221,7 @@ const calendarSnapshotsTable = pgTable("calendar_snapshots", {
     .references(() => calendarsTable.id, { onDelete: "cascade" })
     .unique(),
   contentHash: text(),
-  createdAt: timestamp().notNull().defaultNow(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   ical: text().notNull(),
   id: uuid().notNull().primaryKey().defaultRandom(),
   public: boolean().notNull().default(false),
@@ -234,19 +234,19 @@ const eventStatesTable = pgTable(
     calendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     description: text(),
-    endTime: timestamp().notNull(),
+    endTime: timestamp({ withTimezone: true }).notNull(),
     id: uuid().notNull().primaryKey().defaultRandom(),
     location: text(),
     recurrenceRule: text(),
     exceptionDates: text(),
-    recurrenceId: timestamp(),
+    recurrenceId: timestamp({ withTimezone: true }),
     isAllDay: boolean(),
     sourceEventId: text(),
     sourceEventType: text(),
     sourceEventUid: text(),
-    startTime: timestamp().notNull(),
+    startTime: timestamp({ withTimezone: true }).notNull(),
     startTimeZone: text(),
     title: text(),
   },
@@ -282,11 +282,11 @@ const userEventsTable = pgTable(
     location: text(),
     availability: text(),
     isAllDay: boolean(),
-    startTime: timestamp().notNull(),
-    endTime: timestamp().notNull(),
+    startTime: timestamp({ withTimezone: true }).notNull(),
+    endTime: timestamp({ withTimezone: true }).notNull(),
     startTimeZone: text(),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
@@ -302,7 +302,7 @@ const userEventsTable = pgTable(
 const userSubscriptionsTable = pgTable("user_subscriptions", {
   plan: text().notNull().default("free"),
   polarSubscriptionId: text(),
-  updatedAt: timestamp()
+  updatedAt: timestamp({ withTimezone: true })
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
@@ -319,10 +319,10 @@ const syncStatusTable = pgTable(
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
     id: uuid().notNull().primaryKey().defaultRandom(),
-    lastSyncedAt: timestamp(),
+    lastSyncedAt: timestamp({ withTimezone: true }),
     localEventCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     remoteEventCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
-    updatedAt: timestamp()
+    updatedAt: timestamp({ withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
@@ -332,7 +332,7 @@ const syncStatusTable = pgTable(
 
 const userSyncRequestsTable = pgTable("user_sync_requests", {
   requestId: uuid().notNull().defaultRandom(),
-  requestedAt: timestamp().notNull().defaultNow(),
+  requestedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   userId: text()
     .notNull()
     .primaryKey()
@@ -345,10 +345,10 @@ const eventMappingsTable = pgTable(
     calendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     deleteIdentifier: text(),
     destinationEventUid: text().notNull(),
-    endTime: timestamp().notNull(),
+    endTime: timestamp({ withTimezone: true }).notNull(),
     // Kept as the legacy cascade in Drizzle metadata so 0077 remains additive.
     // The migration runner upgrades the live FK to SET NULL before applying 0077.
     eventStateId: uuid()
@@ -359,7 +359,7 @@ const eventMappingsTable = pgTable(
     // Nullable for rolling compatibility with writers from before this column existed.
     // The migration runner backfills it and installs its validated index/checks.
     sourceCalendarId: uuid(),
-    startTime: timestamp().notNull(),
+    startTime: timestamp({ withTimezone: true }).notNull(),
   },
   (table) => [
     uniqueIndex("event_mappings_sync_event_cal_idx")
@@ -382,7 +382,7 @@ const eventMappingsTable = pgTable(
 const sourceDestinationMappingsTable = pgTable(
   "source_destination_mappings",
   {
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     destinationCalendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
@@ -404,7 +404,7 @@ const sourceDestinationMappingsTable = pgTable(
 const feedbackTable = pgTable(
   "feedback",
   {
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     id: uuid().notNull().primaryKey().defaultRandom(),
     message: text().notNull(),
     type: text().notNull(),
@@ -426,9 +426,9 @@ const apiTokensTable = pgTable(
     name: text().notNull(),
     tokenHash: text().notNull().unique(),
     tokenPrefix: text().notNull(),
-    lastUsedAt: timestamp(),
-    expiresAt: timestamp(),
-    createdAt: timestamp().notNull().defaultNow(),
+    lastUsedAt: timestamp({ withTimezone: true }),
+    expiresAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("api_tokens_user_idx").on(table.userId),
@@ -448,7 +448,7 @@ const icalFeedSettingsTable = pgTable("ical_feed_settings", {
   includeEventLocation: boolean().notNull().default(DEFAULT_FEED_SETTINGS.includeEventLocation),
   excludeAllDayEvents: boolean().notNull().default(DEFAULT_FEED_SETTINGS.excludeAllDayEvents),
   customEventName: text().notNull().default(DEFAULT_FEED_SETTINGS.customEventName),
-  updatedAt: timestamp()
+  updatedAt: timestamp({ withTimezone: true })
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
@@ -474,8 +474,8 @@ const icalFeedsTable = pgTable(
     excludeFocusTime: boolean().notNull().default(DEFAULT_FEED_SETTINGS.excludeFocusTime),
     excludeOutOfOffice: boolean().notNull().default(DEFAULT_FEED_SETTINGS.excludeOutOfOffice),
     customEventName: text().notNull().default(DEFAULT_FEED_SETTINGS.customEventName),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
@@ -499,7 +499,7 @@ const icalFeedCalendarsTable = pgTable(
     calendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("ical_feed_calendar_idx").on(table.feedId, table.calendarId),

@@ -316,6 +316,14 @@ const processJob = (
           widelog.flush();
           needsFlush = false;
         },
+        onCalendarSkipped: (skip) => {
+          widelog.set("calendar.id", skip.calendarId);
+          widelog.set("push_sync.mapped_source_count", skip.mappedSourceCount);
+          widelog.set("push_sync.skipped", skip.reason);
+          widelog.set("outcome", "skipped");
+          widelog.flush();
+          needsFlush = false;
+        },
         onCalendarError: (failure) => {
           widelog.set("provider.name", failure.provider);
           widelog.set("provider.account_id", failure.accountId);
