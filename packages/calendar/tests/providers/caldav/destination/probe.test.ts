@@ -7,6 +7,7 @@ import { eventToICalString } from "../../../../src/providers/caldav/shared/ics";
 const clientMocks = vi.hoisted(() => ({
   createCalendarObject: vi.fn(),
   deleteCalendarObject: vi.fn(),
+  discoverCalendars: vi.fn(),
   fetchCalendarObject: vi.fn(),
   fetchCalendarObjects: vi.fn(),
   resolveCalendarUrl: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("../../../../src/providers/caldav/shared/client", () => {
   class CalDAVClient {
     createCalendarObject = clientMocks.createCalendarObject;
     deleteCalendarObject = clientMocks.deleteCalendarObject;
+    discoverCalendars = clientMocks.discoverCalendars;
     fetchCalendarObject = clientMocks.fetchCalendarObject;
     fetchCalendarObjects = clientMocks.fetchCalendarObjects;
     resolveCalendarUrl = clientMocks.resolveCalendarUrl;
@@ -87,6 +89,7 @@ describe("CalDAV destination: confirming a copy is really gone", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clientMocks.resolveCalendarUrl.mockResolvedValue(CALENDAR_URL);
+    clientMocks.discoverCalendars.mockResolvedValue([{ displayName: "Mirror", url: CALENDAR_URL }]);
   });
 
   it("reports absent when the object is not on the server", async () => {

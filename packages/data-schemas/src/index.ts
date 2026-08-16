@@ -623,6 +623,23 @@ const isWriteBackCapableSource = (
     && source.capabilities.includes("push");
 };
 
+/*
+ * A source can lose write access long after two-way was switched on — a shared calendar
+ * regraded to reader, a revoked role — and rediscovery rewrites the capabilities without
+ * touching the mode the pair stored. The stored mode is kept so it returns with the
+ * access, and every reader resolves it through here so an unwritable source is offered as
+ * off to the screen and to the write-back pass alike.
+ */
+const resolveWritableWriteBackMode = <Mode extends string>(
+  writeBackMode: Mode,
+  source: { calendarType: string; capabilities: readonly string[] } | null,
+): Mode | "off" => {
+  if (isWriteBackCapableSource(source)) {
+    return writeBackMode;
+  }
+  return "off";
+};
+
 const describeWriteBackFields = (exclusions: WriteBackFieldExclusions): string[] => {
   const eligible = resolveWriteBackFieldNames(exclusions);
   return WRITE_BACK_DISCLOSURE_ORDER
@@ -698,6 +715,7 @@ export {
   pushChannelStateSchema,
   describeWriteBackFields,
   isWriteBackCapableSource,
+  resolveWritableWriteBackMode,
   resolveWriteBackFieldNames,
   WRITE_BACK_DISCLOSURE_ORDER,
   WRITE_BACK_FIELD_LABELS,

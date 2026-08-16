@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import type { SyncWindow } from "../sync/sync-range";
 import { TWO_WAY_DELETE_APPROVAL_TTL_MS } from "@keeper.sh/constants";
+import { resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
 import { parseAvailability } from "./availability";
 import { DEFAULT_EVENT_NAME } from "./default-event-name";
 import { isWriteBackMode, resolveWriteBackPolicyState } from "../sync/write-back-policy";
@@ -156,6 +157,8 @@ const getWriteBackPoliciesForDestination = async (
 ): Promise<Map<string, WriteBackPolicy>> => {
   const rows = await database
     .select({
+      calendarType: calendarsTable.calendarType,
+      capabilities: calendarsTable.capabilities,
       deleteConfirmationApprovedAt:
         sourceDestinationMappingsTable.deleteConfirmationApprovedAt,
       excludeEventDescription: calendarsTable.excludeEventDescription,
@@ -179,13 +182,23 @@ const getWriteBackPoliciesForDestination = async (
         `Source-destination mapping for ${row.sourceCalendarId} has an unknown write-back mode`,
       );
     }
+    /*
+     * Rediscovery rewrites a source's capabilities when the provider stops granting write
+     * access, and nothing rewrites the mode the pair is carrying. The stored preference is
+     * kept so it comes back with the access, but a calendar Keeper.sh may only read is
+     * written to by nothing in the meantime.
+     */
+    const effectiveMode = resolveWritableWriteBackMode(row.writeBackMode, {
+      calendarType: row.calendarType,
+      capabilities: row.capabilities,
+    });
     policies.set(row.sourceCalendarId, {
       destinationCalendarId,
       excludeEventDescription: row.excludeEventDescription,
       excludeEventLocation: row.excludeEventLocation,
       excludeEventName: row.excludeEventName,
       sourceCalendarId: row.sourceCalendarId,
-      ...resolveWriteBackPolicyState(row.writeBackMode, row.writeBackState, {
+      ...resolveWriteBackPolicyState(effectiveMode, row.writeBackState, {
         approvedAt: row.deleteConfirmationApprovedAt,
         now,
         ttlMs: TWO_WAY_DELETE_APPROVAL_TTL_MS,

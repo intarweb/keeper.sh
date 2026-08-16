@@ -35,6 +35,7 @@ import {
   sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
 import { and, count, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { createDAVClient } from "tsdav";
 import type { OAuthConfig } from "./resolve-provider";
@@ -445,19 +446,39 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
       writeBackEpoch: row?.writeBackEpoch ?? NO_EPOCHS,
     };
   },
+  /*
+   * The last gate before a real calendar is written, taken under the source lock. A source
+   * that lost write access after two-way was switched on still carries its stored mode, so
+   * the mode is read against the capabilities the calendar holds now.
+   */
   readPairWriteBack: async ({ destinationCalendarId, sourceCalendarId }) => {
     const [row] = await locked
       .select({
+        calendarType: calendarsTable.calendarType,
+        capabilities: calendarsTable.capabilities,
         writeBackMode: sourceDestinationMappingsTable.writeBackMode,
         writeBackState: sourceDestinationMappingsTable.writeBackState,
       })
       .from(sourceDestinationMappingsTable)
+      .innerJoin(
+        calendarsTable,
+        eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
+      )
       .where(and(
         eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
         eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
       ))
       .limit(1);
-    return row ?? null;
+    if (!row) {
+      return null;
+    }
+    return {
+      writeBackMode: resolveWritableWriteBackMode(row.writeBackMode, {
+        calendarType: row.calendarType,
+        capabilities: row.capabilities,
+      }),
+      writeBackState: row.writeBackState,
+    };
   },
   readMappingSyncEventHash: async (mappingId) => {
     const [row] = await locked

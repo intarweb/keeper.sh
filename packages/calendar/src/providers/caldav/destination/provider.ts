@@ -435,7 +435,42 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
    * The ICS parser drops cancelled and start-less events, so a copy can be missing from
    * listRemoteEvents while it is still on the server. A targeted fetch of the object
    * itself is the only evidence of absence that justifies destroying the original on the
-   * source, and anything short of a definitive not-found refuses.
+   * source, and anything short of a definitive not-found refuses. A copy filed under
+   * another name keeps its UID, so the collection listing decides when the multiget
+   * answers nothing.
+   */
+  const findCopyIn = async (
+    calendarUrl: string,
+    uid: string,
+  ): Promise<RemoteEventPresence> => {
+    try {
+      const existing = await client.fetchCalendarObject({
+        calendarUrl,
+        filename: `${uid}.ics`,
+      });
+      if (existing?.data) {
+        return "present";
+      }
+    } catch (error) {
+      if (findErrorStatus(error) !== CALDAV_NOT_FOUND_STATUS) {
+        throw error;
+      }
+    }
+
+    if (await isMissingFromCompleteListing(calendarUrl, uid)) {
+      return "absent";
+    }
+    return "present";
+  };
+
+  /*
+   * A CalDAV read is scoped to one collection, so the destination collection alone cannot
+   * tell a deleted copy from one the user dragged into another calendar of the same
+   * account — a move the client performs as a delete here and a put there, UID intact,
+   * and the copy is still one the user can see. Every collection the account lists is
+   * asked before the original on the source is destroyed, and a collection that cannot be
+   * read is refused rather than assumed empty: the throw reaches the caller, which reads
+   * it as "do not delete".
    */
   const probeRemoteEvent = async (
     reference: RemoteEventReference,
@@ -446,27 +481,20 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
      * that as an absence would destroy originals whose copies are still there.
      */
     const calendarUrl = await client.resolveCalendarUrl(config.calendarUrl);
-    let emptyAnswer = false;
-    try {
-      const existing = await client.fetchCalendarObject({
-        calendarUrl,
-        filename: `${reference.uid}.ics`,
-      });
-      if (existing?.data) {
-        return "present";
-      }
-      emptyAnswer = true;
-    } catch (error) {
-      if (findErrorStatus(error) !== CALDAV_NOT_FOUND_STATUS) {
-        throw error;
-      }
-      emptyAnswer = true;
+    if (await findCopyIn(calendarUrl, reference.uid) === "present") {
+      return "present";
     }
 
-    if (emptyAnswer && await isMissingFromCompleteListing(calendarUrl, reference.uid)) {
-      return "absent";
+    const calendars = await client.discoverCalendars();
+    for (const calendar of calendars) {
+      if (calendar.url === calendarUrl || calendar.url === config.calendarUrl) {
+        continue;
+      }
+      if (await findCopyIn(calendar.url, reference.uid) === "present") {
+        return "present";
+      }
     }
-    return "present";
+    return "absent";
   };
 
   return {

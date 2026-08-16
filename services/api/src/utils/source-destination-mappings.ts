@@ -18,7 +18,7 @@ import {
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
   resolveConfirmationDisposition,
 } from "./delete-confirmation-policy";
-import { isWriteBackCapableSource } from "@keeper.sh/data-schemas";
+import { isWriteBackCapableSource, resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
 const EMPTY_LIST_COUNT = 0;
 const SINGLE_ROW = 1;
 const NO_PENDING_DELETES = 0;
@@ -567,6 +567,8 @@ const getWriteBackModesForSource = async (
 
   const mappings = await database
     .select({
+      calendarType: calendarsTable.calendarType,
+      capabilities: calendarsTable.capabilities,
       destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
       writeBackMode: sourceDestinationMappingsTable.writeBackMode,
     })
@@ -580,9 +582,18 @@ const getWriteBackModesForSource = async (
       eq(calendarsTable.userId, userId),
     ));
 
+  /*
+   * A source that lost write access after two-way was switched on still carries the mode
+   * it was given. Reporting it as it stands puts two contradictory answers on the same
+   * screen — the two-way promise and "Keeper.sh can only read it" — so the screen is told
+   * what the write-back pass will actually do, and the stored mode returns with the access.
+   */
   return Object.fromEntries(
-    mappings.map(({ destinationCalendarId, writeBackMode }) =>
-      [destinationCalendarId, writeBackMode]),
+    mappings.map(({ calendarType, capabilities, destinationCalendarId, writeBackMode }) =>
+      [
+        destinationCalendarId,
+        resolveWritableWriteBackMode(writeBackMode, { calendarType, capabilities }),
+      ]),
   );
 };
 

@@ -37,6 +37,8 @@ const createDatabase = (rows: Row[], updates: Row[]): BunSQLDatabase => ({
 }) as unknown as BunSQLDatabase;
 
 const createRow = (overrides: Row = {}): Row => ({
+  calendarType: "google",
+  capabilities: ["pull", "push"],
   excludeEventDescription: false,
   excludeEventLocation: false,
   excludeEventName: false,

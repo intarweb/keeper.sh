@@ -41,6 +41,8 @@ const createDatabase = (
 }) as unknown as BunSQLDatabase;
 
 const activeMappingRow = {
+  calendarType: "google",
+  capabilities: ["pull", "push"],
   excludeEventDescription: false,
   excludeEventLocation: false,
   excludeEventName: false,
