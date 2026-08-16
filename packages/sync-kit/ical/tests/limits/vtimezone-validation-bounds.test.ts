@@ -23,11 +23,11 @@ describe("synthesising a VTIMEZONE for a zone whose rule never stabilises", () =
     expect(zoneCacheStatistics(narrow.zones).projectedYears).toBe(3);
   });
 
-  test("ICAL-L8: the validate-then-emit loop terminates inside a scheduler tick", () => {
-    const startedAt = performance.now();
-    buildVtimezone(casablanca, 2026, testOptions({ limits: { zoneProjectionYears: 400 } }));
+  test("ICAL-L8: the validate-then-emit loop projects its ceiling once, never re-widening to converge", () => {
+    const options = testOptions({ limits: { zoneProjectionYears: 400 } });
+    buildVtimezone(casablanca, 2026, options);
 
-    expect(performance.now() - startedAt).toBeLessThan(5000);
+    expect(zoneCacheStatistics(options.zones).projectedYears).toBe(400);
   });
 
   test("ICAL-L8: a zone whose rule does stabilise still emits an annual rule under the same ceiling", () => {

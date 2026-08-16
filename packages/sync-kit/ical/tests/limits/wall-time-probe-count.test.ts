@@ -43,10 +43,10 @@ describe("the two-probe wall-time resolution", () => {
     expect(zoneCacheStatistics(zones).offsetProbes).toBeLessThanOrEqual(4000);
   });
 
-  test("ICAL-L7: a full feed's worth of resolutions stays inside a scheduler tick", () => {
+  test("ICAL-L7: a full feed's worth of resolutions stays at a constant probe cost each", () => {
+    const resolutions = 10_000;
     const zones = createZoneCache();
-    const startedAt = performance.now();
-    for (let index = 0; index < 10_000; index++) {
+    for (let index = 0; index < resolutions; index++) {
       resolveWallTime(
         { kind: "wallTime", value: "20260615T120000" },
         { kind: "zoneId", value: "Europe/Berlin" },
@@ -54,6 +54,6 @@ describe("the two-probe wall-time resolution", () => {
       );
     }
 
-    expect(performance.now() - startedAt).toBeLessThan(2000);
+    expect(zoneCacheStatistics(zones).offsetProbes).toBeLessThanOrEqual(resolutions * 4);
   });
 });

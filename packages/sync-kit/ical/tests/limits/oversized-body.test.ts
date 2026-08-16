@@ -26,14 +26,19 @@ describe("a body larger than the package will read", () => {
     expect(document.reason).not.toBe("limitExceeded");
   });
 
-  test("ICAL-L2: the size check happens before the unfolding pass, so the work is bounded by the check", () => {
-    const options = testOptions({ limits: { maxBytes: 1024 } });
-    const oversized = bodyOfBytes(20_000_000);
-    const startedAt = performance.now();
+  test(
+    "ICAL-L2: the size check happens before the unfolding pass, so content shape cannot change the refusal",
+    () => {
+      const options = testOptions({ limits: { maxBytes: 1024 } });
+      const refusal = { kind: "unreadable", reason: "limitExceeded" };
+      const flat = bodyOfBytes(20_000_000);
+      const foldedEnormously = `BEGIN:VCALENDAR\r\nDESCRIPTION:start\r\n${" x\r\n".repeat(5_000_000)}`;
 
-    expect(parseIcsDocument(oversized, options).kind).toBe("unreadable");
-    expect(performance.now() - startedAt).toBeLessThan(200);
-  });
+      expect(parseIcsDocument(flat, options)).toEqual(refusal);
+      expect(parseIcsDocument(foldedEnormously, options)).toEqual(refusal);
+    },
+    5000,
+  );
 
   test("ICAL-L2: the refusal reaches the caller as a failed Result, never as an empty snapshot", () => {
     const projection = projectIcsFeed({

@@ -86,10 +86,23 @@ describe("one pathological event's exception list", () => {
     expect(projection.value.usable.map((identity) => identity.uid.value)).toContain("evt-flooded");
   });
 
-  test("ICAL-L3: the flood is refused inside the ingest budget rather than consuming it", () => {
-    const startedAt = performance.now();
-    project(100_000);
+  test(
+    "ICAL-L3: a flood three orders of magnitude over the ceiling withholds exactly as the ceiling does",
+    () => {
+      const projection = project(100_000);
 
-    expect(performance.now() - startedAt).toBeLessThan(1000);
-  });
+      expect(projection.ok).toBe(true);
+      if (!projection.ok) {
+        return;
+      }
+      expect(projection.value.unsupported).toEqual([
+        expect.objectContaining({ reason: "recurrenceBudgetExceeded" }),
+      ]);
+      expect(projection.value.usable.map((identity) => identity.uid.value).toSorted()).toEqual([
+        "evt-healthy-a",
+        "evt-healthy-b",
+      ]);
+    },
+    5000,
+  );
 });

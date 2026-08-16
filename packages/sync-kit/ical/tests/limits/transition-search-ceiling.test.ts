@@ -39,11 +39,11 @@ describe("finding the transitions inside a projection window", () => {
     expect(findZoneTransitions({ kind: "zoneId", value: "UTC" }, projectionWindow(400), zones, testLimits())).toEqual([]);
   });
 
-  test("ICAL-L6: the whole projection window is searched inside a scheduler tick", () => {
-    const startedAt = performance.now();
-    findZoneTransitions(berlin, projectionWindow(400), createZoneCache(), testLimits());
+  test("ICAL-L6: an absurd window costs no more probes than the ceiling it clamps to", () => {
+    const zones = createZoneCache();
+    const transitions = findZoneTransitions(berlin, projectionWindow(400), zones, testLimits());
 
-    expect(performance.now() - startedAt).toBeLessThan(2000);
+    expect(zoneCacheStatistics(zones).offsetProbes).toBeLessThan(transitions.length * 32);
   });
 
   test("ICAL-L6: a caller-supplied window wider than the projection ceiling is clamped, not scanned", () => {

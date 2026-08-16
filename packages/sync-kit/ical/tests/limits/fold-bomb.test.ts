@@ -37,15 +37,19 @@ describe("a single property folded across an unbounded number of continuation li
   });
 
   test("ICAL-L4: the unfold is linear in the number of lines, not quadratic", () => {
-    const small = performance.now();
-    unfoldContentLines(foldedInto(2000), testLimits({ maxContentLines: 100_000 }));
-    const smallElapsed = performance.now() - small;
+    const fastestUnfoldOf = (continuations: number): number => {
+      const body = foldedInto(continuations);
+      const limits = testLimits({ maxContentLines: 100_000 });
+      let fastest = Number.POSITIVE_INFINITY;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const startedAt = performance.now();
+        unfoldContentLines(body, limits);
+        fastest = Math.min(fastest, performance.now() - startedAt);
+      }
+      return fastest;
+    };
 
-    const large = performance.now();
-    unfoldContentLines(foldedInto(20_000), testLimits({ maxContentLines: 100_000 }));
-    const largeElapsed = performance.now() - large;
-
-    expect(largeElapsed).toBeLessThan(Math.max(smallElapsed * 40, 500));
+    expect(fastestUnfoldOf(20_000)).toBeLessThan(Math.max(fastestUnfoldOf(2000) * 40, 500));
   });
 
   test("ICAL-L4: a body that is small on the wire but folds enormously is still refused", () => {
