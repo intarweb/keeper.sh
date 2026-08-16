@@ -21,7 +21,7 @@ Open the calendar the events live in, find the receiving calendar under **Send E
 
 - **One-way** — changes flow from this calendar to the copy only. This is the default.
 - **Two-way** — editing the copy changes the original event here.
-- **Two-way, including deletions** — editing the copy changes the original, and deleting the copy permanently deletes the original here and removes it from every other calendar it is copied to. Keeper.sh asks you to confirm this one before it takes effect, and keeps a record of deleted events for 30 days.
+- **Two-way, including deletions** — editing the copy changes the original, and deleting the copy permanently deletes the original here and removes it from every other calendar it is copied to. Keeper.sh asks you to confirm this one before it takes effect, and keeps a record of every original it deletes for 30 days.
 
 The options are only offered on a calendar Keeper.sh can write to. A calendar you subscribed to by link is read-only, and so is one shared with you without permission to change it. A CalDAV account that signs in with a plain username rather than an email address is also refused: Keeper.sh cannot tell which events on it you created, and it will not change an event somebody else made.
 
@@ -63,7 +63,7 @@ While Keeper.sh waits for your answer, the whole connection holds: nothing is wr
 
 There is also a ceiling of 50 deleted originals per source calendar per day. Past it, two-way sync pauses and the copies go back to matching the original.
 
-Deleting the original removes it from every other calendar it is copied to, because those copies are copies of it. Keeper.sh keeps a record of deleted events for 30 days.
+Deleting the original removes it from every other calendar it is copied to, because those copies are copies of it. Keeper.sh keeps a record of every original it deletes — title, time, place and description — for 30 days, under **Deleted Events** in the dashboard. The record is there to read and copy from; Keeper.sh will not put the event back on your calendar, because recreating it would re-invite anybody it named.
 
 ## When it pauses
 

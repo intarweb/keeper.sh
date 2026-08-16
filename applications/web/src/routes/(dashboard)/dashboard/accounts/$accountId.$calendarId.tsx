@@ -1,5 +1,5 @@
 import { use, useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import useSWR, { preload, useSWRConfig } from "swr";
 import CheckIcon from "lucide-react/dist/esm/icons/check";
 import { useAtomValue, useStore } from "jotai";
@@ -568,7 +568,7 @@ const WRITE_BACK_OPTIONS: { description: string; label: string; mode: WriteBackM
     description:
       "Editing the copy changes the original, and deleting the copy permanently deletes "
       + "the original here and removes it from every other calendar it is copied to. "
-      + "Keeper.sh keeps a record of deleted events for 30 days.",
+      + "Keeper.sh keeps a record of what it deleted under Deleted Events for 30 days.",
     label: "Two-way, including deletions",
     mode: "edits_and_deletes",
   },
@@ -808,9 +808,13 @@ function DeletionConsentModal({
           {siblingCount > 0
             ? ` — and remove it from the ${siblingCount} other calendar${siblingCount === 1 ? "" : "s"} it is copied to.`
             : "."}
-          {" Keeper.sh keeps a record of deleted events for 30 days, and never deletes or"}
-          {" moves an original that other people are invited to."}
+          {" Keeper.sh never deletes or moves an original that other people are invited to,"}
+          {" and keeps a record of what it did delete — title, time, place and description —"}
+          {" for 30 days."}
         </ModalDescription>
+        <Link className="text-xs underline underline-offset-2" to="/dashboard/deleted-events">
+          See the record of deleted events
+        </Link>
         <label className="flex items-start gap-2 text-xs">
           <input
             checked={acknowledged}
