@@ -1,4 +1,6 @@
 import {
+  caldavCredentialsTable,
+  calendarAccountsTable,
   calendarsTable,
   eventStatesTable,
   sourceDestinationMappingsTable,
@@ -157,6 +159,8 @@ const getWriteBackPoliciesForDestination = async (
 ): Promise<Map<string, WriteBackPolicy>> => {
   const rows = await database
     .select({
+      accountEmail: calendarAccountsTable.email,
+      caldavUsername: caldavCredentialsTable.username,
       calendarType: calendarsTable.calendarType,
       capabilities: calendarsTable.capabilities,
       deleteConfirmationApprovedAt:
@@ -173,6 +177,14 @@ const getWriteBackPoliciesForDestination = async (
     .innerJoin(
       calendarsTable,
       eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
+    )
+    .leftJoin(
+      calendarAccountsTable,
+      eq(calendarsTable.accountId, calendarAccountsTable.id),
+    )
+    .leftJoin(
+      caldavCredentialsTable,
+      eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
     )
     .where(eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId));
 
@@ -193,6 +205,7 @@ const getWriteBackPoliciesForDestination = async (
       calendarType: row.calendarType,
       capabilities: row.capabilities,
       disabled: row.disabled,
+      writeBackIdentity: row.accountEmail ?? row.caldavUsername,
     });
     policies.set(row.sourceCalendarId, {
       destinationCalendarId,

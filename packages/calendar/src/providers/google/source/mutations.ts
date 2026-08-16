@@ -98,10 +98,28 @@ const resolveCalendarId = (externalCalendarId: string | null): string =>
 const isAlreadyGone = (status: number): boolean =>
   status === HTTP_STATUS.NOT_FOUND || status === GONE_STATUS;
 
+/*
+ * A refusal has to come back as a refusal. Google's front end answers a gateway failure
+ * with an HTML page, and some auth failures answer with a JSON shape this schema rejects,
+ * so parsing the body as the documented error is a guess that raises out of the writer
+ * when it is wrong. The caller then cannot tell a write that was refused from one whose
+ * outcome is unknown: the tombstone stays counted, the day's deletion budget is spent on
+ * deletions that never happened, and the pair quarantines on a cap it never reached. The
+ * status is what the caller is owed, and it is always available.
+ */
 const readErrorMessage = async (response: Response): Promise<string> => {
-  const body = await response.json();
-  const { error } = googleApiErrorSchema.assert(body);
-  return error?.message ?? response.statusText;
+  const fallback = response.statusText || `HTTP ${response.status}`;
+  const body = await response.text().catch(() => "");
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return fallback;
+  }
+  if (!googleApiErrorSchema.allows(parsed)) {
+    return fallback;
+  }
+  return googleApiErrorSchema.assert(parsed).error?.message ?? fallback;
 };
 
 /*

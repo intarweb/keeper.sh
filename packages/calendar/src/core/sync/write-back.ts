@@ -180,6 +180,13 @@ interface ClassifyInboundChangesInput {
   existingMappings: EventMapping[];
   localEvents: MaterializedSyncableEvent[];
   now: Date;
+  /*
+   * The destination provider's own reshaping of a source event, exactly as the push path
+   * applied it. Every mapping hash and time was recorded from the result, so the caller
+   * has to hand the same reshaping here or the comparisons are made against a reading of
+   * the event the destination was never given.
+   */
+  projectLocalEvent?: (event: MaterializedSyncableEvent) => MaterializedSyncableEvent;
   remoteEvents: RemoteEvent[];
   remoteRawItemCount: number;
   scope: ReconciliationScope;
@@ -451,12 +458,23 @@ interface MappingOutcome {
   suppress: boolean;
 }
 
+/*
+ * Two readings of the same event, and they are not interchangeable. `localEvent` is the
+ * row as Keeper.sh holds it, and it is the only thing a write to the source may be built
+ * from or judged against. `projectedEvent` is what the destination provider was actually
+ * handed — the same row after that provider's own reshaping — and every comparison against
+ * the mapping or against the copy has to use it, because the mapping's hash and times were
+ * recorded from it. Judging the copy against the raw row instead makes the pair report a
+ * source edit on every pass for any event the destination reshapes, which silently turns
+ * two-way sync off for that event and hands the copy back to the rebuild path.
+ */
 interface MappingContext {
   counters: InboundCounters;
   localEvent: MaterializedSyncableEvent;
   mapping: EventMapping;
   now: Date;
   policy: WriteBackPolicy;
+  projectedEvent: MaterializedSyncableEvent;
   scope: ReconciliationScope;
 }
 
@@ -631,7 +649,7 @@ const clearPendingDeleteUpdate = (mapping: EventMapping): PendingUpdate => ({
 });
 
 const classifyMissingMirror = (context: MappingContext): MappingOutcome => {
-  const { counters, localEvent, mapping, now } = context;
+  const { counters, localEvent, mapping, now, projectedEvent } = context;
   if (isRecurringMapping(mapping)) {
     /*
      * Refusing the deletion must hand the mapping back to the ordinary re-create path.
@@ -673,7 +691,7 @@ const classifyMissingMirror = (context: MappingContext): MappingOutcome => {
       suppress: false,
     };
   }
-  if (mapping.syncEventHash !== createSyncEventContentHash(localEvent)) {
+  if (mapping.syncEventHash !== createSyncEventContentHash(projectedEvent)) {
     counters.conflictSourceWins += FIRST_OBSERVATION;
     return {
       classification: {
@@ -716,11 +734,11 @@ const classifyMissingMirror = (context: MappingContext): MappingOutcome => {
 const recordHeldDisappearance = (
   context: MappingContext,
 ): InboundClassification | null => {
-  const { localEvent, mapping, now } = context;
+  const { localEvent, mapping, now, projectedEvent } = context;
   const undeletable = isRecurringMapping(mapping)
     || isDeletionRefused(context)
     || !isWitnessRecorded(mapping)
-    || mapping.syncEventHash !== createSyncEventContentHash(localEvent);
+    || mapping.syncEventHash !== createSyncEventContentHash(projectedEvent);
   if (undeletable) {
     return null;
   }
@@ -853,11 +871,11 @@ const resolveDrift = (
   drift: DestinationDrift,
   eligibleFields: ReadonlySet<WriteBackField>,
 ): DriftResolution => {
-  const { counters, localEvent, mapping } = context;
-  const sourceTimeDrifted = !isSameSerializedSecond(localEvent.startTime, mapping.startTime)
-    || !isSameSerializedSecond(localEvent.endTime, mapping.endTime);
+  const { counters, localEvent, mapping, projectedEvent } = context;
+  const sourceTimeDrifted = !isSameSerializedSecond(projectedEvent.startTime, mapping.startTime)
+    || !isSameSerializedSecond(projectedEvent.endTime, mapping.endTime);
   const sourceNonTimeDrifted = mapping.syncEventHash !== createSyncEventContentHash({
-    ...localEvent,
+    ...projectedEvent,
     endTime: mapping.endTime,
     startTime: mapping.startTime,
   });
@@ -962,7 +980,7 @@ const resolveRecordedWitness = (
  * copy stably wrong with nothing left to notice it.
  */
 const resolveProjectedSyncEventHash = (
-  localEvent: MaterializedSyncableEvent,
+  projectedEvent: MaterializedSyncableEvent,
   mapping: EventMapping,
   resolution: DriftResolution,
 ): string | null => {
@@ -970,17 +988,17 @@ const resolveProjectedSyncEventHash = (
     if (resolution.sourceNonTimeDrifted) {
       return null;
     }
-    return createSyncEventContentHash({ ...localEvent, ...resolution.updates });
+    return createSyncEventContentHash({ ...projectedEvent, ...resolution.updates });
   }
   if (resolution.sourceTimeDrifted) {
     return createSyncEventContentHash({
-      ...localEvent,
+      ...projectedEvent,
       endTime: mapping.endTime,
       startTime: mapping.startTime,
       ...resolution.updates,
     });
   }
-  return createSyncEventContentHash({ ...localEvent, ...resolution.updates });
+  return createSyncEventContentHash({ ...projectedEvent, ...resolution.updates });
 };
 
 /*
@@ -1013,14 +1031,14 @@ const resolveAvailabilityOnlyRejection = (
  * normalizes. The count is the whole of what this divergence surfaces today.
  */
 const hasDivergedFromPush = (
-  localEvent: MaterializedSyncableEvent,
+  projectedEvent: MaterializedSyncableEvent,
   mapping: EventMapping,
   observed: ObservedDestinationState,
 ): boolean =>
-  hasFieldMoved(observed.summary, localEvent.summary)
-  || hasFieldMoved(observed.description, localEvent.description)
-  || hasFieldMoved(observed.location, localEvent.location)
-  || observed.isAllDay !== resolveLocalIsAllDay(localEvent)
+  hasFieldMoved(observed.summary, projectedEvent.summary)
+  || hasFieldMoved(observed.description, projectedEvent.description)
+  || hasFieldMoved(observed.location, projectedEvent.location)
+  || observed.isAllDay !== resolveLocalIsAllDay(projectedEvent)
   || !isSameSerializedSecond(observed.startTime, mapping.startTime)
   || !isSameSerializedSecond(observed.endTime, mapping.endTime);
 
@@ -1042,8 +1060,8 @@ const createUnwritableRejection = (
   reason: WriteBackRejectionReason,
   released: boolean,
 ): MappingOutcome => {
-  const { localEvent, mapping } = context;
-  if (hasDivergedFromPush(localEvent, mapping, observed)) {
+  const { mapping, projectedEvent } = context;
+  if (hasDivergedFromPush(projectedEvent, mapping, observed)) {
     return {
       classification: { mappingId: mapping.id, observed, reason, type: "rejected" },
       suppress: false,
@@ -1057,9 +1075,9 @@ const classifyPresentMirror = (
   remoteEvent: RemoteEvent,
   observed: ObservedDestinationState,
 ): MappingOutcome => {
-  const { counters, localEvent, mapping, now, policy } = context;
+  const { counters, localEvent, mapping, now, policy, projectedEvent } = context;
   const drift = getDestinationDrift(mapping, remoteEvent);
-  const outbound = mapping.syncEventHash !== createSyncEventContentHash(localEvent);
+  const outbound = mapping.syncEventHash !== createSyncEventContentHash(projectedEvent);
   /*
    * The copy answered under a delete identifier the mapping does not hold, so the
    * recorded one is stale and every targeted read of the copy — the probe that guards
@@ -1079,7 +1097,7 @@ const classifyPresentMirror = (
      * provider normalizing that push, so it is adopted rather than written back. The
      * divergence is counted so the swallowed edit is visible rather than silent.
      */
-    if (hasDivergedFromPush(localEvent, mapping, observed)) {
+    if (hasDivergedFromPush(projectedEvent, mapping, observed)) {
       counters.adoptWindowDivergence += FIRST_OBSERVATION;
     }
     return {
@@ -1157,7 +1175,7 @@ const classifyPresentMirror = (
         mappingId: mapping.id,
         observed: recordedWitness,
         projectedSyncEventHash: resolveProjectedSyncEventHash(
-          localEvent,
+          projectedEvent,
           mapping,
           resolution,
         ),
@@ -1344,6 +1362,7 @@ const runMappingPass = (input: {
   heldSourceCalendarIds: ReadonlySet<string>;
   localEventsById: ReadonlyMap<string | null, MaterializedSyncableEvent>;
   now: Date;
+  projectLocalEvent: (event: MaterializedSyncableEvent) => MaterializedSyncableEvent;
   remoteEventsByMappingId: ReadonlyMap<string, RemoteEvent>;
   scope: ReconciliationScope;
 }): MappingPassResult => {
@@ -1361,6 +1380,7 @@ const runMappingPass = (input: {
     if (!localEvent) {
       continue;
     }
+    const projectedEvent = input.projectLocalEvent(localEvent);
     if (held) {
       const recorded = recordHeldDisappearance({
         counters: input.counters,
@@ -1368,6 +1388,7 @@ const runMappingPass = (input: {
         mapping,
         now: input.now,
         policy,
+        projectedEvent,
         scope: input.scope,
       });
       if (recorded) {
@@ -1389,7 +1410,15 @@ const runMappingPass = (input: {
       continue;
     }
     const outcome = classifyMapping(
-      { counters: input.counters, localEvent, mapping, now: input.now, policy, scope: input.scope },
+      {
+        counters: input.counters,
+        localEvent,
+        mapping,
+        now: input.now,
+        policy,
+        projectedEvent,
+        scope: input.scope,
+      },
       input.remoteEventsByMappingId.get(mapping.id),
     );
     /*
@@ -1421,7 +1450,15 @@ const runMappingPass = (input: {
 const classifyInboundChanges = (
   input: ClassifyInboundChangesInput,
 ): InboundClassificationResult => {
-  const { existingMappings, localEvents, now, remoteEvents, remoteRawItemCount, scope } = input;
+  const {
+    existingMappings,
+    localEvents,
+    now,
+    remoteEvents,
+    remoteRawItemCount,
+    scope,
+  } = input;
+  const projectLocalEvent = input.projectLocalEvent ?? ((event) => event);
   const counters = createCounters();
   const classifications: InboundClassification[] = [];
   const suppressedMappingIds: string[] = [];
@@ -1480,6 +1517,7 @@ const classifyInboundChanges = (
     heldSourceCalendarIds,
     localEventsById,
     now,
+    projectLocalEvent,
     remoteEventsByMappingId,
     scope,
   });

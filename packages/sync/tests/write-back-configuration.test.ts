@@ -33,6 +33,7 @@ const createChain = (rows: Record<string, unknown>[]): Record<string, unknown> =
   const chain: Record<string, unknown> = {
     from: () => chain,
     innerJoin: () => chain,
+    leftJoin: () => chain,
     limit: () => Promise.resolve(rows),
     where: () => chain,
   };

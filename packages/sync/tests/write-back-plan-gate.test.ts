@@ -14,6 +14,7 @@ const createSelectChain = (
   const chain: Record<string, unknown> = {
     from: () => chain,
     innerJoin: () => chain,
+    leftJoin: () => chain,
     where: () => Promise.resolve(rows),
   };
   return chain;

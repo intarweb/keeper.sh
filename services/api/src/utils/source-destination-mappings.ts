@@ -569,15 +569,26 @@ const getWriteBackModesForSource = async (
 
   const mappings = await database
     .select({
+      accountEmail: calendarAccountsTable.email,
+      caldavUsername: caldavCredentialsTable.username,
       calendarType: calendarsTable.calendarType,
       capabilities: calendarsTable.capabilities,
       destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
+      disabled: calendarsTable.disabled,
       writeBackMode: sourceDestinationMappingsTable.writeBackMode,
     })
     .from(sourceDestinationMappingsTable)
     .innerJoin(
       calendarsTable,
       eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
+    )
+    .leftJoin(
+      calendarAccountsTable,
+      eq(calendarsTable.accountId, calendarAccountsTable.id),
+    )
+    .leftJoin(
+      caldavCredentialsTable,
+      eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
     )
     .where(and(
       eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
@@ -591,10 +602,15 @@ const getWriteBackModesForSource = async (
    * what the write-back pass will actually do, and the stored mode returns with the access.
    */
   return Object.fromEntries(
-    mappings.map(({ calendarType, capabilities, destinationCalendarId, writeBackMode }) =>
+    mappings.map((mapping) =>
       [
-        destinationCalendarId,
-        resolveWritableWriteBackMode(writeBackMode, { calendarType, capabilities }),
+        mapping.destinationCalendarId,
+        resolveWritableWriteBackMode(mapping.writeBackMode, {
+          calendarType: mapping.calendarType,
+          capabilities: mapping.capabilities,
+          disabled: mapping.disabled,
+          writeBackIdentity: mapping.accountEmail ?? mapping.caldavUsername,
+        }),
       ]),
   );
 };

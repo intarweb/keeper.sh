@@ -1083,6 +1083,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       existingMappings: state.existingMappings,
       localEvents: state.localEvents,
       now: passNow,
+      projectLocalEvent: (event) => provider.normalizeEvent?.(event) ?? event,
       remoteEvents: state.remoteEvents,
       remoteRawItemCount: state.remoteRawItemCount,
       scope: reconciliationScope,

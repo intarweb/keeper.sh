@@ -11,8 +11,18 @@ const SOURCE_CALENDAR_ID = "11111111-1111-4111-8111-111111111111";
 const DESTINATION_CALENDAR_ID = "22222222-2222-4222-8222-222222222222";
 
 const DDL = `
+create table caldav_credentials (
+  "id" uuid primary key,
+  "username" text not null
+);
+create table calendar_accounts (
+  "id" uuid primary key,
+  "caldavCredentialId" uuid,
+  "email" text
+);
 create table calendars (
   "id" uuid primary key,
+  "accountId" uuid,
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
   "disabled" boolean not null default false,
@@ -59,6 +69,8 @@ const readPolicyMode = async (): Promise<string | undefined> => {
 beforeEach(async () => {
   await client.exec(`drop table if exists source_destination_mappings cascade;`);
   await client.exec(`drop table if exists calendars cascade;`);
+  await client.exec(`drop table if exists calendar_accounts cascade;`);
+  await client.exec(`drop table if exists caldav_credentials cascade;`);
   await client.exec(DDL);
 });
 
