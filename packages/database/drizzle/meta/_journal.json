@@ -638,6 +638,13 @@
       "when": 1786899022157,
       "tag": "0090_blank_read_delete_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1786910034617,
+      "tag": "0091_low_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }

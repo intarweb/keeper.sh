@@ -481,11 +481,32 @@ interface CalendarSyncFailure {
   syncEvent?: Record<string, unknown>;
 }
 
+/*
+ * A destination attempt that returns before onCalendarComplete emits a wide event with no
+ * counts on it at all, which reads identically whether it mirrored nothing because there
+ * was nothing to mirror or because it never got far enough to look. Each way out says so.
+ */
+const DESTINATION_SKIP_REASONS = [
+  "destination_not_pushable",
+  "lock_not_acquired",
+  "destination_ineligible",
+  "provider_unresolved",
+] as const;
+
+type DestinationSkipReason = (typeof DESTINATION_SKIP_REASONS)[number];
+
+interface DestinationSyncSkip {
+  calendarId: string;
+  mappedSourceCount: number;
+  reason: DestinationSkipReason;
+}
+
 interface SyncCallbacks {
   onSyncEvent?: (event: Record<string, unknown>) => void;
   onProgress?: (update: SyncProgressUpdate) => void;
   onCalendarComplete?: (completion: CalendarSyncCompletion) => void;
   onCalendarError?: (failure: CalendarSyncFailure) => void;
+  onCalendarSkipped?: (skip: DestinationSyncSkip) => void;
 }
 
 interface DestinationAttempt {
@@ -853,6 +874,18 @@ const resolveWriteBackPolicies = async (
   return getWriteBackPoliciesForDestination(database, destinationCalendarId);
 };
 
+const countMappedSources = async (
+  database: Pick<BunSQLDatabase, "select">,
+  destinationCalendarId: string,
+): Promise<number> => {
+  const mappings = await database
+    .select({ sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId })
+    .from(sourceDestinationMappingsTable)
+    .where(eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId));
+
+  return mappings.length;
+};
+
 const syncDestinationsForUser = async (
   userId: string,
   config: SyncConfig,
@@ -874,7 +907,14 @@ const syncDestinationsForUser = async (
       ),
     );
 
+  const mappedSourceCount = await countMappedSources(database, config.destinationCalendarId);
+
+  const reportSkip = (calendarId: string, reason: DestinationSkipReason): void => {
+    callbacks?.onCalendarSkipped?.({ calendarId, mappedSourceCount, reason });
+  };
+
   if (destinations.length === 0) {
+    reportSkip(config.destinationCalendarId, "destination_not_pushable");
     return EMPTY_RESULT;
   }
 
@@ -899,6 +939,7 @@ const syncDestinationsForUser = async (
       ));
       const lockResult = lockAcquire.value;
       if (!lockResult.acquired) {
+        reportSkip(destinationCandidate.calendarId, "lock_not_acquired");
         return;
       }
 
@@ -917,6 +958,7 @@ const syncDestinationsForUser = async (
         ));
         const currentDestination = destinationLookup.value;
         if (!currentDestination || !isDestinationAttemptEligible(currentDestination)) {
+          reportSkip(destinationCandidate.calendarId, "destination_ineligible");
           return;
         }
         const destination = currentDestination;
@@ -937,6 +979,7 @@ const syncDestinationsForUser = async (
         const syncProvider = providerResolve.value;
 
         if (!syncProvider) {
+          reportSkip(destinationCandidate.calendarId, "provider_unresolved");
           return;
         }
 
@@ -1217,4 +1260,11 @@ export {
   resolveWriteBackPolicies,
   syncDestinationsForUser,
 };
-export type { CalendarSyncCompletion, CalendarSyncFailure, SyncConfig, SyncDestinationsResult };
+export type {
+  CalendarSyncCompletion,
+  CalendarSyncFailure,
+  DestinationSkipReason,
+  DestinationSyncSkip,
+  SyncConfig,
+  SyncDestinationsResult,
+};
