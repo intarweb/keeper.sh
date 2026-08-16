@@ -375,3 +375,17 @@ export type {
   IngestWideEventFields,
   FetchEventsResult as IngestionFetchEventsResult,
 } from "./core/sync-engine/ingest";
+
+export {
+  MAX_DEREGISTER_ATTEMPTS,
+  PUSH_ACTIONS_PER_TICK,
+  runManagePushChannels,
+} from "./core/source/manage-push-channels";
+export type {
+  ManagePushChannelsDependencies,
+  RegistrarContextRequest,
+} from "./core/source/manage-push-channels";
+export { createManagePushChannelsDependencies } from "./core/source/manage-push-channels-dependencies";
+export type { ManagePushChannelsConfig } from "./core/source/manage-push-channels-dependencies";
+export { createRegistrarContextFactory } from "./core/source/push-registrar-context";
+export type { RegistrarContextConfig } from "./core/source/push-registrar-context";
