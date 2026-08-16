@@ -128,7 +128,7 @@ const createHarness = () => {
     },
     recordTombstone: () => {
       tombstones.push("tombstone-1");
-      return Promise.resolve("tombstone-1");
+      return Promise.resolve({ id: "tombstone-1", priorAttempt: false });
     },
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: (_sourceCalendarId, run) => run(locked),

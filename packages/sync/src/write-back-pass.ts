@@ -188,10 +188,16 @@ interface WriteBackStore {
     destinationCalendarId: string,
     reason: string,
   ) => Promise<void>;
+  /*
+   * `priorAttempt` says an earlier attempt on this mapping left its record unresolved —
+   * the timed-out delete the provider may well have carried out. The record is one row
+   * per mapping, so releasing it here would uncount a destruction that already happened
+   * and hand the day's budget back for events that no longer exist.
+   */
   recordTombstone: (input: {
     snapshot: SourceEventSnapshot;
     target: WriteBackTarget;
-  }) => Promise<string>;
+  }) => Promise<{ id: string; priorAttempt: boolean }>;
   resolveWriter: (sourceCalendarId: string) => Promise<CalendarSourceWriter | null>;
   withSourceLock: <TResult>(
     sourceCalendarId: string,
@@ -532,17 +538,24 @@ const applyDelete = async (
   if (!preSnapshot) {
     return "abandoned";
   }
-  const tombstoneId = await input.store.recordTombstone({ snapshot: preSnapshot, target });
+  const tombstone = await input.store.recordTombstone({ snapshot: preSnapshot, target });
+  const { id: tombstoneId } = tombstone;
+  const releaseTombstone = async (): Promise<void> => {
+    if (tombstone.priorAttempt) {
+      return;
+    }
+    await input.store.abandonTombstone(tombstoneId);
+  };
 
   const run = input.store.withSourceLock(
     target.sourceCalendarId,
     async (locked): Promise<Outcome> => {
       if (!await isPairStillAuthorized(locked, classification, target)) {
-        await input.store.abandonTombstone(tombstoneId);
+        await releaseTombstone();
         return "withheld";
       }
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
-        await input.store.abandonTombstone(tombstoneId);
+        await releaseTombstone();
         return "abandoned";
       }
 
@@ -571,11 +584,11 @@ const applyDelete = async (
    */
   return run.catch(async (error: unknown) => {
     if (error instanceof SourceWriteRefusedError) {
-      await input.store.abandonTombstone(tombstoneId);
+      await releaseTombstone();
       return quarantineRefusal(input, target, error);
     }
     if (error instanceof SourceWriteRejectedError) {
-      await input.store.abandonTombstone(tombstoneId);
+      await releaseTombstone();
     }
     throw error;
   });

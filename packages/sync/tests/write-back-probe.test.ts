@@ -127,7 +127,7 @@ const createHarness = (options: ProbeHarnessOptions = {}) => {
       tombstoneCounter += 1;
       const id = `tombstone-${tombstoneCounter}`;
       tombstones.set(id, { state: "pending" });
-      return Promise.resolve(id);
+      return Promise.resolve({ id, priorAttempt: false });
     },
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: async (_sourceCalendarId, run) => {

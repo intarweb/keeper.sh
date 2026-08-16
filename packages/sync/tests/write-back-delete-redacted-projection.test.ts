@@ -232,7 +232,7 @@ const applyDeletions = (classifications: InboundClassification[]) => {
     quarantineMapping: () => Promise.resolve(),
     readSourceEvent: () => Promise.resolve(snapshot),
     recordFailure: () => Promise.resolve(5),
-    recordTombstone: () => Promise.resolve("tombstone-1"),
+    recordTombstone: () => Promise.resolve({ id: "tombstone-1", priorAttempt: false }),
     requestDeleteConfirmation: (_source, _destination, reason) => {
       log.push(`pause:${reason}`);
       return Promise.resolve();
@@ -336,7 +336,7 @@ describe("two-way sync: a deletion is judged against the source, not the project
       quarantineMapping: () => Promise.resolve(),
       readSourceEvent: () => Promise.resolve(moved),
       recordFailure: () => Promise.resolve(1),
-      recordTombstone: () => Promise.resolve("tombstone-1"),
+      recordTombstone: () => Promise.resolve({ id: "tombstone-1", priorAttempt: false }),
       resolveWriter: () => Promise.resolve(writer),
       withSourceLock: (_sourceCalendarId, run) => run({
         commitDelete: () => Promise.resolve(),

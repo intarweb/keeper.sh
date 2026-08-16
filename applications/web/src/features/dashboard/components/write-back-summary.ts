@@ -51,11 +51,21 @@ const resolveAdoptedSentence = (sourceName: string): string =>
   + ` copy and is not written back to ${sourceName}. The two stay different until the`
   + " original changes again.";
 
+/*
+ * Both sides moving since the last push resolves source-wins: the copy is rebuilt from the
+ * original and the edit made on the copy is gone. Saying which side wins is the only way a
+ * user can tell that outcome apart from the edit having been written back.
+ */
+const resolveConflictSentence = (sourceName: string): string =>
+  `If the original also changed since Keeper.sh last updated the copy, ${sourceName} wins:`
+  + " the copy is rebuilt from the original and the edit made on the copy is replaced.";
+
 const buildWriteBackFieldSummary = (
   exclusions: WriteBackFieldExclusions,
   sourceName: string,
-): { adopted: string; hidden: string | null; written: string } => ({
+): { adopted: string; conflict: string; hidden: string | null; written: string } => ({
   adopted: resolveAdoptedSentence(sourceName),
+  conflict: resolveConflictSentence(sourceName),
   hidden: resolveHiddenSentence(resolveHiddenFields(exclusions)),
   written: `Editing a copy changes the original event on ${sourceName}: its `
     + `${formatFieldList(describeWriteBackFields(exclusions))}.`,

@@ -112,7 +112,7 @@ const createHarness = () => {
       state.epoch += 1;
       return Promise.resolve(state.epoch);
     },
-    recordTombstone: () => Promise.resolve("tombstone-1"),
+    recordTombstone: () => Promise.resolve({ id: "tombstone-1", priorAttempt: false }),
     requestDeleteConfirmation: (sourceCalendarId, _destinationCalendarId, reason) => {
       confirmations.push({ reason, sourceCalendarId });
       return Promise.resolve();

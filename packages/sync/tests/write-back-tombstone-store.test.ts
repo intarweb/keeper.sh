@@ -39,11 +39,43 @@ interface TombstoneRow {
  * resolve the conflict can never record a second attempt for the same event. Modelling
  * that here is the only way a fake can observe the retry a crashed deletion depends on.
  */
+const readMappingId = (predicate: unknown): string => {
+  const chunks = (predicate as { queryChunks?: { value?: unknown }[] }).queryChunks ?? [];
+  const parameter = chunks.find(
+    (chunk) => chunk?.constructor?.name === "Param",
+  );
+  return String(parameter?.value ?? "");
+};
+
 const createFakeDatabase = () => {
   const rows = new Map<string, TombstoneRow>();
   let counter = 0;
 
   const database = {
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: (predicate: unknown) => {
+          const id = readMappingId(predicate);
+          for (const [key, row] of rows) {
+            if (row.id === id) {
+              rows.set(key, { ...row, state: String(values["state"]) });
+            }
+          }
+          return Promise.resolve();
+        },
+      }),
+    }),
+    select: () => ({
+      from: () => ({
+        where: (predicate: unknown) => {
+          const existing = rows.get(readMappingId(predicate));
+          if (!existing) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([existing]);
+        },
+      }),
+    }),
     insert: () => ({
       values: (values: Record<string, unknown>) => {
         const eventMappingId = String(values["eventMappingId"]);
@@ -100,8 +132,33 @@ describe("the record of a deletion survives the attempt that was interrupted", (
     const first = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
     const second = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
 
-    expect(first).toBeTypeOf("string");
-    expect(second).toBe(first);
+    expect(first.id).toBeTypeOf("string");
+    expect(second.id).toBe(first.id);
+  });
+
+  /*
+   * The record is shared by every attempt on the mapping, so the retry has to be told
+   * that an earlier one was left unresolved: releasing it would uncount a source event
+   * the timed-out attempt may already have destroyed.
+   */
+  it("tells the retry that an earlier attempt was left unresolved", async () => {
+    const { store } = createStore();
+
+    const first = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    const second = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+
+    expect(first.priorAttempt).toBe(false);
+    expect(second.priorAttempt).toBe(true);
+  });
+
+  it("lets the retry release a record an earlier attempt already abandoned", async () => {
+    const { rows, store } = createStore();
+
+    await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    await store.abandonTombstone(rows.get(MAPPING_ID)?.id ?? "");
+    const retry = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+
+    expect(retry.priorAttempt).toBe(false);
   });
 
   it("returns the record to pending so the retry can complete it", async () => {
@@ -127,6 +184,6 @@ describe("the record of a deletion survives the attempt that was interrupted", (
       target: createTarget("mapping-id-2"),
     });
 
-    expect(second).not.toBe(first);
+    expect(second.id).not.toBe(first.id);
   });
 });

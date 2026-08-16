@@ -480,6 +480,18 @@ const DEFAULT_SOURCE_SYNC_RULES = {
   includeInIcalFeed: true,
 } as const;
 
+/*
+ * "push" on a source calendar is what two-way sync is offered on, so a calendar the
+ * account may only read must never carry it: the offer would promise the user a write the
+ * provider refuses. Every path that records a source calendar derives it here.
+ */
+const resolveSourceCalendarCapabilities = (writable: boolean): string[] => {
+  if (writable) {
+    return ["pull", "push"];
+  }
+  return ["pull"];
+};
+
 const applySourceSyncDefaults = <TValues extends object>(
   values: TValues,
 ): TValues & typeof DEFAULT_SOURCE_SYNC_RULES => ({
@@ -624,6 +636,7 @@ export {
   DEFAULT_SOURCE_SYNC_RULES,
   apiErrorBodySchema,
   applySourceSyncDefaults,
+  resolveSourceCalendarCapabilities,
   readApiErrorMessage,
   DEFAULT_FUTURE_SYNC_RANGE,
   DEFAULT_HISTORIC_SYNC_RANGE,

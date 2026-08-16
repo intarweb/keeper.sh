@@ -139,7 +139,7 @@ const createHarness = (options: HarnessOptions = {}) => {
       state.epoch += 1;
       return Promise.resolve(state.epoch);
     },
-    recordTombstone: () => Promise.resolve("tombstone-1"),
+    recordTombstone: () => Promise.resolve({ id: "tombstone-1", priorAttempt: false }),
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: (_sourceCalendarId, run) => run(locked),
   };

@@ -101,7 +101,7 @@ const createHarness = (pair: PairWriteBackAuthority) => {
     quarantineMapping: () => Promise.resolve(),
     readSourceEvent: () => Promise.resolve(snapshot),
     recordFailure: () => Promise.resolve(1),
-    recordTombstone: () => Promise.resolve("tombstone-1"),
+    recordTombstone: () => Promise.resolve({ id: "tombstone-1", priorAttempt: false }),
     requestDeleteConfirmation: () => Promise.resolve(),
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: (_sourceCalendarId, run) => run(locked),

@@ -58,6 +58,18 @@ const ABANDONED_TOMBSTONE_STATE = "abandoned";
 const countsTowardDeleteCap = (state: string): boolean =>
   state !== ABANDONED_TOMBSTONE_STATE;
 
+/*
+ * A record left in any state but abandoned belongs to an attempt whose outcome nobody
+ * confirmed — most often the delete the provider carried out after the client timed out
+ * waiting for it. The retry that shares the row must not release it.
+ */
+const isUnresolvedAttempt = (row: { state: string } | undefined): boolean => {
+  if (!row) {
+    return false;
+  }
+  return countsTowardDeleteCap(row.state);
+};
+
 const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
 const OAUTH_PROVIDERS = new Set(["google", "outlook"]);
 const CALDAV_PROVIDERS = new Set(["caldav", "fastmail", "icloud"]);
@@ -636,6 +648,11 @@ const createDatabaseWriteBackStore = (
   recordTombstone: async ({ snapshot, target }) => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + TOMBSTONE_RETENTION_MS);
+    const [existing] = await config.database
+      .select({ state: eventWriteBackTombstonesTable.state })
+      .from(eventWriteBackTombstonesTable)
+      .where(eq(eventWriteBackTombstonesTable.eventMappingId, target.mappingId));
+    const priorAttempt = isUnresolvedAttempt(existing);
     const [row] = await config.database
       .insert(eventWriteBackTombstonesTable)
       .values({
@@ -661,7 +678,7 @@ const createDatabaseWriteBackStore = (
         `Refusing to delete ${target.sourceEventUid} without a committed tombstone`,
       );
     }
-    return row.id;
+    return { id: row.id, priorAttempt };
   },
   /*
    * The pending state is left exactly where it is. The pair is waiting on an answer about
@@ -725,6 +742,7 @@ const createInboundWriteBackApplier = (config: WriteBackApplierConfig) => {
 export {
   clearDestinationWitnesses,
   countsTowardDeleteCap,
+  isUnresolvedAttempt,
   createDatabaseWriteBackStore,
   createInboundWriteBackApplier,
   createSiblingNotifier,

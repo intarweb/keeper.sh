@@ -586,6 +586,7 @@ function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
   return (
     <Text size="xs" className="text-muted-foreground">
       {`${summary.written} `}
+      {`${summary.conflict} `}
       {summary.hidden ? `${summary.hidden} ` : ""}
       Only the fields you actually change are written back. Repeating events stay one-way.
       {` ${summary.adopted}`}

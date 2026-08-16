@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TWO_WAY_EPOCH_QUARANTINE_LIMIT } from "@keeper.sh/calendar";
 import type { CalendarSourceWriter, InboundClassification } from "@keeper.sh/calendar";
 import { runWriteBackPass } from "../src/write-back-pass";
+import { isUnresolvedAttempt } from "../src/write-back";
 import type {
   LockedWriteBackStore,
   SourceEventSnapshot,
@@ -141,8 +142,10 @@ const createHarness = (options: ResilienceOptions = {}) => {
       log.push("tombstone:commit");
       tombstoneCounter += 1;
       const id = `tombstone-${tombstoneCounter}`;
+      const previous = tombstonesByMapping.get(target.mappingId);
+      const priorAttempt = isUnresolvedAttempt(previous);
       tombstonesByMapping.set(target.mappingId, { id, state: "pending" });
-      return Promise.resolve(id);
+      return Promise.resolve({ id, priorAttempt });
     },
     resolveWriter: options.resolveWriter ?? (() => Promise.resolve(writer)),
     withSourceLock: (_sourceCalendarId, run) => run(locked),

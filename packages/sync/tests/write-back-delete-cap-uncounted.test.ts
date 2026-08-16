@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TWO_WAY_DELETE_DAILY_CAP } from "@keeper.sh/constants";
 import type { CalendarSourceWriter, InboundClassification } from "@keeper.sh/calendar";
-import { countsTowardDeleteCap } from "../src/write-back";
+import { countsTowardDeleteCap, isUnresolvedAttempt } from "../src/write-back";
 import { runWriteBackPass } from "../src/write-back-pass";
 import type {
   LockedWriteBackStore,
@@ -110,8 +110,10 @@ const createHarness = (options: { writeAnswerArrivesLate: boolean }) => {
     },
     recordTombstone: ({ target }) => {
       const tombstoneId = `tombstone-${target.mappingId}`;
+      const previous = tombstones.get(tombstoneId);
+      const priorAttempt = isUnresolvedAttempt(previous);
       tombstones.set(tombstoneId, { appliedAt: null, state: "pending" });
-      return Promise.resolve(tombstoneId);
+      return Promise.resolve({ id: tombstoneId, priorAttempt });
     },
     requestDeleteConfirmation: () => Promise.resolve(),
     resolveWriter: () => Promise.resolve(writer),

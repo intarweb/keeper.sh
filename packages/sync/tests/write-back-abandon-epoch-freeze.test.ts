@@ -86,7 +86,7 @@ const createAbandonedHarness = () => {
       state.epoch += ONE;
       return Promise.resolve(state.epoch);
     },
-    recordTombstone: () => Promise.resolve("tombstone-1"),
+    recordTombstone: () => Promise.resolve({ id: "tombstone-1", priorAttempt: false }),
     requestDeleteConfirmation: () => Promise.resolve(),
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: (_sourceCalendarId, run) => run(locked),

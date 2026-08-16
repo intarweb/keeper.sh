@@ -7,6 +7,7 @@ import {
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { listUserCalendars as listGoogleCalendars } from "@keeper.sh/calendar/google";
 import { listUserCalendars as listOutlookCalendars } from "@keeper.sh/calendar/outlook";
+import { resolveSourceCalendarCapabilities } from "@keeper.sh/data-schemas";
 import type { database as contextDatabase } from "@/context";
 import { spawnBackgroundJob } from "./background-task";
 import {
@@ -16,6 +17,7 @@ import {
 
 import { enqueuePushSync } from "./enqueue-push-sync";
 
+const GOOGLE_WRITABLE_ACCESS_ROLES = new Set(["owner", "writer"]);
 const FIRST_RESULT_LIMIT = 1;
 const OAUTH_CALENDAR_TYPE = "oauth";
 const USER_ACCOUNT_LOCK_NAMESPACE = 9002;
@@ -401,7 +403,7 @@ const createOAuthSourceRecordWithDatabase = async (
     [{
       accountId: payload.accountId,
       calendarType: OAUTH_CALENDAR_TYPE,
-      capabilities: ["pull", "push"],
+      capabilities: resolveSourceCalendarCapabilities(false),
       excludeFocusTime: payload.excludeFocusTime,
       excludeOutOfOffice: payload.excludeOutOfOffice,
       externalCalendarId: payload.externalCalendarId,
@@ -701,7 +703,7 @@ const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDepend
       calendars.map((calendar) => ({
         accountId,
         calendarType: OAUTH_CALENDAR_TYPE,
-        capabilities: ["pull", "push"],
+        capabilities: resolveSourceCalendarCapabilities(calendar.writable),
         externalCalendarId: calendar.externalId,
         name: calendar.name,
         originalName: calendar.name,
@@ -713,11 +715,19 @@ const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDepend
     try {
       if (provider === "google") {
         const calendars = await listGoogleCalendars(accessToken);
-        return calendars.map((calendar) => ({ externalId: calendar.id, name: calendar.summary }));
+        return calendars.map((calendar) => ({
+          externalId: calendar.id,
+          name: calendar.summary,
+          writable: GOOGLE_WRITABLE_ACCESS_ROLES.has(calendar.accessRole),
+        }));
       }
       if (provider === "outlook") {
         const calendars = await listOutlookCalendars(accessToken);
-        return calendars.map((calendar) => ({ externalId: calendar.id, name: calendar.name }));
+        return calendars.map((calendar) => ({
+          externalId: calendar.id,
+          name: calendar.name,
+          writable: calendar.canEdit === true,
+        }));
       }
       throw new Error(`No calendar listing support for provider: ${provider}`);
     } catch (error) {
@@ -793,6 +803,7 @@ const importOAuthAccountCalendarsWithDependencies = async (
 interface ExternalCalendar {
   externalId: string;
   name: string;
+  writable: boolean;
 }
 
 interface ImportOAuthAccountOptions {
@@ -874,7 +885,7 @@ const insertOAuthCalendarsWithDatabase = async (
     calendars.map((calendar) => ({
       accountId,
       calendarType: OAUTH_CALENDAR_TYPE,
-      capabilities: ["pull", "push"],
+      capabilities: resolveSourceCalendarCapabilities(calendar.writable),
       externalCalendarId: calendar.externalId,
       name: calendar.name,
       originalName: calendar.name,

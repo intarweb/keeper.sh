@@ -56,22 +56,30 @@ const createDelete = (index: number): InboundClassification => ({
 });
 
 /*
- * The provider is reachable and answers every request; it just says no — a 429, a 403, a
- * 5xx. Nothing on the source is destroyed by any of them.
+ * The provider destroys the event and the answer never arrives: the client-side write
+ * timeout aborts a DELETE the server has already processed. Nothing local commits, so the
+ * mapping survives and the very same deletion is classified again on the next pass — at
+ * which point the source event it names is genuinely gone.
  */
 const createHarness = () => {
-  const destroyedOnTheProvider: string[] = [];
+  const destroyedOnTheProvider = new Set<string>();
   const tombstones = new Map<string, { state: string }>();
   const quarantines: string[] = [];
   const epochs = new Map<string, number>();
-  const state = { rejecting: true };
+  const state = { mode: "timing-out" as "healthy" | "rate-limited" | "timing-out" };
 
   const writer: CalendarSourceWriter = {
     deleteEvent: (reference) => {
-      if (state.rejecting) {
+      if (state.mode === "rate-limited") {
         return Promise.resolve({ error: "Rate Limit Exceeded", success: false });
       }
-      destroyedOnTheProvider.push(reference.sourceEventUid);
+      if (destroyedOnTheProvider.has(reference.sourceEventUid)) {
+        return Promise.resolve({ success: true });
+      }
+      destroyedOnTheProvider.add(reference.sourceEventUid);
+      if (state.mode === "timing-out") {
+        return Promise.reject(new Error("The operation was aborted due to timeout"));
+      }
       return Promise.resolve({ success: true });
     },
     updateEvent: () => Promise.resolve({ success: true }),
@@ -94,11 +102,6 @@ const createHarness = () => {
       tombstones.set(tombstoneId, { state: "abandoned" });
       return Promise.resolve();
     },
-    /*
-     * The rows the real table would hold, filtered by the predicate the real query
-     * carries. Only the translation of that predicate into a drizzle clause lives
-     * outside this test.
-     */
     countRecentDeletes: () =>
       Promise.resolve(
         [...tombstones.values()].filter((row) => countsTowardDeleteCap(row.state)).length,
@@ -117,6 +120,10 @@ const createHarness = () => {
       epochs.set(mappingId, spent);
       return Promise.resolve(spent);
     },
+    /*
+     * One live record per mapping, refreshed rather than duplicated — the real store's
+     * upsert on the unique event_mapping_id index, which rewrites state back to pending.
+     */
     recordTombstone: ({ target }) => {
       const tombstoneId = `tombstone-${target.mappingId}`;
       const previous = tombstones.get(tombstoneId);
@@ -139,42 +146,59 @@ const runPass = (store: WriteBackStore, indices: number[]): Promise<unknown> =>
     store,
   });
 
-describe("a source provider that answers every delete with a refusal", () => {
-  it("does not spend the day's source-deletion budget on deletions that never happened", async () => {
+const runPasses = async (store: WriteBackStore, indices: number[]): Promise<void> => {
+  for (let offset = NONE; offset < indices.length; offset += PER_PASS) {
+    await runPass(store, indices.slice(offset, offset + PER_PASS));
+  }
+};
+
+const range = (start: number, length: number): number[] =>
+  Array.from({ length }, (_unused, index) => start + index);
+
+describe("a source deletion whose answer was lost and then retried", () => {
+  it("keeps counting the destroyed event against the day's budget", async () => {
     const harness = createHarness();
-    const rejected = Array.from({ length: TWO_WAY_DELETE_DAILY_CAP }, (_unused, index) => index);
 
-    for (let offset = NONE; offset < rejected.length; offset += PER_PASS) {
-      await runPass(harness.store, rejected.slice(offset, offset + PER_PASS));
-    }
+    await runPasses(harness.store, [NONE]);
+    expect(harness.destroyedOnTheProvider.has("source-event-uid-0")).toBe(true);
+    expect(harness.tombstones.get("tombstone-mapping-0")).toEqual({ state: "pending" });
 
-    expect(harness.destroyedOnTheProvider).toEqual([]);
-    expect(harness.quarantines).not.toContain("delete_daily_cap");
+    harness.state.mode = "rate-limited";
+    await runPasses(harness.store, [NONE]);
 
-    harness.state.rejecting = false;
-    await runPass(harness.store, [TWO_WAY_DELETE_DAILY_CAP]);
-
-    expect(harness.quarantines).not.toContain("delete_daily_cap");
-    expect(harness.destroyedOnTheProvider).toEqual([
-      `source-event-uid-${TWO_WAY_DELETE_DAILY_CAP}`,
-    ]);
+    expect(harness.destroyedOnTheProvider.has("source-event-uid-0")).toBe(true);
+    expect(
+      [...harness.tombstones.values()].filter((row) => countsTowardDeleteCap(row.state)).length,
+    ).toBe(ONE);
   });
 
-  it("still bounds real destruction at the cap once the provider starts accepting", async () => {
+  it("still bounds a day's real destruction at the cap", async () => {
     const harness = createHarness();
-    harness.state.rejecting = false;
-    const indices = Array.from(
-      { length: TWO_WAY_DELETE_DAILY_CAP * 2 },
-      (_unused, index) => index,
-    );
+    const lost = range(NONE, PER_PASS);
 
-    for (let offset = NONE; offset < indices.length; offset += PER_PASS) {
-      await runPass(harness.store, indices.slice(offset, offset + PER_PASS));
-    }
+    await runPasses(harness.store, lost);
+    harness.state.mode = "rate-limited";
+    await runPasses(harness.store, lost);
 
-    expect(harness.destroyedOnTheProvider.length).toBeLessThanOrEqual(
-      TWO_WAY_DELETE_DAILY_CAP,
-    );
-    expect(harness.quarantines).toContain("delete_daily_cap");
+    harness.state.mode = "healthy";
+    await runPasses(harness.store, range(PER_PASS, TWO_WAY_DELETE_DAILY_CAP));
+
+    expect(harness.destroyedOnTheProvider.size).toBeLessThanOrEqual(TWO_WAY_DELETE_DAILY_CAP);
+  });
+
+  /*
+   * The control the round-seven and round-eight behaviour rests on: a rejection that
+   * follows no attempt of its own destroyed nothing, and must not spend a slot.
+   */
+  it("still releases a record whose only attempt the provider refused", async () => {
+    const harness = createHarness();
+    harness.state.mode = "rate-limited";
+
+    await runPasses(harness.store, [NONE]);
+
+    expect(harness.destroyedOnTheProvider.size).toBe(NONE);
+    expect(
+      [...harness.tombstones.values()].filter((row) => countsTowardDeleteCap(row.state)).length,
+    ).toBe(NONE);
   });
 });

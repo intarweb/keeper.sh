@@ -1,4 +1,4 @@
-import { applySourceSyncDefaults } from "@keeper.sh/data-schemas";
+import { applySourceSyncDefaults, resolveSourceCalendarCapabilities } from "@keeper.sh/data-schemas";
 import {
   calendarAccountsTable,
   caldavCredentialsTable,
@@ -107,13 +107,6 @@ const readCrossAccountCalDAVKeys = async (
   );
 };
 
-const resolveCapabilities = (writable: boolean): string[] => {
-  if (writable) {
-    return ["pull", "push"];
-  }
-  return ["pull"];
-};
-
 const resolveIdentityColumn = (
   calendar: DiscoveredCalendar,
 ): { calendarUrl: string | null } | { externalCalendarId: string } => {
@@ -129,7 +122,7 @@ const buildInsertRow = (
 ) => applySourceSyncDefaults({
   accountId: input.accountId,
   calendarType: input.calendarType,
-  capabilities: resolveCapabilities(calendar.writable),
+  capabilities: resolveSourceCalendarCapabilities(calendar.writable),
   name: calendar.name,
   originalName: calendar.name,
   userId: input.userId,

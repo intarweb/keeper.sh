@@ -529,17 +529,21 @@ const createWriteBackHold = (
  * that returned nothing at all — the case the hold exists for — so it is asked about
  * again rather than deleted on the strength of an answer to a different question.
  */
-const isApprovedDisappearance = (
-  mapping: EventMapping,
+const isApprovedFirstObservation = (
+  firstObservedAt: Date | null | undefined,
   policy: WriteBackPolicy,
 ): boolean => {
   const approvedAt = policy.deleteApprovedAt;
-  const firstObservedAt = mapping.missingFirstObservedAt;
   return policy.deleteApproved
     && approvedAt instanceof Date
     && firstObservedAt instanceof Date
     && firstObservedAt.getTime() <= approvedAt.getTime();
 };
+
+const isApprovedDisappearance = (
+  mapping: EventMapping,
+  policy: WriteBackPolicy,
+): boolean => isApprovedFirstObservation(mapping.missingFirstObservedAt, policy);
 
 const couldDeleteSourceEvents = (
   { mapping, policy }: { mapping: EventMapping; policy: WriteBackPolicy },
@@ -695,7 +699,7 @@ const classifyMissingMirror = (context: MappingContext): MappingOutcome => {
   const graceElapsed = now.getTime() - missingFirstObservedAt.getTime()
     >= TWO_WAY_DELETE_GRACE_MS;
   const pending: PendingDelete = {
-    deleteApproved: context.policy.deleteApproved,
+    deleteApproved: isApprovedFirstObservation(missingFirstObservedAt, context.policy),
     localEvent,
     mapping,
     missingFirstObservedAt,
@@ -726,7 +730,7 @@ const recordHeldDisappearance = (
     return null;
   }
   return createDeleteCandidate({
-    deleteApproved: context.policy.deleteApproved,
+    deleteApproved: isApprovedDisappearance(mapping, context.policy),
     localEvent,
     mapping,
     missingFirstObservedAt: mapping.missingFirstObservedAt ?? now,
