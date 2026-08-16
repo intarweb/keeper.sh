@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { TWO_WAY_EDIT_ABSOLUTE_CEILING } from "@keeper.sh/constants";
 import { describe, expect, it } from "vitest";
 import { buildWriteBackFieldSummary } from "@/features/dashboard/components/write-back-summary";
+
+const TWO_WAY_DOC = join(import.meta.dirname, "../../../src/content/docs/two-way-sync.mdx");
 
 const SOURCE_NAME = "Personal";
 const NO_EXCLUSIONS = {
@@ -31,5 +35,14 @@ describe("the batch ceiling is disclosed at the scope it is enforced", () => {
 
     expect(batch).not.toContain("of the same calendar");
     expect(batch).toContain("not just this one");
+  });
+
+  it("says the same thing in the documentation that repeats the rule", () => {
+    const doc = readFileSync(TWO_WAY_DOC, "utf8");
+
+    expect(doc).not.toContain(
+      `Editing more than ${TWO_WAY_EDIT_ABSOLUTE_CEILING} copies of the same calendar`,
+    );
+    expect(doc).toContain("across every calendar copied into it, and not per calendar");
   });
 });
