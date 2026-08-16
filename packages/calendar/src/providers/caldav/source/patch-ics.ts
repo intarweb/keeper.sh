@@ -1,5 +1,8 @@
-import { resolveAudience } from "../../../core/source/writer";
-import type { SourceEventAudience } from "../../../core/source/writer";
+import { resolveAudience, resolveAuthorship } from "../../../core/source/writer";
+import type {
+  SourceEventAudience,
+  SourceEventAuthorship,
+} from "../../../core/source/writer";
 
 const NOT_FOUND_INDEX = -1;
 const NO_BLOCKS = 0;
@@ -273,9 +276,41 @@ const readEventAudience = (ics: string): SourceEventAudience => {
   return audience;
 };
 
+/*
+ * ORGANIZER is the only thing a CalDAV object says about who put it there, and it says it
+ * as an address — which is why an account signed in by a bare username can settle nothing
+ * here and refuses nothing. An object with no ORGANIZER is the same: unanswered, allowed.
+ */
+const readEventAuthorship = (
+  ics: string,
+  accountEmail: string | null | undefined,
+): SourceEventAuthorship => {
+  const lines = splitLines(ics);
+  let authorship: SourceEventAuthorship = "unknown";
+  for (const block of collectVEventBlocks(lines)) {
+    const { balanced, spans } = collectSpans(lines, block);
+    if (!balanced) {
+      return authorship;
+    }
+    const [organizerSpan] = spans.get("ORGANIZER") ?? [];
+    const blockAuthorship = resolveAuthorship({
+      account: accountEmail,
+      author: readOptionalSpanValue(lines, organizerSpan),
+    });
+    if (blockAuthorship === "someone_else") {
+      return "someone_else";
+    }
+    if (blockAuthorship === "the_account") {
+      authorship = "the_account";
+    }
+  }
+  return authorship;
+};
+
 export {
   collectDefinedTimezoneIds,
   extractProperties,
   patchIcsEvent,
   readEventAudience,
+  readEventAuthorship,
 };

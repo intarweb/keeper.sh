@@ -11,13 +11,16 @@ import {
   attemptSourceWrite,
   isRetryableWriteStatus,
   refuseWhenOthersAreInvited,
+  refuseWhenSomebodyElseAuthoredIt,
   resolveAudience,
+  resolveAuthorship,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventAudience,
+  SourceEventAuthorship,
   SourceEventUpdate,
   SourceWriteResult,
 } from "../../../core/source/writer";
@@ -26,11 +29,11 @@ const DEFAULT_GOOGLE_CALENDAR_ID = "primary";
 const ISO_DATE_LENGTH = 10;
 
 /*
- * The address the account is known by is accepted and deliberately not read. No write here
- * is decided on who an event names as its organizer: the provider's grant already answered
- * whether this account may write to the calendar, and on the CalDAV servers that sign a
- * user in by bare username there is no address to weigh an organizer against at all.
- * Refusals are decided on the attendees the writer can see, which need no identity.
+ * The address the account is known by. It is weighed against who created the event, never
+ * against who organizes it: on a Google calendar that is not the user's primary one the
+ * organizer is the calendar itself, so the organizer of the user's own event on a shared
+ * calendar is the shared calendar. creator is the person, which is the question asked.
+ * Where the address is missing the question has no answer and no write is refused for it.
  */
 interface GoogleSourceWriterConfig {
   accessToken: () => Promise<string>;
@@ -98,6 +101,22 @@ const readEventAudience = (event: GoogleEventWithAttendees): SourceEventAudience
     organizer: event.organizer?.email,
   });
 };
+
+/*
+ * Google says with creator.self that this copy of the event belongs to the account that
+ * made it. It sends the flag only when it is true, so its absence proves nothing and the
+ * address settles the rest — and where there is no address on either side, nothing is
+ * settled and nothing is refused.
+ */
+const readEventAuthorship = (
+  event: GoogleEventWithAttendees,
+  accountEmail: string | null | undefined,
+): SourceEventAuthorship =>
+  resolveAuthorship({
+    account: accountEmail,
+    author: event.creator?.email,
+    ...(typeof event.creator?.self === "boolean" && { isAccount: event.creator.self }),
+  });
 
 const MARKUP_PATTERN = /<[a-z!/][^>]*>/iu;
 const HTML_ENTITY_PATTERN = /&[a-z]+;|&#\d+;/iu;
@@ -308,6 +327,12 @@ const createGoogleSourceWriter = (
     });
     if (refusal) {
       return { refusal };
+    }
+    const authored = refuseWhenSomebodyElseAuthoredIt({
+      authorship: readEventAuthorship(event, config.accountEmail),
+    });
+    if (authored) {
+      return { refusal: authored };
     }
     if (writesDescription && carriesUnreadableMarkup(event)) {
       return { refusal: RICH_BODY_REFUSAL };

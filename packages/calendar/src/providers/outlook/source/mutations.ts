@@ -11,13 +11,16 @@ import {
   attemptSourceWrite,
   isRetryableWriteStatus,
   refuseWhenOthersAreInvited,
+  refuseWhenSomebodyElseAuthoredIt,
   resolveAudience,
+  resolveAuthorship,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventAudience,
+  SourceEventAuthorship,
   SourceEventUpdate,
   SourceWriteResult,
 } from "../../../core/source/writer";
@@ -26,11 +29,9 @@ const MICROSOFT_GRAPH_API = "https://graph.microsoft.com/v1.0";
 const SINGLE_RESULT = "1";
 
 /*
- * The address the account is known by is accepted and deliberately not read. No write here
- * is decided on who an event names as its organizer: the provider's grant already answered
- * whether this account may write to the calendar, and on the CalDAV servers that sign a
- * user in by bare username there is no address to weigh an organizer against at all.
- * Refusals are decided on the attendees the writer can see, which need no identity.
+ * The address the account is known by, weighed against the address Graph names as the
+ * event's organizer — which on a mailbox somebody else owns is that person. Where the
+ * address is missing the question has no answer and no write is refused for it.
  */
 interface OutlookSourceWriterConfig {
   accessToken: () => Promise<string>;
@@ -89,6 +90,21 @@ const readEventAudience = (event: OutlookEventWithAttendees): SourceEventAudienc
       address: attendee.emailAddress?.address,
     })),
     organizer: event.organizer?.emailAddress?.address,
+  });
+
+/*
+ * Graph says with isOrganizer that the account holding this copy is the one that put the
+ * event there. It is believed when it says yes; a missing yes settles nothing, and the
+ * organizer address decides the rest — where either address is absent, nothing is refused.
+ */
+const readEventAuthorship = (
+  event: OutlookEventWithAttendees,
+  accountEmail: string | null | undefined,
+): SourceEventAuthorship =>
+  resolveAuthorship({
+    account: accountEmail,
+    author: event.organizer?.emailAddress?.address,
+    ...(typeof event.isOrganizer === "boolean" && { isAccount: event.isOrganizer }),
   });
 
 const HTML_BODY_CONTENT_TYPE = "html";
@@ -296,6 +312,12 @@ const createOutlookSourceWriter = (
     const refusal = refuseWhenOthersAreInvited({ audience: readEventAudience(event) });
     if (refusal) {
       return { refusal };
+    }
+    const authored = refuseWhenSomebodyElseAuthoredIt({
+      authorship: readEventAuthorship(event, config.accountEmail),
+    });
+    if (authored) {
+      return { refusal: authored };
     }
     if (writesDescription && carriesUnreadableMarkup(event)) {
       return { refusal: RICH_BODY_REFUSAL };

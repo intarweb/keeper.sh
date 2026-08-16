@@ -122,6 +122,12 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     + " covers two-way sync; to keep it off, pick One-way.",
   source_event_rich_body:
     "A copy on {destination} was changed, but the original on {source} has a formatted description — links, styling, or a meeting join block. Keeper.sh only ever reads it as plain text, so writing the change back would flatten it. Nothing on {source} was touched and two-way sync to {destination} is paused. The change on the copy is not kept: the copies go back to matching {source}.",
+  source_event_authored_by_someone_else:
+    "A copy on {destination} was changed, but the original on {source} was created by"
+    + " somebody else. Keeper.sh will not change or delete another person's event on their"
+    + " behalf, so two-way sync to {destination} is paused and nothing on {source} was"
+    + " touched. The change on the copy is not kept: the copies go back to matching"
+    + " {source}.",
   source_event_has_attendees:
     "A copy on {destination} was changed, but the original on {source} is a meeting other"
     + " people are invited to. Keeper.sh will not cancel or move a meeting on their behalf,"

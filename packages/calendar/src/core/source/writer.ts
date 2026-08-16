@@ -13,6 +13,7 @@ interface SourceEventUpdate {
  * was declined because applying it would reach past the user, and no retry can change that.
  */
 type SourceWriteRefusal =
+  | "event_authored_by_someone_else"
   | "event_body_is_rich_text"
   | "event_has_attendees";
 
@@ -96,10 +97,10 @@ const toTransportWriteFailure = (error: unknown, fallback: string): SourceWriteR
  * Stated once so the three writers cannot drift apart under it: the final write is the
  * one call whose exception nothing else on the path can interpret.
  */
-const attemptSourceWrite = async <T>(
-  send: () => Promise<T>,
+const attemptSourceWrite = async <Sent>(
+  send: () => Promise<Sent>,
   fallback: string,
-): Promise<{ failure: SourceWriteResult } | { sent: T }> => {
+): Promise<{ failure: SourceWriteResult } | { sent: Sent }> => {
   try {
     return { sent: await send() };
   } catch (error) {
@@ -176,6 +177,42 @@ const refuseWhenOthersAreInvited = (
   }
 };
 
+const AUTHORSHIP_REFUSAL: SourceWriteResult = {
+  error: "Keeper.sh does not write to a source event somebody else created.",
+  refused: "event_authored_by_someone_else",
+  success: false,
+};
+
+/*
+ * Who put the event on the calendar. "Unknown" is the honest answer wherever the provider
+ * names no author, or the account is signed in without an address to weigh one against —
+ * a CalDAV login by bare username — and it is deliberately not a refusal: a question that
+ * cannot be answered must never become one, which is what withheld two-way sync from
+ * those servers entirely.
+ */
+type SourceEventAuthorship = "someone_else" | "the_account" | "unknown";
+
+/*
+ * A calendar a colleague shared with write access is the one place a source write reaches
+ * past the user with no guest on the event at all. The provider's grant says the account
+ * may write there; it does not say the event is the user's to destroy, and deleting a
+ * colleague's booking is as irreversible for them as cancelling a meeting is for its
+ * guests. What acts here is a mirror concluding on its own that a copy went missing, not a
+ * person clicking delete in a native client, so the answer when the event is provably
+ * somebody else's is to leave it alone and tell the user why.
+ *
+ * Only a provable answer refuses. Where the author cannot be established the write goes
+ * through exactly as before, so no account that works today stops working.
+ */
+const refuseWhenSomebodyElseAuthoredIt = (
+  event: { authorship: SourceEventAuthorship },
+): SourceWriteResult | null => {
+  if (event.authorship === "someone_else") {
+    return AUTHORSHIP_REFUSAL;
+  }
+  return null;
+};
+
 /*
  * Every provider reports its guest list differently and none of them reports it as an
  * address the account can be recognised by, so each writer normalises to plain addresses
@@ -206,6 +243,39 @@ const resolveAudience = (input: {
 };
 
 /*
+ * The account's own address is the only thing an author can be weighed against, and some
+ * of the accounts Keeper.sh holds have none. isAccount is the provider answering the same
+ * question directly — Google's creator.self, Graph's isOrganizer — and it is believed only
+ * when it says yes: a missing "yes" is not a "no" on either provider.
+ *
+ * Both sides have to be addresses before either is weighed. A provider that answers the
+ * account's sign-in with a display name and no address is stored under that name, and
+ * comparing "John Smith" with an author's address answers "somebody else" for every event
+ * on the calendar — pausing a connection where nothing is wrong, on a question that was
+ * never actually asked.
+ */
+const IS_ADDRESS = /^[^\s@]+@[^\s@]+$/u;
+
+const resolveAuthorship = (input: {
+  account: string | null | undefined;
+  author: string | null | undefined;
+  isAccount?: boolean;
+}): SourceEventAuthorship => {
+  if (input.isAccount === true) {
+    return "the_account";
+  }
+  const account = normalizeAttendeeAddress(input.account);
+  const author = normalizeAttendeeAddress(input.author);
+  if (!IS_ADDRESS.test(account) || !IS_ADDRESS.test(author)) {
+    return "unknown";
+  }
+  if (account === author) {
+    return "the_account";
+  }
+  return "someone_else";
+};
+
+/*
  * Outlook hands Keeper.sh every body as text, so a body that carries markup was never
  * stored and cannot be reconstructed. Writing the text projection back replaces the real
  * event's links, formatting and the join block a meeting provider wrote into it, with
@@ -222,7 +292,9 @@ export {
   isRetryableWriteStatus,
   normalizeAttendeeAddress,
   refuseWhenOthersAreInvited,
+  refuseWhenSomebodyElseAuthoredIt,
   resolveAudience,
+  resolveAuthorship,
   RICH_BODY_REFUSAL,
   toTransportWriteFailure,
   toWriteFailure,
@@ -230,6 +302,7 @@ export {
 export type {
   CalendarSourceWriter,
   SourceEventAudience,
+  SourceEventAuthorship,
   SourceEventUpdate,
   SourceWriteRefusal,
   SourceWriteResult,

@@ -23,7 +23,7 @@ Open the calendar the events live in, find the receiving calendar under **Send E
 - **Two-way** — editing the copy changes the original event here.
 - **Two-way, including deletions** — editing the copy changes the original, and deleting the copy permanently deletes the original here and removes it from every other calendar it is copied to. Keeper.sh asks you to confirm this one before it takes effect, and keeps a record of every original it deletes for 30 days.
 
-The options are only offered on a calendar Keeper.sh can write to. A calendar you subscribed to by link is read-only, and so is one shared with you without permission to change it. A CalDAV account that signs in with a plain username rather than an email address is also refused: Keeper.sh cannot tell which events on it you created, and it will not change an event somebody else made.
+The options are only offered on a calendar Keeper.sh can write to. A calendar you subscribed to by link is read-only, and so is one shared with you without permission to change it.
 
 ## What gets written back
 
@@ -37,6 +37,8 @@ Two things are never touched, whatever the mode:
 - An event created by somebody else on a calendar shared with you.
 
 When Keeper.sh meets one of these it leaves the original alone, pauses two-way sync for the connection, and says so on the calendar's page. The copy goes back to matching the original, so the edit you made on the copy is not kept.
+
+Who created an event is a question Keeper.sh can only answer when it knows the address you are signed in as. Google and Outlook always name both. A CalDAV account that signs in with a plain username rather than an email address names neither, so on Nextcloud, Radicale, Baikal, Synology and Zimbra that check cannot run: two-way sync is still offered there, and the guest-list rule above is the one that protects other people. Point it at a shared collection on one of those servers only if the events on it are yours.
 
 ## When both sides changed
 

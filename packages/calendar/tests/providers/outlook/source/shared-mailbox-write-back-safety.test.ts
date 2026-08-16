@@ -19,8 +19,11 @@ const createWriter = () => createOutlookSourceWriter({
 });
 
 /*
- * A mailbox a colleague shared with write access. Graph granted the role, and the role is
- * the answer to who may change this event; the writer no longer asks a second time.
+ * A mailbox a colleague shared with write access. Graph granted the role, which answers
+ * whether this account may write there and not whose event this is. Graph names the
+ * colleague as its organizer and puts nobody else on it, so destroying it reaches no third
+ * party by mail — it destroys the colleague's own data instead, on a conclusion a mirror
+ * reached by itself.
  */
 const COLLEAGUES_EVENT = {
   id: SOURCE_EVENT_ID,
@@ -57,7 +60,7 @@ describe("an Outlook source write on a calendar somebody else owns", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("deletes an event Graph says this account does not organize", async () => {
+  it("refuses to delete an event Graph says this account does not organize", async () => {
     event = COLLEAGUES_EVENT;
 
     const result = await createWriter().deleteEvent({
@@ -65,13 +68,30 @@ describe("an Outlook source write on a calendar somebody else owns", () => {
       sourceEventUid: SOURCE_EVENT_UID,
     });
 
-    expect(result.refused).toBeUndefined();
-    expect(result.success).toBe(true);
-    expect(requests.filter(({ method }) => method === "DELETE")).toHaveLength(1);
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(result.success).toBe(false);
+    expect(requests.filter(({ method }) => method === "DELETE")).toEqual([]);
   });
 
-  it("reschedules an event organized by another address", async () => {
+  it("refuses to reschedule an event organized by another address", async () => {
     event = COLLEAGUES_EVENT;
+
+    const result = await createWriter().updateEvent(
+      { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID },
+      { summary: "Renamed on the destination" },
+    );
+
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(result.success).toBe(false);
+    expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  it("still reschedules an event on the shared mailbox this account organizes", async () => {
+    event = {
+      ...COLLEAGUES_EVENT,
+      isOrganizer: true,
+      organizer: { emailAddress: { address: ACCOUNT_EMAIL } },
+    };
 
     const result = await createWriter().updateEvent(
       { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID },
@@ -108,7 +128,11 @@ describe("an Outlook source write on a calendar somebody else owns", () => {
   });
 
   it("reports Graph's own rejection of the edit as a failure rather than a refusal", async () => {
-    event = COLLEAGUES_EVENT;
+    event = {
+      ...COLLEAGUES_EVENT,
+      isOrganizer: true,
+      organizer: { emailAddress: { address: ACCOUNT_EMAIL } },
+    };
     writeStatus = FORBIDDEN_STATUS;
 
     const result = await createWriter().updateEvent(

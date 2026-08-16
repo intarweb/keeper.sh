@@ -8,9 +8,10 @@ const NO_CONTENT_STATUS = 204;
 const OBJECT_URL = `${CALENDAR_URL}/${SOURCE_EVENT_UID}.ics`;
 
 /*
- * An object on a collection shared with write access. The server answered the ownership
- * question when it granted the write, and every native CalDAV client lets the user make
- * this edit, so ORGANIZER naming a colleague is no longer a reason to refuse one.
+ * An object on a collection shared with write access. The server answered whether this
+ * account may write there; it did not answer whose object it is. This account signs in as
+ * an address, so ORGANIZER naming a colleague is an answer — and destroying their booking
+ * on a conclusion a mirror reached by itself is not the account holder's to make.
  */
 const buildIcs = (lines: string[]): string => [
   "BEGIN:VCALENDAR",
@@ -61,8 +62,38 @@ const createWriter = (data: string) => {
 };
 
 describe("a CalDAV source write on a collection somebody else owns", () => {
-  it("edits an object another address organizes when nobody is invited to it", async () => {
+  it("refuses to edit an object another address organizes", async () => {
     const { updated, writer } = createWriter(COLLEAGUES_EVENT);
+
+    const result = await writer.updateEvent(
+      { sourceEventId: null, sourceEventUid: SOURCE_EVENT_UID },
+      { summary: "Renamed on the destination" },
+    );
+
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(updated).toEqual([]);
+  });
+
+  it("refuses to delete an object another address organizes", async () => {
+    const { deleted, writer } = createWriter(COLLEAGUES_EVENT);
+
+    const result = await writer.deleteEvent({
+      sourceEventId: null,
+      sourceEventUid: SOURCE_EVENT_UID,
+    });
+
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(deleted).toEqual([]);
+  });
+
+  /*
+   * The account's own object on the very same shared collection still travels: what is
+   * refused is somebody else's event, not somebody else's collection.
+   */
+  it("still edits an object this account organizes on the shared collection", async () => {
+    const { updated, writer } = createWriter(
+      buildIcs([`ORGANIZER;CN=Me:mailto:${ACCOUNT_EMAIL}`]),
+    );
 
     const result = await writer.updateEvent(
       { sourceEventId: null, sourceEventUid: SOURCE_EVENT_UID },
@@ -72,19 +103,6 @@ describe("a CalDAV source write on a collection somebody else owns", () => {
     expect(result.refused).toBeUndefined();
     expect(result).toEqual({ success: true });
     expect(updated).toHaveLength(1);
-  });
-
-  it("deletes an object another address organizes when nobody is invited to it", async () => {
-    const { deleted, writer } = createWriter(COLLEAGUES_EVENT);
-
-    const result = await writer.deleteEvent({
-      sourceEventId: null,
-      sourceEventUid: SOURCE_EVENT_UID,
-    });
-
-    expect(result.refused).toBeUndefined();
-    expect(result).toEqual({ success: true });
-    expect(deleted).toEqual([OBJECT_URL]);
   });
 
   it("still refuses to delete an object other people are invited to", async () => {

@@ -11,8 +11,11 @@ const FORBIDDEN_STATUS = 403;
 
 /*
  * A calendar a colleague shared with write access is an ordinary two-way source, and the
- * writer role Google granted is the permission question already answered. This event is
- * one the colleague created on it, with nobody invited: deleting it reaches no third party.
+ * writer role Google granted answers whether this account may write there. It does not
+ * answer whose event this is. The colleague created it, nobody is invited to it, and it is
+ * their data: a mirror that concluded on its own that a copy went missing must not destroy
+ * it, which is what the product page promises and what the account holder can no longer
+ * undo for them.
  */
 const SOMEONE_ELSES_EVENT = {
   creator: { email: "colleague@example.com", self: false },
@@ -64,18 +67,36 @@ describe("a Google source write on a shared calendar", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("deletes an event the user did not create when nobody is invited to it", async () => {
+  it("refuses to delete an event the user did not create", async () => {
     const result = await createWriter().deleteEvent({
       sourceEventId: SOURCE_EVENT_ID,
       sourceEventUid: SOURCE_EVENT_UID,
     });
 
-    expect(result.refused).toBeUndefined();
-    expect(result.success).toBe(true);
-    expect(requests.filter(({ method }) => method === "DELETE")).toHaveLength(1);
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(result.success).toBe(false);
+    expect(requests.filter(({ method }) => method === "DELETE")).toEqual([]);
   });
 
-  it("edits an event the user did not create when nobody is invited to it", async () => {
+  it("refuses to edit an event the user did not create", async () => {
+    const result = await createWriter().updateEvent(
+      { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID },
+      { summary: "Renamed on the destination" },
+    );
+
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(result.success).toBe(false);
+    expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  /*
+   * The account's own event on the same shared calendar still travels: the refusal is the
+   * answer to who created it, not to whose calendar it sits on. Google names the shared
+   * calendar as the organizer of everything on it, which is why creator is what is read.
+   */
+  it("still edits an event the user created on the shared calendar", async () => {
+    event = { ...SOMEONE_ELSES_EVENT, creator: { email: ACCOUNT_EMAIL, self: true } };
+
     const result = await createWriter().updateEvent(
       { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID },
       { summary: "Renamed on the destination" },
@@ -111,6 +132,7 @@ describe("a Google source write on a shared calendar", () => {
   });
 
   it("reports Google's own rejection of the edit as a failure rather than a refusal", async () => {
+    event = { ...SOMEONE_ELSES_EVENT, creator: { email: ACCOUNT_EMAIL, self: true } };
     writeStatus = FORBIDDEN_STATUS;
 
     const result = await createWriter().updateEvent(

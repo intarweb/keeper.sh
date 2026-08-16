@@ -64,6 +64,14 @@ const createWriteBack = (): InboundClassification => ({
 });
 
 const createDeletion = (): InboundClassification => ({
+  expectedSource: {
+    description: "",
+    endTime: END_TIME,
+    isAllDay: false,
+    location: "",
+    startTime: START_TIME,
+    summary: "Dentist",
+  },
   expectedSyncEventHash: PUSHED_HASH,
   mappingId: MAPPING_ID,
   sourceEventUid: SOURCE_EVENT_UID,

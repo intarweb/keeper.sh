@@ -50,11 +50,14 @@ describe("a CalDAV source whose login is not an address", () => {
   });
 
   /*
-   * The pause the writer can no longer reach. Leaving the sentence in the dashboard leaves
-   * a state the sync layer will never record again, explained in terms of a rule that is
-   * no longer the product's.
+   * The mode is offered on an account that cannot name itself, and no write there is ever
+   * refused over authorship — the question has no answer on those servers. The pause still
+   * has to be explained, because the accounts that can answer it reach it: the docs promise
+   * an event somebody else created is never touched, and a promise with no state behind it
+   * is the one that gets a colleague's booking deleted.
    */
-  it("no longer explains a pause about who created the event", () => {
-    expect(WRITE_BACK_STATE_COPY.source_event_authored_by_someone_else).toBeUndefined();
+  it("explains the pause about who created the event", () => {
+    expect(WRITE_BACK_STATE_COPY.source_event_authored_by_someone_else)
+      .toContain("created by somebody else");
   });
 });

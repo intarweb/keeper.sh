@@ -6,11 +6,13 @@ import {
   extractProperties,
   patchIcsEvent,
   readEventAudience,
+  readEventAuthorship,
 } from "./patch-ics";
 import {
   attemptSourceWrite,
   isRetryableWriteStatus,
   refuseWhenOthersAreInvited,
+  refuseWhenSomebodyElseAuthoredIt,
   toWriteFailure,
 } from "../../../core/source/writer";
 import type {
@@ -43,11 +45,9 @@ interface CalDAVWriterClient {
 }
 
 /*
- * The address the account is known by is accepted and deliberately not read. No write here
- * is decided on who an event names as its organizer: the provider's grant already answered
- * whether this account may write to the calendar, and on the CalDAV servers that sign a
- * user in by bare username there is no address to weigh an organizer against at all.
- * Refusals are decided on the attendees the writer can see, which need no identity.
+ * The address the account is known by, weighed against the object's ORGANIZER. The servers
+ * that sign a user in by bare username store none, so the question has no answer there and
+ * no write is refused for it — which is the whole reason two-way sync reaches them.
  */
 interface CalDAVSourceWriterConfig {
   accountEmail?: string | null;
@@ -298,6 +298,12 @@ const createCalDAVSourceWriter = (
     if (refusal) {
       return refusal;
     }
+    const authored = refuseWhenSomebodyElseAuthoredIt({
+      authorship: readEventAuthorship(object.data, config.accountEmail),
+    });
+    if (authored) {
+      return authored;
+    }
 
     const [event] = parseIcsString(object.data).events ?? [];
     if (!event) {
@@ -361,6 +367,12 @@ const createCalDAVSourceWriter = (
     });
     if (refusal) {
       return refusal;
+    }
+    const authored = refuseWhenSomebodyElseAuthoredIt({
+      authorship: readEventAuthorship(object.data ?? "", config.accountEmail),
+    });
+    if (authored) {
+      return authored;
     }
 
     const removed = await attemptSourceWrite(

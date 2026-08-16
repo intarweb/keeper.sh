@@ -198,6 +198,7 @@ const resolveOAuthSourceWriter = async (
   const [credentials] = await config.database
     .select({
       accessToken: oauthCredentialsTable.accessToken,
+      accountEmail: calendarAccountsTable.email,
       accountId: calendarAccountsTable.id,
       credentialId: oauthCredentialsTable.id,
       expiresAt: oauthCredentialsTable.expiresAt,
@@ -223,13 +224,22 @@ const resolveOAuthSourceWriter = async (
     sourceCalendarId,
     credentials,
   );
+  /*
+   * The address the account is signed in as is what an event's creator is weighed against.
+   * Without it every event on a calendar a colleague shared reads as authorless, and the
+   * refusal that keeps their events out of a mirror's reach never fires.
+   */
   if (provider === "google") {
     return createGoogleSourceWriter({
       accessToken,
+      accountEmail: credentials.accountEmail,
       externalCalendarId: credentials.externalCalendarId,
     });
   }
-  return createOutlookSourceWriter({ accessToken });
+  return createOutlookSourceWriter({
+    accessToken,
+    accountEmail: credentials.accountEmail,
+  });
 };
 
 /*
@@ -254,6 +264,7 @@ const resolveCalDAVSourceWriter = async (
 ): Promise<CalendarSourceWriter | null> => {
   const [credentials] = await config.database
     .select({
+      accountEmail: calendarAccountsTable.email,
       authMethod: caldavCredentialsTable.authMethod,
       calendarUrl: calendarsTable.calendarUrl,
       encryptedPassword: caldavCredentialsTable.encryptedPassword,
@@ -279,6 +290,7 @@ const resolveCalDAVSourceWriter = async (
   );
   const { calendarUrl } = credentials;
   return createCalDAVSourceWriter({
+    accountEmail: credentials.accountEmail,
     calendarUrl,
     client: () => {
       /*
