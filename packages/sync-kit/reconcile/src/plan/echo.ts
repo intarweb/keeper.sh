@@ -36,8 +36,5 @@ const classifyProvenance = (
 const isRetirable = (event: RemoteEvent, installation: InstallationId): boolean =>
   classifyProvenance(event, installation) === "ourMirror";
 
-const isEchoOfOurOwnWrite = (event: RemoteEvent, installation: InstallationId): boolean =>
-  classifyProvenance(event, installation) === "ourMirror";
-
-export { classifyProvenance, isEchoOfOurOwnWrite, isRetirable, provenanceDispositions };
+export { classifyProvenance, isRetirable, provenanceDispositions };
 export type { ProvenanceDisposition };

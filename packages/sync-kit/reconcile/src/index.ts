@@ -26,6 +26,13 @@ export type { Mapping, MappingIndexes, MappingSet } from "./state/mappings";
 export { compareObservedRevisions, dedupeObservations } from "./state/dedupe";
 export type { DedupedObservations, IdentifiedEvent } from "./state/dedupe";
 
+export {
+  listingAuthorities,
+  listingAuthority,
+  mayRetireItsOwnMirrors,
+  speaksForAbsence,
+} from "./presence/authority";
+export type { ListingAuthority } from "./presence/authority";
 export { presenceBasis } from "./presence/presence-basis";
 export type { PresenceBasis } from "./presence/presence-basis";
 export { writeBasis } from "./presence/write-basis";
@@ -55,7 +62,7 @@ export type {
   UnresolvedReason,
 } from "./plan/plan";
 
-export { classifyProvenance, isEchoOfOurOwnWrite, isRetirable, provenanceDispositions } from "./plan/echo";
+export { classifyProvenance, isRetirable, provenanceDispositions } from "./plan/echo";
 export type { ProvenanceDisposition } from "./plan/echo";
 export { comparePlannedWrites } from "./plan/order";
 export { boundedSample } from "./plan/diagnostics";

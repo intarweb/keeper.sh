@@ -61,7 +61,7 @@ describe("retire the identifier this listing gave you", () => {
     expect(firstOf(plan.tombstones).handle?.value).toBe("legacy-ical-uid");
   });
 
-  test("RECON-O17: an unmapped absence carries no handle rather than inventing one", () => {
+  test("RECON-O17: an unmapped absence forgets the row rather than inventing a delete", () => {
     const plan = planReconciliation(
       sourceOnly(snapshotListing({ events: [] })),
       knownState([knownEvent({ identity })]),
@@ -70,6 +70,22 @@ describe("retire the identifier this listing gave you", () => {
     );
 
     expect(plan.tombstones).toHaveLength(1);
-    expect(firstOf(plan.tombstones).handle).toBeNull();
+    expect(firstOf(plan.tombstones).kind).toBe("forgetKnownRow");
+    expect(firstOf(plan.tombstones).handle).toBeUndefined();
+  });
+
+  test("RECON-O17: a mapped retirement carries the mapping's precondition", () => {
+    const plan = planReconciliation(
+      sourceOnly(snapshotListing({ events: [] })),
+      knownState([knownEvent({ identity })]),
+      mappingSet([mappingWithLegacyHandle()]),
+      policy(),
+    );
+
+    expect(firstOf(plan.tombstones).kind).toBe("retireMirror");
+    expect(firstOf(plan.tombstones).precondition).toEqual({
+      kind: "matchesVersion",
+      version: { kind: "remoteVersion", value: "v-mirror-1-1" },
+    });
   });
 });

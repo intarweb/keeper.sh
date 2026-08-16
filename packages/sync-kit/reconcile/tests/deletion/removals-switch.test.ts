@@ -33,7 +33,7 @@ describe("the exhaustive switch over listing kind", () => {
   for (const entry of listingsWithNoDeletionAuthority) {
     const [name, listing] = entry;
     test(`RECON-I2: a ${name} listing yields an empty removal basis`, () => {
-      expect(basisOf(listing)).toEqual({ explicit: [], absent: [] });
+      expect(basisOf(listing)).toEqual({ explicit: [], absent: [], outOfScope: [] });
     });
   }
 
@@ -50,6 +50,7 @@ describe("the exhaustive switch over listing kind", () => {
 
     expect(basis.explicit.map((removal) => removal.kind)).toEqual(["deleted", "cancelled"]);
     expect(basis.absent).toEqual([]);
+    expect(basis.outOfScope.map((id) => id.value)).toEqual(["evt-3"]);
   });
 
   test("RECON-I2: a snapshot is the only kind that produces an absence axis", () => {

@@ -83,6 +83,26 @@ describe("the whole public surface", () => {
     expect(JSON.stringify(planFor(scenario))).toBe(JSON.stringify(planFor(scenario)));
   });
 
+  test("RECON-I44: the plan is identical under UTC and under a zone fourteen hours ahead", () => {
+    const scenario = steadyScenario();
+    const underUtc = JSON.stringify(planFor(scenario));
+    const ambient = process.env.TZ;
+    process.env.TZ = "Pacific/Kiritimati";
+    try {
+      expect(JSON.stringify(planFor(scenario))).toBe(underUtc);
+    } finally {
+      process.env.TZ = ambient;
+    }
+  });
+
+  test("RECON-I44: no module under src reads a zone or a locale from the environment", async () => {
+    const { filesMatching } = await import("../support/sources");
+
+    expect(await filesMatching("src", "Intl.")).toEqual([]);
+    expect(await filesMatching("src", "process.env")).toEqual([]);
+    expect(await filesMatching("src", "toLocale")).toEqual([]);
+  });
+
   test("RECON-L3: planning mutates none of its four arguments", () => {
     const scenario = steadyScenario();
     const before = JSON.stringify(scenario);

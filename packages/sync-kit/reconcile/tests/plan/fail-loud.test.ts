@@ -87,6 +87,28 @@ describe("provider-shaped input never throws, our own broken invariants do", () 
     ).toThrow(ReconcileInternalDataError);
   });
 
+  test("RECON-I27: a mapping pointing at a foreign destination calendar fails loud", () => {
+    const elsewhere = mappingSet([
+      {
+        ...mapping({ identity, destinationId: "mirror-elsewhere" }),
+        destinationCalendar: {
+          provider: "microsoft",
+          account: { kind: "accountId", value: "acct-destination" },
+          calendar: { kind: "calendarId", value: "cal-somewhere-else" },
+        },
+      },
+    ]);
+
+    expect(() =>
+      planReconciliation(
+        sourceOnly(snapshotListing({ events: [foreignEvent({ id: "evt-1", uid: "evt-1" })] })),
+        knownState([knownEvent({ identity })]),
+        elsewhere,
+        policy(),
+      ),
+    ).toThrow(ReconcileInternalDataError);
+  });
+
   test("RECON-I27: the internal error names the invariant it broke", () => {
     const duplicated = mappingSet([
       mapping({ identity, destinationId: "mirror-1" }),

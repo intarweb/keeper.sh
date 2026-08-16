@@ -11,6 +11,7 @@ import { sourceIdentityKey } from "../identity/source-identity";
 
 interface KnownEvent {
   readonly identity: SourceIdentity;
+  readonly remoteId: RemoteEventId;
   readonly sourceFingerprint: SourceFingerprint;
   readonly revision: Revision;
   readonly time: EventTime;
@@ -32,11 +33,13 @@ interface KnownState {
 interface KnownIndex {
   readonly byIdentity: ReadonlyMap<string, KnownEvent>;
   readonly byUid: ReadonlyMap<string, readonly KnownEvent[]>;
+  readonly byRemoteId: ReadonlyMap<string, KnownEvent>;
 }
 
 const indexKnownEvents = (known: KnownState): KnownIndex => ({
   byIdentity: new Map(known.events.map((event) => [sourceIdentityKey(event.identity), event])),
   byUid: Map.groupBy(known.events, (event) => event.identity.uid.value),
+  byRemoteId: new Map(known.events.map((event) => [event.remoteId.value, event])),
 });
 
 export { indexKnownEvents };

@@ -1,8 +1,24 @@
 import { describe, expect, test } from "vitest";
 import { firstOf } from "../support/at";
-import { dedupeObservations, defaultPlanLimits, pairReassignedOccurrences } from "../../src/index";
+import {
+  dedupeObservations,
+  defaultPlanLimits,
+  pairReassignedOccurrences,
+  planReconciliation,
+} from "../../src/index";
 import type { IdentifiedEvent, Mapping } from "../../src/index";
-import { foreignEvent, mapping, slotIdentity, timedAt } from "../support/fixtures";
+import {
+  foreignEvent,
+  knownEvent,
+  knownState,
+  mapping,
+  mappingSet,
+  policy,
+  slotIdentity,
+  snapshotListing,
+  sourceOnly,
+  timedAt,
+} from "../support/fixtures";
 
 const occurrenceAt = (index: number) => {
   const day = String((index % 27) + 1).padStart(2, "0");
@@ -103,6 +119,35 @@ describe("occurrence pairing is bounded, and the bound is the named one", () => 
     });
 
     expect(finished).toBe(true);
+  });
+
+  test("RECON-L4: a refused ceiling is a typed unresolved outcome, never a delete and recreate", () => {
+    const shifted = observations(10);
+    const orphans = orphanedMappings(10);
+    const planWith = (width: number) =>
+      planReconciliation(
+        sourceOnly(snapshotListing({ events: shifted.map((observation) => observation.event) })),
+        knownState(
+          orphans.map((orphan, index) => {
+            const span = occurrenceAt(index + orphans.length);
+            return knownEvent({
+              identity: orphan.sourceIdentity,
+              remoteId: `known-${index}`,
+              fingerprint: "fp-shared",
+              time: timedAt(span.start, span.end),
+            });
+          }),
+        ),
+        mappingSet(orphans),
+        policy({ limits: { ...defaultPlanLimits, reassignmentPairingWidth: width } }),
+      );
+
+    const refused = planWith(4);
+    const paired = planWith(512);
+
+    expect(paired.tombstones).toEqual([]);
+    expect(refused.tombstones).toEqual([]);
+    expect(refused.unresolved.map((item) => item.reason)).toContain("pairingCeilingExceeded");
   });
 
   test("RECON-L5: a degenerate order where every pair compares equal still terminates", () => {

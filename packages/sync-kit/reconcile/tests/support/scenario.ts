@@ -16,9 +16,7 @@ import {
 const planFor = (scenario: Scenario): Plan =>
   planReconciliation(scenario.observed, scenario.known, scenario.mappings, scenario.policy);
 
-const identityOfSlot = (value: string, start: string, end: string) => slotIdentity(value, start, end);
-
-const steadyIdentity = identityOfSlot(
+const steadyIdentity = slotIdentity(
   "evt-steady",
   "2026-03-10T09:00:00.000Z",
   "2026-03-10T10:00:00.000Z",
@@ -33,4 +31,4 @@ const steadyScenario = (): Scenario => ({
   policy: policy(),
 });
 
-export { identityOfSlot, planFor, steadyIdentity, steadyScenario };
+export { planFor, steadyIdentity, steadyScenario };

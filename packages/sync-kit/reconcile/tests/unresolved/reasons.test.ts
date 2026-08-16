@@ -34,8 +34,8 @@ const reasonsFrom = (
   planReconciliation(observed, knownState_, mappings, policy_).unresolved.map((item) => item.reason);
 
 describe("every drop names its own reason", () => {
-  test("RECON-I28: the reason set has eight distinct members and no catch-all", () => {
-    expect(new Set(unresolvedReasons).size).toBe(8);
+  test("RECON-I28: the reason set has eleven distinct members and no catch-all", () => {
+    expect(new Set(unresolvedReasons).size).toBe(11);
     expect(unresolvedReasons).not.toContain("other");
     expect(unresolvedReasons).not.toContain("unknown");
   });

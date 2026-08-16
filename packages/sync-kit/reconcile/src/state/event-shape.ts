@@ -43,11 +43,15 @@ const startInstantOf = (event: RemoteEvent): Instant => {
 
 const isRecurring = (event: RemoteEvent): boolean => Boolean(event.content.recurrence);
 
-const timeShapeOf = (event: RemoteEvent): string => {
+const timeShapes = ["recurring", "timed", "allDay"] as const;
+type TimeShape = (typeof timeShapes)[number];
+
+const timeShapeOf = (event: RemoteEvent): TimeShape => {
   if (event.content.recurrence) {
     return "recurring";
   }
   return event.content.time.kind;
 };
 
-export { boundsOfTime, isRecurring, startInstantOf, timeShapeOf };
+export { boundsOfTime, isRecurring, startInstantOf, timeShapeOf, timeShapes };
+export type { TimeShape };

@@ -1,4 +1,9 @@
-import type { AuthoritativeRemoval, ChangeListing, Removal } from "@keeper.sh/sync-protocol";
+import type {
+  AuthoritativeRemoval,
+  ChangeListing,
+  Removal,
+  RemoteEventId,
+} from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
 import type { SourceIdentity } from "../identity/source-identity";
 import { sourceIdentityKey, uidPresenceKey } from "../identity/source-identity";
@@ -9,9 +14,26 @@ import type { PresenceBasis } from "./presence-basis";
 interface RemovalBasis {
   readonly explicit: readonly AuthoritativeRemoval[];
   readonly absent: readonly SourceIdentity[];
+  readonly outOfScope: readonly RemoteEventId[];
 }
 
-const emptyRemovalBasis: RemovalBasis = { explicit: [], absent: [] };
+const emptyRemovalBasis: RemovalBasis = { explicit: [], absent: [], outOfScope: [] };
+
+const outOfScopeRemovals = (removals: readonly Removal[]): readonly RemoteEventId[] =>
+  removals.flatMap((removal) => {
+    switch (removal.kind) {
+      case "outOfScope": {
+        return [removal.id];
+      }
+      case "deleted":
+      case "cancelled": {
+        return [];
+      }
+      default: {
+        return assertNever(removal);
+      }
+    }
+  });
 
 const authoritativeRemovals = (removals: readonly Removal[]): readonly AuthoritativeRemoval[] =>
   removals.flatMap((removal) => {
@@ -40,17 +62,26 @@ const absentWithin = (
   policy: ReconciliationPolicy,
 ): RemovalBasis => {
   if (policy.capabilities.deletionAuthority === "explicitRemovalsOnly") {
-    return { explicit: authoritativeRemovals(listing.removals), absent: [] };
+    return {
+      explicit: authoritativeRemovals(listing.removals),
+      absent: [],
+      outOfScope: outOfScopeRemovals(listing.removals),
+    };
   }
   const absent = known.events
     .filter((event) => missingFromListing(event, presence))
     .map((event) => event.identity);
-  return { explicit: authoritativeRemovals(listing.removals), absent };
+  return {
+    explicit: authoritativeRemovals(listing.removals),
+    absent,
+    outOfScope: outOfScopeRemovals(listing.removals),
+  };
 };
 
 const namedRemovals = (listing: Extract<ChangeListing, { kind: "delta" }>): RemovalBasis => ({
   explicit: authoritativeRemovals(listing.removals),
   absent: [],
+  outOfScope: outOfScopeRemovals(listing.removals),
 });
 
 const removalBasis = (

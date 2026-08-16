@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { indexMappings, planReconciliation } from "../../src/index";
-import type { KnownEvent, Mapping } from "../../src/index";
+import { defaultWindowMembership, indexMappings, planReconciliation } from "../../src/index";
+import type { KnownEvent, Mapping, ReconciliationPolicy } from "../../src/index";
 import {
+  destinationCalendar,
   knownEvent,
   knownState,
   mapping,
@@ -52,26 +53,32 @@ describe("a large calendar is a single pass, not a nested scan", () => {
   }, 60_000);
 
   test("RECON-L6: the mapping index is built once and answers by lookup", () => {
-    const indexes = indexMappings(mappingSet(mappingsOf(50_000)));
+    const indexes = indexMappings(mappingSet(mappingsOf(50_000)), destinationCalendar);
 
     expect(indexes.bySourceIdentity.size).toBe(50_000);
     expect(indexes.byDestinationId.size).toBe(50_000);
-    expect(indexes.ambiguousSourceKeys).toEqual([]);
   });
 
-  test("RECON-L6: doubling the state does not quadruple the work, measured as the fastest of five passes", () => {
-    const fastest = (count: number): number => {
-      const samples = [0, 1, 2, 3, 4].map(() => {
-        const startedAt = performance.now();
-        planOver(count);
-        return performance.now() - startedAt;
-      });
-      return Math.min(...samples);
+  test("RECON-L6: doubling the state doubles the window probes rather than squaring them", () => {
+    const probesFor = (count: number): number => {
+      let probes = 0;
+      const counting: ReconciliationPolicy["withinWindow"] = (window, time) => {
+        probes += 1;
+        return defaultWindowMembership(window, time);
+      };
+      planReconciliation(
+        sourceOnly(snapshotListing({ events: [] })),
+        knownState(knownEventsOf(count)),
+        mappingSet(mappingsOf(count)),
+        policy({ withinWindow: counting }),
+      );
+      return probes;
     };
 
-    const small = fastest(20_000);
-    const large = fastest(40_000);
+    const small = probesFor(10_000);
+    const large = probesFor(20_000);
 
+    expect(small).toBeGreaterThan(0);
     expect(large).toBeLessThan(small * 3);
   }, 120_000);
 

@@ -2,11 +2,16 @@ import { describe, expect, test } from "vitest";
 import { at, firstOf } from "../support/at";
 import { defaultPlanLimits, pairReassignedOccurrences, planReconciliation } from "../../src/index";
 import {
+  bothSides,
+  destinationCalendar,
+  destinationScope,
   foreignEvent,
   knownEvent,
   knownState,
   mapping,
   mappingSet,
+  ourInstallation,
+  ownedEvent,
   policy,
   slotIdentity,
   snapshotListing,
@@ -130,5 +135,105 @@ describe("removing an early occurrence must not rewrite the whole series", () =>
 
     expect(pairing.reassignments).toHaveLength(1);
     expect(pairing.unpairedMappings).toEqual([]);
+  });
+
+  test("RECON-O34: a reassignment onto a mirror the user edited is a conflict, not an update", () => {
+    const slotA = firstOf(tenOccurrences).identity;
+    const shifted = at(tenOccurrences, 1);
+
+    const plan = planReconciliation(
+      bothSides(
+        snapshotListing({
+          events: [
+            foreignEvent({
+              id: "series-1-b",
+              uid: "series-1",
+              fingerprint: "fp-moved",
+              time: timedAt(shifted.span.start, shifted.span.end),
+            }),
+          ],
+        }),
+        snapshotListing({
+          events: [
+            ownedEvent(
+              {
+                id: "mirror-a",
+                uid: "mirror-a",
+                fingerprint: "edited-by-the-user",
+                calendar: destinationCalendar,
+                version: "v-mirror-a-1",
+              },
+              ourInstallation,
+            ),
+          ],
+          scope: destinationScope,
+        }),
+      ),
+      knownState([knownEvent({ identity: slotA, remoteId: "series-1-a", fingerprint: "fp-shared" })]),
+      mappingSet([
+        mapping({
+          identity: slotA,
+          destinationId: "mirror-a",
+          sourceFingerprint: "fp-shared",
+          mirrorFingerprint: "mirror-as-written",
+        }),
+      ]),
+      policy(),
+    );
+
+    expect(plan.writes).toEqual([]);
+    expect(plan.conflicts).toHaveLength(1);
+    expect(firstOf(plan.conflicts).observed).toEqual({
+      kind: "matchesVersion",
+      version: { kind: "remoteVersion", value: "v-mirror-a-1" },
+    });
+  });
+
+  test("RECON-O34: an untouched mirror still takes the reassignment", () => {
+    const slotA = firstOf(tenOccurrences).identity;
+    const shifted = at(tenOccurrences, 1);
+
+    const plan = planReconciliation(
+      bothSides(
+        snapshotListing({
+          events: [
+            foreignEvent({
+              id: "series-1-b",
+              uid: "series-1",
+              fingerprint: "fp-moved",
+              time: timedAt(shifted.span.start, shifted.span.end),
+            }),
+          ],
+        }),
+        snapshotListing({
+          events: [
+            ownedEvent(
+              {
+                id: "mirror-a",
+                uid: "mirror-a",
+                fingerprint: "mirror-as-written",
+                calendar: destinationCalendar,
+                version: "v-mirror-a-1",
+              },
+              ourInstallation,
+            ),
+          ],
+          scope: destinationScope,
+        }),
+      ),
+      knownState([knownEvent({ identity: slotA, remoteId: "series-1-a", fingerprint: "fp-shared" })]),
+      mappingSet([
+        mapping({
+          identity: slotA,
+          destinationId: "mirror-a",
+          sourceFingerprint: "fp-shared",
+          mirrorFingerprint: "mirror-as-written",
+        }),
+      ]),
+      policy(),
+    );
+
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.writes.map((write) => write.intent?.kind)).toEqual(["update"]);
   });
 });

@@ -1,4 +1,5 @@
 import type { ChangeListing, WithheldEvent } from "@keeper.sh/sync-protocol";
+import { assertNever } from "@keeper.sh/sync-protocol";
 import type { ProvenCoverage } from "../coverage";
 import { ReconcileInternalDataError } from "../errors";
 import { calendarKeyString } from "../identity/calendar-key";
@@ -6,6 +7,8 @@ import { joinOnNul } from "../identity/nul";
 import type { SourceIdentity } from "../identity/source-identity";
 import { sourceIdentityKey, uidPresenceKey } from "../identity/source-identity";
 import type { ReconciliationPolicy } from "../policy";
+import type { ListingAuthority } from "../presence/authority";
+import { listingAuthority, speaksForAbsence } from "../presence/authority";
 import type { PresenceBasis } from "../presence/presence-basis";
 import { presenceBasis, withShieldedKeys } from "../presence/presence-basis";
 import { removalBasis } from "../presence/removals";
@@ -70,35 +73,51 @@ const unusableObservationsReported = (
   observations: readonly Observation[],
 ): readonly Unresolved[] =>
   observations.flatMap((observation): readonly Unresolved[] => {
-    if (observation.kind === "unidentified") {
-      return [{ identity: null, id: observation.event.id, reason: "missingIdentity" }];
+    switch (observation.kind) {
+      case "unidentified": {
+        return [{ identity: null, id: observation.event.id, reason: "missingIdentity" }];
+      }
+      case "indeterminate": {
+        return [
+          {
+            identity: observation.identity,
+            id: observation.event.id,
+            reason: "provenanceIndeterminate",
+          },
+        ];
+      }
+      case "unsupported": {
+        return [
+          {
+            identity: observation.identity,
+            id: observation.event.id,
+            reason: "unsupportedByDestination",
+          },
+        ];
+      }
+      case "usable":
+      case "suppressedEcho": {
+        return [];
+      }
+      default: {
+        return assertNever(observation);
+      }
     }
-    if (observation.kind === "indeterminate") {
-      return [
-        {
-          identity: observation.identity,
-          id: observation.event.id,
-          reason: "provenanceIndeterminate",
-        },
-      ];
-    }
-    if (observation.kind === "unsupported") {
-      return [
-        {
-          identity: observation.identity,
-          id: observation.event.id,
-          reason: "unsupportedByDestination",
-        },
-      ];
-    }
-    return [];
   });
 
 const withheldReport = (withheld: WithheldEvent, known: KnownIndex): Unresolved => {
-  const rows = known.byUid.get(withheld.uid?.value ?? "") ?? [];
+  const anonymous: Unresolved = {
+    identity: null,
+    id: withheld.id ?? null,
+    reason: "withheldBySource",
+  };
+  if (!withheld.uid) {
+    return anonymous;
+  }
+  const rows = known.byUid.get(withheld.uid.value) ?? [];
   const only = rows.at(0);
   if (rows.length !== 1 || !only) {
-    return { identity: null, id: withheld.id ?? null, reason: "withheldBySource" };
+    return anonymous;
   }
   return { identity: only.identity, id: withheld.id ?? null, reason: "withheldBySource" };
 };
@@ -135,10 +154,15 @@ const provenCoverageOf = (
 const orphanedMappingsIn = (
   indexes: MappingIndexes,
   presence: PresenceBasis,
-): readonly Mapping[] =>
-  [...indexes.bySourceIdentity.values()].filter(
+  authority: ListingAuthority,
+): readonly Mapping[] => {
+  if (!speaksForAbsence(authority)) {
+    return [];
+  }
+  return [...indexes.bySourceIdentity.values()].filter(
     (mapping) => !presence.presentKeys.has(sourceIdentityKey(mapping.sourceIdentity)),
   );
+};
 
 const identityLabelOf = (identity: SourceIdentity | null): string => {
   if (!identity) {
@@ -158,14 +182,24 @@ const labelOfUnresolved = (item: Unresolved): string => {
   return item.id?.value ?? "";
 };
 
-const sortedByKey = <Item>(
+interface Keyed<Item> {
+  readonly item: Item;
+  readonly key: string;
+}
+
+const keyedWith = <Item>(items: readonly Item[], keyOf: (item: Item) => string): Keyed<Item>[] =>
+  items.map((item) => ({ item, key: keyOf(item) }));
+
+const byKeyAscending = <Item>(left: Keyed<Item>, right: Keyed<Item>): number =>
+  compareText(left.key, right.key);
+
+const unkeyed = <Item>(keyed: readonly Keyed<Item>[]): readonly Item[] =>
+  keyed.map((entry) => entry.item);
+
+const inKeyOrder = <Item>(
   items: readonly Item[],
   keyOf: (item: Item) => string,
-): readonly Item[] =>
-  items
-    .map((item) => ({ item, key: keyOf(item) }))
-    .toSorted((left, right) => compareText(left.key, right.key))
-    .map((decorated) => decorated.item);
+): readonly Item[] => unkeyed(keyedWith(items, keyOf).toSorted(byKeyAscending));
 
 const ensureOneSourceCalendar = (known: KnownState): void => {
   const calendar = calendarKeyString(known.calendar);
@@ -185,9 +219,10 @@ const planReconciliation = (
   policy: ReconciliationPolicy,
 ): Plan => {
   ensureOneSourceCalendar(known);
-  const indexes = indexMappings(mappings);
+  const indexes = indexMappings(mappings, policy.destination.key);
   const knownIndex = indexKnownEvents(known);
   const { source } = observed;
+  const authority = listingAuthority(source);
   const observations = classifyObservations(writeBasis(source), policy);
   const presence = withShieldedKeys(presenceBasis(source), shieldedKeys(observations));
   const mirrors = indexMirrors(observed);
@@ -199,7 +234,7 @@ const planReconciliation = (
   );
   const written = deriveWrites({
     observations: deduped.kept,
-    orphanedMappings: orphanedMappingsIn(indexes, presence),
+    orphanedMappings: orphanedMappingsIn(indexes, presence, authority),
     known: knownIndex,
     indexes,
     mirrors,
@@ -212,11 +247,12 @@ const planReconciliation = (
     indexes,
     mirrors,
     coverage,
-    reassignedKeys: written.reassignedKeys,
-    retireOutsideMirrorWindow: !sameTimeWindow(source.scope.window, policy.mirrorWindow),
+    claimedMappingKeys: written.claimedMappingKeys,
+    authority,
+    scopeIsTheMirrorWindow: sameTimeWindow(source.scope.window, policy.mirrorWindow),
     policy,
   });
-  const unresolved = sortedByKey(
+  const unresolved = inKeyOrder(
     [
       ...unusableObservationsReported(observations),
       ...ambiguity.identities.map(
@@ -229,10 +265,10 @@ const planReconciliation = (
     ],
     sortKeyOfUnresolved,
   );
-  const tombstones = sortedByKey(retired.tombstones, (tombstone) =>
+  const tombstones = inKeyOrder(retired.tombstones, (tombstone) =>
     sourceIdentityKey(tombstone.identity),
   );
-  const conflicts = sortedByKey(written.conflicts, (conflict) =>
+  const conflicts = inKeyOrder(written.conflicts, (conflict) =>
     sourceIdentityKey(conflict.identity),
   );
   const considered = new Set([
@@ -260,6 +296,7 @@ const planReconciliation = (
         policy.limits,
       ),
       suppressedEchoes: boundedSample(echoedKeys(observations), policy.limits),
+      supersededObservations: boundedSample(deduped.supersededKeys, policy.limits),
       identitiesConsidered: considered.size,
     },
   };

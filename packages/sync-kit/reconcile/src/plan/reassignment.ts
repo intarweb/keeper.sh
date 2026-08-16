@@ -60,13 +60,24 @@ const pairWithinSeries = (
   };
 };
 
+const nothingToPair = (
+  observations: readonly IdentifiedEvent[],
+  orphanedMappings: readonly Mapping[],
+): boolean => observations.length === 0 || orphanedMappings.length === 0;
+
 const beyondTheNamedWidth = (
   observations: readonly IdentifiedEvent[],
   orphanedMappings: readonly Mapping[],
   limits: PlanLimits,
-): boolean =>
-  observations.length > limits.reassignmentPairingWidth ||
-  orphanedMappings.length > limits.reassignmentPairingWidth;
+): boolean => {
+  if (nothingToPair(observations, orphanedMappings)) {
+    return false;
+  }
+  return (
+    observations.length > limits.reassignmentPairingWidth ||
+    orphanedMappings.length > limits.reassignmentPairingWidth
+  );
+};
 
 const pairReassignedOccurrences = (
   observations: readonly IdentifiedEvent[],

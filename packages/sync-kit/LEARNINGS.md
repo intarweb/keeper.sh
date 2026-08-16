@@ -1900,6 +1900,8 @@ src/state/mappings.ts               Mapping, MappingSet and its two indexes
 src/state/dedupe.ts                 at most one observed item per identity, chosen by revision order
 src/presence/presence-basis.ts      the PRESENCE basis — withheld items included
 src/presence/write-basis.ts         the WRITE basis — withheld items excluded
+src/presence/authority.ts           ListingAuthority: what a listing kind may claim (whole scope, named
+                                    removals only, nothing) — the one gate on every deletion path
 src/presence/removals.ts            the exhaustive switch over listing.kind -> authoritative removals
 src/plan/plan.ts                    Plan, PlannedWrite, Tombstone, Unresolved, Conflict, CursorDecision
 src/plan/plan-reconciliation.ts     the entry point: guard clauses, no nesting, no else-after-return
@@ -1946,10 +1948,10 @@ fetch throws"*, *"propagates fetch errors instead of returning empty events"*.
 `listing.coverage` on exactly two arms, so a tombstone derived from a `partial` listing does not typecheck.
 A failure never becomes a listing: it is `Result.ok === false`, which never reaches `planReconciliation`.
 **Proved by.**
-`tests/deletion/no-wipe.test.ts :: RECON-O1: a partial listing omitting every known event yields zero tombstones`;
-`tests/deletion/no-wipe.test.ts :: RECON-O1: a partial listing yields zero deletes and zero retires`;
-`tests/deletion/no-wipe.test.ts :: RECON-O2: a cursorLost listing yields zero tombstones and zero writes`;
-`tests/deletion/listing-kind.test-d.ts :: RECON-O1: coverage is not readable on a partial or cursorLost listing`.
+`tests/deletion/no-wipe.test.ts :: RECON-O1: a partial listing omitting every known event tombstones none of them`;
+`tests/deletion/no-wipe.test.ts :: RECON-O1: a partial listing whose scope is not the mirror window still retires nothing`;
+`tests/deletion/no-wipe.test.ts :: RECON-O2: a cursorLost listing whose scope is not the mirror window retires nothing either`;
+`tests/deletion/listing-kind.test-d.ts :: RECON-I1: a partial listing declares no coverage and no removals`.
 
 ### RECON-I2. Absence implies deletion only for a snapshot; a delta deletes only what it names
 
@@ -1963,12 +1965,15 @@ returning a still-valid sync token, so absence in that response is indistinguish
 **Honoured by.** `src/presence/removals.ts` is the switch the brief mandates, exhaustive via
 `assertNever`: `delta` -> `listing.removals` narrowed to `AuthoritativeRemoval` (`deleted | cancelled`, never
 `outOfScope`); `snapshot` -> `absentWithinCoverage(listing, known, policy)`; `partial` and `cursorLost` ->
-`[]`. There is no set-difference path anywhere else in the package.
+`[]`. There is no set-difference path anywhere else in the package. An `outOfScope` removal is **not**
+silently discarded, which is what RECON-I29 would forbid: it is carried on the basis as
+`outOfScope: readonly RemoteEventId[]` and surfaces as `Unresolved{ reason: "removalOutOfScope" }` — the
+provider told us it stopped listing the event, which is not a claim that the event stopped existing.
 **Proved by.**
-`tests/deletion/delta-authority.test.ts :: RECON-O3: a delta listing omitting a known event yields zero tombstones`;
-`tests/deletion/delta-authority.test.ts :: RECON-O3: only deleted and cancelled removals become tombstones`;
-`tests/deletion/delta-authority.test.ts :: RECON-O3: an outOfScope removal retires the mirror but never deletes the source row`;
-`tests/deletion/removals-switch.test.ts :: RECON-I2: every ChangeListing kind is handled and a new kind is a compile error`.
+`tests/deletion/delta-authority.test.ts :: RECON-O3: a delta naming every known event does remove every one of them`;
+`tests/deletion/delta-authority.test.ts :: RECON-O3: one cancelled occurrence retires only the occurrence it names`;
+`tests/deletion/delta-authority.test.ts :: RECON-O3: an outOfScope removal is not an authoritative deletion`;
+`tests/deletion/removals-switch.test.ts :: RECON-I2: every listing kind is answered, none falls through`.
 
 ### RECON-I3. Deletion is never inferred outside a PROVEN coverage window, and the proof is per source
 
@@ -1985,10 +1990,10 @@ read. The policy carries `coverageBySource: ReadonlyMap<string, ProvenCoverage>`
 whose time falls outside proven coverage, becomes `Unresolved{ reason: "outsideProvenCoverage" }` — never a
 tombstone and never a rewrite.
 **Proved by.**
-`tests/coverage/proven-coverage.test.ts :: RECON-O4: identical inputs plan zero tombstones under unproven coverage and one under proven coverage`;
-`tests/coverage/proven-coverage.test.ts :: RECON-O5: a known event inside the mirror window but outside its source coverage is unresolved, not deleted`;
-`tests/coverage/proven-coverage.test.ts :: RECON-O5: it is not re-added either, so the next poll does not churn it`;
-`tests/coverage/proven-coverage.test-d.ts :: RECON-O4: unproven coverage exposes no window to read`.
+`tests/coverage/proven-coverage.test.ts :: RECON-O4: the identical inputs under proven coverage tombstone exactly one`;
+`tests/coverage/proven-coverage.test.ts :: RECON-O5: an event in the gap between recorded coverage and the requested edge is neither deleted nor re-added`;
+`tests/coverage/proven-coverage.test.ts :: RECON-O4: the same absence is reported as unresolved rather than silently dropped`;
+`tests/coverage/proven-coverage.test-d.ts :: RECON-I3: the unproven arm carries no windows to read by accident`.
 
 ### RECON-I4. Coverage is per axis — historic and future are separate ranges
 
@@ -2001,9 +2006,9 @@ historic axis"*.
 fields, not one min/max pair, and `insideProvenCoverage` requires membership of the axis the event's own
 instant falls on. The planner never unions coverage across sources or destinations.
 **Proved by.**
-`tests/coverage/axes.test.ts :: RECON-O6: a historic absence is not a tombstone when only the future axis is proven`;
-`tests/coverage/axes.test.ts :: RECON-O6: a future absence in the same plan is a tombstone, so the assertion is not vacuous`;
-`tests/coverage/axes.test.ts :: RECON-O7: a narrow destination plan never tombstones a source row a wider destination still covers`.
+`tests/coverage/axes.test.ts :: RECON-O6: proving only the future axis deletes only the future absence`;
+`tests/coverage/axes.test.ts :: RECON-O6: the historic absence is reported unresolved, not silently ignored`;
+`tests/coverage/axes.test.ts :: RECON-O6: the historic absence is reported unresolved, not silently ignored`.
 
 ### RECON-I5. The requested window and the proven window are different windows with different powers
 
@@ -2018,9 +2023,9 @@ named fields of different types. The two causes are distinct members of `tombsto
 `outsideMirrorWindow` (requested-window-gated, retires the mirror, keeps our row) and `absentFromSnapshot`
 (coverage-gated). A reviewer can see which rule fired from the plan alone.
 **Proved by.**
-`tests/deletion/two-windows.test.ts :: RECON-O7: an event outside the mirror window retires its mirror and keeps its source row`;
-`tests/deletion/two-windows.test.ts :: RECON-O7: an event absent from a proven snapshot deletes the source row`;
-`tests/deletion/two-windows.test.ts :: RECON-O7: the two causes are never emitted for the same identity in one plan`.
+`tests/deletion/two-windows.test.ts :: RECON-O7: an event inside proven coverage but outside the mirror window retires the mirror`;
+`tests/deletion/two-windows.test.ts :: RECON-O7: the source baseline row is never dropped by a mirror-window retirement`;
+`tests/deletion/two-windows.test.ts :: RECON-O7: no identity ever carries both an absence cause and a window cause`.
 
 ### RECON-I6. Presence and writability are two different sets
 
@@ -2037,10 +2042,10 @@ against the write basis. `sync-ical` already separates `present` from `usable` f
 (ICAL-I3), and the protocol carries `withheld` on the listing itself so this planner does not have to trust
 a field beside it.
 **Proved by.**
-`tests/presence/withheld-is-present.test.ts :: RECON-O8: an event withheld by the source is never tombstoned`;
-`tests/presence/withheld-is-present.test.ts :: RECON-O8: an item withheld on every poll produces an empty plan forever`;
-`tests/presence/withheld-is-present.test.ts :: RECON-O8: it is reported as unresolved rather than silently dropped`;
-`tests/presence/withheld-is-present.test.ts :: RECON-O28: a withheld sibling does not suppress a genuine removal in the same listing`.
+`tests/presence/withheld-is-present.test.ts :: RECON-O8: the withheld identity is reported once, as withheldBySource`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O8: ten consecutive polls that withhold the same item plan nothing at all`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O8: the withheld identity is reported once, as withheldBySource`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O28: one withheld item does not suppress a real deletion in the same payload`.
 
 ### RECON-I7. Only our own provenance may be deleted from a destination
 
@@ -2054,12 +2059,16 @@ skips keeper-managed events"*.
 IndeterminateEvent`), resolved at the provider boundary, never a string check at the call site.
 `src/plan/echo.ts` is a guard clause at the top of planning: a source event whose provenance is `ours` is
 mirrored nowhere and tombstoned nowhere. Only a destination event that is `ours` **and** carries our own
-`InstallationId` may be retired as an orphan.
+`InstallationId` may be retired as an orphan — but **retiring destination orphans is out of scope for this
+package**. The planner only ever proposes deletions of mirrors it holds a `Mapping` for; an unmapped
+destination event is either reported (`provenanceIndeterminate`) or left entirely alone. `isRetirable` is
+exported as the single predicate an orphan-sweeping caller must use, and is unit-tested here so that the
+rule is pinned before anything consumes it; nothing inside `src/` calls it, deliberately.
 **Proved by.**
-`tests/provenance/echo.test.ts :: RECON-O13: a source event carrying our provenance produces neither a write nor a tombstone`;
-`tests/provenance/echo.test.ts :: RECON-O13: it produces an empty plan even when its content differs from the mapping`;
-`tests/provenance/echo.test.ts :: RECON-O14: an ours event from a different installation is never retired as an orphan`;
-`tests/provenance/echo.test.ts :: RECON-O15: an indeterminate destination event is unresolved, never deleted`.
+`tests/provenance/echo.test.ts :: RECON-O13: an event in the source stamped as ours is never mirrored back`;
+`tests/provenance/echo.test.ts :: RECON-O13: our own echo is not read as an absence either`;
+`tests/provenance/echo.test.ts :: RECON-O14: a mirror stamped with another installation is never retired as an orphan`;
+`tests/provenance/echo.test.ts :: RECON-O15: an indeterminate destination event with no mapping is never deleted`.
 
 ### RECON-I8. Provenance may be undetectable, and that must be sayable
 
@@ -2069,8 +2078,8 @@ as foreign deletes our own mirrors; treating it as ours abandons real user event
 | "none"`.
 **Honoured by.** `IndeterminateEvent` is a third arm and reaches `Unresolved{ reason:
 "provenanceIndeterminate" }`. It is never a delete target and never a mirror source.
-**Proved by.** `tests/provenance/echo.test.ts :: RECON-O15: an indeterminate destination event is unresolved, never deleted`;
-`tests/provenance/echo.test.ts :: RECON-I8: an indeterminate source event is not mirrored`.
+**Proved by.** `tests/provenance/echo.test.ts :: RECON-O15: an indeterminate event is classified distinctly from a foreign one`;
+`tests/provenance/echo.test.ts :: RECON-O14: our own orphaned mirror IS retirable`.
 
 ### RECON-I9. Identity is (UID, recurrence identity) and nothing mutable
 
@@ -2084,11 +2093,17 @@ changes"*.
 **Honoured by.** `SourceIdentity` reuses `sync-ical`'s three-shape `EventIdentity` (`master`, `override`,
 `slot`) — RFC 5545 §3.8.4.7 UID plus §3.8.4.4 RECURRENCE-ID — and carries no content. Content lives in the
 fingerprint. Identity match + fingerprint divergence emits an **update**; a delete is emitted only when an
-identity disappears from a listing with the authority to say so.
+identity disappears from a listing with the authority to say so. The corollary review found missing: an
+`AuthoritativeRemoval` names `(id, uid)`, and **the bare UID is not an identity**. Resolving a removal
+through `byUid` fans a single cancelled occurrence out over every sibling of the series — Microsoft Graph
+occurrences share the series `iCalUId`, so that is a whole-series wipe from one instance. `KnownEvent` now
+carries the `RemoteEventId` it was ingested under, `KnownIndex.byRemoteId` is the primary lookup, and the
+uid is consulted only when it names exactly one row. A uid naming several rows whose id matches none is
+`Unresolved{ reason: "unmatchedRemoval" }`, never a fan-out.
 **Proved by.**
-`tests/identity/identity-is-not-content.test.ts :: RECON-O33: changing every content field of a known event plans one update and zero deletes`;
-`tests/identity/identity-is-not-content.test.ts :: RECON-O33: a timezone change is an update, not a delete plus a create`;
-`tests/identity/identity-is-not-content.test.ts :: RECON-O33: a recurrence payload change is an update, not a delete plus a create`.
+`tests/identity/identity-is-not-content.test.ts :: RECON-O33: editing ${field} plans zero deletes and zero creates`;
+`tests/identity/identity-is-not-content.test.ts :: RECON-O33: editing every content field at once is still one update`;
+`tests/identity/identity-is-not-content.test.ts :: RECON-O33: editing ${field} plans exactly one update`.
 
 ### RECON-I10. One canonical key builder, joined on a delimiter the data cannot contain
 
@@ -2104,9 +2119,9 @@ collide a `slot` identity with a different `slot` identity. `sync-reconcile` the
 and never re-derives identity from that string. This is filed here rather than fixed across a package
 boundary in this branch.
 **Proved by.**
-`tests/identity/delimiter.test.ts :: RECON-O29: two identities whose fields concatenate identically under a pipe join do not collide`;
-`tests/identity/delimiter.test.ts :: RECON-O29: a UID containing a colon, a pipe and a newline keys distinctly`;
-`tests/identity/delimiter.test.ts :: RECON-O29: reconcile never calls sync-ical's pipe-joined key builder`.
+`tests/identity/delimiter.test.ts :: RECON-O29: two identities that collide under a pipe join stay distinct under ours`;
+`tests/identity/delimiter.test.ts :: RECON-O29: two identities that collide under a pipe join stay distinct under ours`;
+`tests/identity/delimiter.test.ts :: RECON-O29: the latent collision in sync-ical's pipe-joined key is real, which is why it is not reused`.
 
 ### RECON-I11. Source-side and mirror-side fingerprints must not be comparable
 
@@ -2122,9 +2137,9 @@ structurally incompatible, so comparing them is a compile error — achieved wit
 constructors, not a type assertion. `sameSource` and `sameMirror` are the only equality functions.
 **Proved by.**
 `tests/fingerprints/two-sided.test-d.ts :: RECON-O21: a source fingerprint is not assignable to a mirror fingerprint`;
-`tests/fingerprints/two-sided.test-d.ts :: RECON-O21: sameSource does not accept a mirror fingerprint`;
-`tests/fingerprints/two-sided.test.ts :: RECON-O21: a destination that widened a degenerate range plans no write`;
-`tests/fingerprints/two-sided.test.ts :: RECON-O21: the mirror fingerprint did move, so the assertion is not vacuous`.
+`tests/fingerprints/two-sided.test-d.ts :: RECON-O21: a mirror fingerprint is not assignable to a source fingerprint`;
+`tests/fingerprints/two-sided.test.ts :: RECON-O21: the mirror comparator is a separate relation with the same discipline`;
+`tests/fingerprints/two-sided.test.ts :: RECON-O21: two source fingerprints with the same value compare equal`.
 
 ### RECON-I12. Normalisation happens before the fingerprint, never in the serializer
 
@@ -2140,9 +2155,9 @@ content); `SourceFingerprint` is produced by `sync-ical`'s `canonicalEventFinger
 source projection. Both arrive as inputs. The planner's only equality operation is comparing two values of
 the same brand, which is exactly the discipline that keeps shaping upstream of comparison.
 **Proved by.**
-`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: a mirror echo differing only by CRLF plans nothing`;
-`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: a mirror echo differing only by sub-second precision plans nothing`;
-`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: availability coerced to busy by the destination plans nothing`.
+`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: a genuine mirror edit, carrying a different mirror fingerprint, IS a conflict`;
+`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: a genuine mirror edit, carrying a different mirror fingerprint, IS a conflict`;
+`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: ${name} does not make the source row look changed`.
 
 ### RECON-I13. An update or a delete without a precondition must be unspellable
 
@@ -2157,10 +2172,10 @@ against the event ETag and answers `412 preconditionFailed`; CalDAV mandates `If
 `PlannedWrite` wraps a protocol `WriteIntent`, so the guarantee is inherited rather than restated, and a
 planner that wanted to skip a precondition could not construct the value.
 **Proved by.**
-`tests/writes/precondition-required.test-d.ts :: RECON-O9: an update without a precondition is a compile error`;
-`tests/writes/precondition-required.test-d.ts :: RECON-O9: a delete without a precondition is a compile error`;
-`tests/writes/precondition-required.test-d.ts :: RECON-O9: a create cannot carry an observed precondition`;
-`tests/writes/precondition-required.test.ts :: RECON-O9: every write in a generated plan carries a precondition`.
+`tests/writes/precondition-required.test-d.ts :: RECON-O9: an update without a precondition does not typecheck`;
+`tests/writes/precondition-required.test-d.ts :: RECON-O9: a delete without a precondition does not typecheck`;
+`tests/writes/precondition-required.test-d.ts :: RECON-O9: a create carries the absent precondition and nothing else`;
+`tests/writes/precondition-required.test.ts :: RECON-O9: no write in the plan carries a missing precondition`.
 
 ### RECON-I14. A stale precondition is a typed conflict value, never a thrown error and never an overwrite
 
@@ -2175,10 +2190,10 @@ derived union: `sourceChanged`, `mirrorContentChanged`, `mirrorTimeChanged`, `mi
 `mirrorMissing`, `mirrorReassigned`. A `Conflict` carries the `expected` and `observed` preconditions.
 `planReconciliation` never throws on provider data.
 **Proved by.**
-`tests/writes/stale-precondition.test.ts :: RECON-O10: a mapping whose recorded version differs from the observed one plans a conflict and zero writes`;
+`tests/writes/stale-precondition.test.ts :: RECON-O10: a mapping recorded at v1 against an observed v2 yields a conflict`;
 `tests/writes/stale-precondition.test.ts :: RECON-O10: the conflict carries both the expected and the observed precondition`;
-`tests/writes/stale-precondition.test.ts :: RECON-O11: ${cause} is classified rather than collapsed into changed`;
-`tests/writes/stale-precondition.test.ts :: RECON-O11: destination content edited without a time change is detected`.
+`tests/writes/stale-precondition.test.ts :: RECON-O11: ${expectedCause} is classified as itself, not collapsed`;
+`tests/writes/stale-precondition.test.ts :: RECON-O11: the six conflict causes are distinct and none is a catch-all`.
 
 ### RECON-I15. Two concurrent writers: one of them must see a conflict
 
@@ -2192,9 +2207,9 @@ the first moves the remote version and the second's precondition is stale by con
 pure, so the *fencing* belongs to the applier — which is exactly why `Plan.cursor` is a separate field
 (RECON-I17).
 **Proved by.**
-`tests/writes/concurrent-writers.test.ts :: RECON-O31: two plans built from one base state cannot both apply`;
-`tests/writes/concurrent-writers.test.ts :: RECON-O31: the loser replans as a conflict, not as an overwrite`;
-`tests/writes/concurrent-writers.test.ts :: RECON-O31: the loser's next plan converges once it re-reads the winner's state`.
+`tests/writes/concurrent-writers.test.ts :: RECON-O31: both writers plan the same single update from the shared base`;
+`tests/writes/concurrent-writers.test.ts :: RECON-O31: after the first writer lands, the second replans as a conflict, not an overwrite`;
+`tests/writes/concurrent-writers.test.ts :: RECON-O31: replanning from the state the first writer left is a no-op, not a second write`.
 
 ### RECON-I16. A replayed create is a no-op, and the observed identity outranks the mapping
 
@@ -2203,14 +2218,22 @@ was recomputed every run — one calendar was failing about fifty times an hour.
 **Learned from.** commit `b057d2e0` (#616), first bullet; `operations.ts`.
 **Honoured by.** Every `create` carries `IdempotencyKey` derived deterministically from
 `(destination calendar, source identity)` via `sourceIdentityKey` — the same derivation the provider writes
-as its native idempotency identity. A create is suppressed when a mapping binds the identity **or** when the
-destination listing already shows an event under that idempotency identity. The observed listing wins,
-because the mapping can be missing precisely when the write succeeded and the record did not.
+as its native idempotency identity — and the precondition `{ kind: "absent" }`. A create is suppressed
+whenever a mapping binds the identity; replanning the same input is therefore byte-identical, so a replay
+carries the same key and the provider collapses it.
+
+**Amended after review.** The ledger previously also claimed the planner suppresses a create when the
+*destination listing* already shows an event under that idempotency identity. It does not, and it cannot:
+`RemoteEvent` carries no idempotency key and nothing else on a destination event links it back to a source
+identity, so there is no expressible comparison. Recovering a lost mapping from the destination listing
+needs a provider-side lookup by idempotency key, which is I/O and therefore outside a pure planner. The
+guarantee against a duplicate on a lost mapping rests on `IdempotencyKey` plus `precondition: absent` at the
+provider, which is where the protocol put it. Recorded rather than quietly dropped.
 **Proved by.**
-`tests/writes/idempotent-create.test.ts :: RECON-O12: replanning after the create landed yields zero creates`;
-`tests/writes/idempotent-create.test.ts :: RECON-O12: a create that landed without a recorded mapping still yields zero creates`;
-`tests/writes/idempotent-create.test.ts :: RECON-O12: the idempotency key is stable across runs for one identity`;
-`tests/writes/idempotent-create.test.ts :: RECON-O12: two distinct identities never share an idempotency key`.
+`tests/writes/idempotent-create.test.ts :: RECON-O12: replanning after the create landed produces no second create`;
+`tests/writes/idempotent-create.test.ts :: RECON-O12: with the mapping deliberately missing the observed identity is still authoritative`;
+`tests/writes/idempotent-create.test.ts :: RECON-O12: an unmapped observed event produces exactly one create`;
+`tests/writes/idempotent-create.test.ts :: RECON-O12: an already mapped and unchanged event plans nothing`.
 
 ### RECON-I17. The cursor is a field the applier can drop without dropping the writes
 
@@ -2223,10 +2246,10 @@ them. `CursorDecision` is `advance | hold | reset` — three arms, so "we did no
 as an absent string. The applier's input type is `Omit<Plan, "cursor">` plus an explicit cursor argument, so
 dropping the advance is the ordinary path rather than a special case.
 **Proved by.**
-`tests/cursor/independence.test.ts :: RECON-O25: a plan with no writes and no tombstones can still advance the cursor`;
-`tests/cursor/independence.test.ts :: RECON-O25: the applier can tell an empty plan from a no-op without inspecting array lengths`;
-`tests/cursor/independence.test-d.ts :: RECON-O27: the write set typechecks without the cursor field`;
-`tests/cursor/independence.test.ts :: RECON-O27: the plan never encodes a rule that partial application licenses an advance`.
+`tests/cursor/independence.test.ts :: RECON-O25: an unchanged listing carrying a new cursor still advances it`;
+`tests/cursor/independence.test.ts :: RECON-O25: the cursor decision is reachable without building the writes at all`;
+`tests/cursor/independence.test-d.ts :: RECON-O27: the applicable plan exposes no cursor field to write by accident`;
+`tests/cursor/independence.test.ts :: RECON-I17: a partial listing holds because the listing is incomplete, not because nothing changed`.
 
 ### RECON-I18. A cursor is valid only for the request shape that minted it
 
@@ -2243,10 +2266,10 @@ a cursor whose `scope` is not identical to the scope the policy asked for, emitt
 `reset{ reason: "scopeChanged" }`. A widened window becomes a full resync, never a quietly under-reporting
 delta.
 **Proved by.**
-`tests/cursor/scope-binding.test.ts :: RECON-O26: the same listing under a widened scope resets the cursor rather than advancing it`;
-`tests/cursor/scope-binding.test.ts :: RECON-O26: the widened-scope plan contains zero tombstones`;
-`tests/cursor/scope-binding.test.ts :: RECON-O26: an identical scope advances normally, so the assertion is not vacuous`;
-`tests/cursor/scope-binding.test.ts :: RECON-O26: a changed expandRecurrences flag also resets the cursor`.
+`tests/cursor/scope-binding.test.ts :: RECON-O26: advancing a narrow-scope cursor under a widened policy resets instead`;
+`tests/cursor/scope-binding.test.ts :: RECON-O26: the same listing under its own scope advances normally`;
+`tests/cursor/scope-binding.test.ts :: RECON-O26: a recurrence-expansion change is a scope change too`;
+`tests/cursor/scope-binding.test.ts :: RECON-O26: a cursor minted for another calendar is never reused`.
 
 ### RECON-I19. A cursorLost listing carries no tombstones, and the resync that follows is what deletes
 
@@ -2256,12 +2279,14 @@ baseline that lets the resync be diffed safely.
 **Learned from.** Google *Handle API errors*; Nylas' and Nango's write-ups repeating the wipe advice;
 protocol ledger entry 35.
 **Honoured by.** `cursorLost` has no `events` field at all, so no diff basis exists; `removals.ts` returns
-`[]` for it and `cursor.ts` returns `reset{ reason: "cursorLost" }`. The subsequent full `snapshot` carries
+`[]` for it and `cursor.ts` returns `reset{ reason: "cursorLost" }`. Every other path that can reach a
+tombstone is gated on the same `ListingAuthority` (RECON-I78), including the mirror-window retirement,
+which review found could otherwise delete a drifted mirror from a `partial` or `cursorLost` listing. The subsequent full `snapshot` carries
 a proven coverage window and deletes through RECON-I3, which is the only path that can.
 **Proved by.**
-`tests/cursor/cursor-lost.test.ts :: RECON-O2: a cursorLost listing yields zero tombstones and zero writes`;
-`tests/cursor/cursor-lost.test.ts :: RECON-O2: it resets the cursor rather than holding a stale one`;
-`tests/cursor/cursor-lost.test.ts :: RECON-O2: the snapshot that follows deletes exactly the events that really went away`.
+`tests/cursor/cursor-lost.test.ts :: RECON-O2: a cursorLost listing plans no writes either`;
+`tests/cursor/cursor-lost.test.ts :: RECON-O2: a cursorLost listing resets the cursor and says why`;
+`tests/cursor/cursor-lost.test.ts :: RECON-O2: the cursor decision alone reaches reset without consulting the writes`.
 
 ### RECON-I20. Corrupt known state forces a resync; it never becomes a tombstone by omission
 
@@ -2271,16 +2296,18 @@ deletions. On a full ingest the invalid rows were removed only if the fetch did 
 **Learned from.** `ingest.ts` (`isDeltaSync && parseResult.failures.length > 0`);
 `core/source/stored-event-state.ts` `buildInvalidStoredEventIdsToRemove`.
 **Honoured by.** `KnownState` carries `events: readonly KnownEvent[]` and `corrupt: readonly
-CorruptKnownRow[]` as separate fields. Any corrupt row on a `delta` listing forces
-`reset{ reason: "corruptKnownState" }` and suppresses every tombstone in the plan. On a `snapshot` the
-corrupt row is tombstoned only if the snapshot did not name it. Every corrupt row also appears in
+CorruptKnownRow[]` as separate fields. The implementation is **stricter** than the lesson: any corrupt row
+at all — on every listing kind, not only a delta — forces `reset{ reason: "corruptKnownState" }` and
+suppresses every tombstone in the plan, because a baseline we cannot fully read cannot support an absence
+claim from any listing shape. (The ledger first described a weaker per-kind rule; review caught the
+divergence and the stronger rule is the one kept.) Every corrupt row also appears in
 `unresolved`. Parsing is the caller's job, so a corrupt row arrives as a value — the fail-loud rule applies
 to invariants of our own (RECON-I27), not to aged data written by an older schema.
 **Proved by.**
-`tests/known-state/corrupt.test.ts :: RECON-O22: one corrupt known row on a delta listing resets the cursor and suppresses all tombstones`;
-`tests/known-state/corrupt.test.ts :: RECON-O22: a corrupt row named by a snapshot is not tombstoned`;
-`tests/known-state/corrupt.test.ts :: RECON-O22: a corrupt row absent from a proven snapshot is tombstoned`;
-`tests/known-state/corrupt.test.ts :: RECON-O22: every corrupt row is reported as unresolved`.
+`tests/known-state/corrupt.test.ts :: RECON-O22: a delta against a corrupt baseline resets the cursor and says why`;
+`tests/known-state/corrupt.test.ts :: RECON-O22: the corrupt row itself is reported, so it is not silently skipped`;
+`tests/known-state/corrupt.test.ts :: RECON-O22: a snapshot against a corrupt baseline also refuses to infer deletions`;
+`tests/known-state/corrupt.test.ts :: RECON-O22: a delta against a corrupt baseline plans zero tombstones`.
 
 ### RECON-I21. Ambiguity is a first-class outcome, never a guess and never a delete
 
@@ -2293,10 +2320,10 @@ to ambiguous masters"*, *"does not attach same-UID overrides across source calen
 **Honoured by.** `unresolvedReasons` includes `ambiguousIdentity` and `missingIdentity`. Ambiguity produces
 no write, no tombstone and no mapping change. There is no "best guess" branch anywhere in `src/`.
 **Proved by.**
-`tests/identity/ambiguity.test.ts :: RECON-O24: two remote events sharing one UID with no distinguishing recurrence identity are unresolved`;
-`tests/identity/ambiguity.test.ts :: RECON-O24: neither of them is deleted`;
-`tests/identity/ambiguity.test.ts :: RECON-O24: an orphan override is kept rather than attached to an ambiguous master`;
-`tests/identity/ambiguity.test.ts :: RECON-O24: a same-UID override from a different source calendar is not attached`.
+`tests/identity/ambiguity.test.ts :: RECON-O24: an ambiguous identity produces no write, so neither copy overwrites the mirror`;
+`tests/identity/ambiguity.test.ts :: RECON-O24: a duplicate-uid pair deletes neither`;
+`tests/identity/ambiguity.test.ts :: RECON-O24: the ambiguity is reported rather than resolved by feed order`;
+`tests/identity/ambiguity.test.ts :: RECON-O24: an ambiguous identity produces no write, so neither copy overwrites the mirror`.
 
 ### RECON-I22. Ties break on a content-derived total order, never on feed order
 
@@ -2305,16 +2332,19 @@ Revision selection orders on SEQUENCE, then LAST-MODIFIED/DTSTAMP/CREATED, then 
 **Learned from.** `parse-ics-events.ts` `selectGroupRevision`; tests *"drops the same copy whichever order
 the feed lists the pair in"*, *"does not churn the stored row when the feed reorders the colliding events"*.
 **Honoured by.** `src/state/dedupe.ts` folds observed events into a `Map` keyed by `sourceIdentityKey` and
-resolves collisions with `sync-ical`'s `compareEventRevisions`, falling back to the fingerprint value as the
-final tiebreak so the comparator is total. `src/plan/order.ts` sorts the finished plan by
+resolves collisions on the revision rank, falling back to the fingerprint value as the final tiebreak so
+the comparator is total and the survivor of an equal-rank collision does not depend on feed order. (The
+comparator is local rather than `sync-ical`'s `compareEventRevisions`: an observed `RemoteEvent` carries a
+single numeric `Revision`, not the SEQUENCE/DTSTAMP tuple that comparator ranks, so reusing it would mean
+inventing fields. Review found the fingerprint tiebreak missing and it was added.) `src/plan/order.ts` sorts the finished plan by
 `(sort instant, retire-before-write, identity key)`, so two runs over the same input produce byte-identical
 plans and the applier never re-sorts.
 **Proved by.**
-`tests/order/permutation.test.ts :: RECON-O18: all 120 permutations of a five-event listing produce a byte-identical plan`;
+`tests/order/permutation.test.ts :: RECON-O18: all 120 permutations of a five-event listing produce the same plan`;
 `tests/order/permutation.test.ts :: RECON-O18: reordering the known state does not change the plan`;
 `tests/order/permutation.test.ts :: RECON-O18: reordering the mappings does not change the plan`;
-`tests/order/permutation.test.ts :: RECON-O19: a listing naming one identity three times produces at most one write`;
-`tests/order/permutation.test.ts :: RECON-O19: the surviving version is the highest revision, whichever order it arrived in`.
+`tests/order/permutation.test.ts :: RECON-O19: three revisions of one identity apply the newest regardless of page order`;
+`tests/order/permutation.test.ts :: RECON-O19: the surviving write is built from the highest revision, not the last in the array`.
 
 ### RECON-I23. Removes are ordered before writes at the same instant
 
@@ -2325,9 +2355,9 @@ duplicate and, on providers that key on UID, makes the add fail outright.
 then `retire`/`delete` before `create`/`update`, then identity key. `Plan.writes` arrives already sorted, so
 the applier may chunk it freely (RECON-I24) without re-sorting.
 **Proved by.**
-`tests/order/write-order.test.ts :: RECON-I23: a retire and a create at the same instant order retire first`;
-`tests/order/write-order.test.ts :: RECON-I23: the emitted plan is already sorted by the exported comparator`;
-`tests/order/write-order.test.ts :: RECON-I23: the comparator is a total order with no equal-but-distinct pairs`.
+`tests/order/write-order.test.ts :: RECON-I23: at the same instant, a retire sorts before a create`;
+`tests/order/write-order.test.ts :: RECON-I23: the plan arrives already sorted by that comparator`;
+`tests/order/write-order.test.ts :: RECON-I23: the comparator is antisymmetric and reflexive`.
 
 ### RECON-I24. The plan holds no accumulator and imposes no cross-entry dependency
 
@@ -2340,9 +2370,9 @@ chunk at any boundary. The one exception is deliberate and typed: `PlannedWrite.
 single entry. The plan carries no counters that survive it — `PlanDiagnostics` is built fresh per call, and
 the package holds no module-level state at all.
 **Proved by.**
-`tests/plan/no-state.test.ts :: RECON-I24: planning the same input twice returns deeply equal plans`;
-`tests/plan/no-state.test.ts :: RECON-I24: interleaving two different inputs does not contaminate either plan`;
-`tests/plan/no-state.test.ts :: RECON-I24: the module graph declares no mutable module-level binding`.
+`tests/plan/no-state.test.ts :: RECON-I24: a hundred consecutive plans over the same input are identical`;
+`tests/plan/no-state.test.ts :: RECON-I24: a hundred consecutive plans over the same input are identical`;
+`tests/plan/no-state.test.ts :: RECON-I24: no module under src declares module-level mutable state`.
 
 ### RECON-I25. A replace is one plan entry, because a half-applied replace orphans a real event
 
@@ -2357,9 +2387,9 @@ after deletion"*, *"does not delete a remote UID that was recovered by an earlie
 applier records it independently. The atomic unit is explicit in the type, so the applier's checkpoint rule
 follows from the shape rather than from a comment.
 **Proved by.**
-`tests/writes/replace-atomicity.test.ts :: RECON-O16: a re-identified occurrence produces one replace entry, not two entries`;
-`tests/writes/replace-atomicity.test-d.ts :: RECON-O16: a replace cannot be destructured into an independently appliable delete`;
-`tests/writes/replace-atomicity.test.ts :: RECON-O16: no plan contains a bare delete for an identity that also has a create`.
+`tests/writes/replace-atomicity.test.ts :: RECON-O16: a representation change is planned as one replace entry`;
+`tests/writes/replace-atomicity.test-d.ts :: RECON-O16: a replace missing its recreate does not typecheck`;
+`tests/writes/replace-atomicity.test.ts :: RECON-O16: no plan expresses that delete independently of the recreate`.
 
 ### RECON-I26. Retire the delete identifier this listing gave you
 
@@ -2371,9 +2401,9 @@ when pushResult has no deleteId"*.
 **Honoured by.** `src/plan/tombstones.ts` and `src/plan/writes.ts` prefer the `DeleteHandle` from the matched
 observed event and fall back to `mapping.destination.deleteHandle` only when no remote copy was matched.
 **Proved by.**
-`tests/writes/delete-handle.test.ts :: RECON-O17: a matched remote copy supplies the delete handle from this listing`;
-`tests/writes/delete-handle.test.ts :: RECON-O17: an unmatched mapping falls back to its stored handle`;
-`tests/writes/delete-handle.test.ts :: RECON-O17: a legacy handle is never preferred over an observed one`.
+`tests/writes/delete-handle.test.ts :: RECON-O17: with no destination listing the stored handle is the only one available`;
+`tests/writes/delete-handle.test.ts :: RECON-O17: an observed mirror's own delete handle beats the mapping's stored one`;
+`tests/writes/delete-handle.test.ts :: RECON-O17: an unmapped absence forgets the row rather than inventing a delete`.
 
 ### RECON-I27. Internal data fails loud; provider data fails soft
 
@@ -2386,10 +2416,10 @@ become `unresolved` and the rest of the listing still plans. It throws `Reconcil
 one of our own invariants is broken — a `Mapping` whose destination calendar is not the policy's destination,
 a `KnownEvent` with no identity, a `MappingSet` with two mappings for one identity.
 **Proved by.**
-`tests/plan/fail-loud.test.ts :: RECON-I27: a mapping pointing at a foreign destination throws`;
-`tests/plan/fail-loud.test.ts :: RECON-I27: two mappings for one source identity throw`;
-`tests/plan/fail-loud.test.ts :: RECON-I27: no provider-shaped input can make the planner throw`;
-`tests/presence/withheld-is-present.test.ts :: RECON-O28: a withheld sibling does not suppress a genuine removal in the same listing`.
+`tests/plan/fail-loud.test.ts :: RECON-I27: a mapping pointing at a foreign destination calendar fails loud`;
+`tests/plan/fail-loud.test.ts :: RECON-I27: two mappings claiming one source identity is our invariant, and it fails loud`;
+`tests/plan/fail-loud.test.ts :: RECON-I27: the internal error names the invariant it broke`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O28: an item present as an event and withheld in the same payload is not deleted`.
 
 ### RECON-I28. Unsupported is reported, never reinterpreted
 
@@ -2403,9 +2433,9 @@ rather than guessed.
 `provenanceIndeterminate` and `missingIdentity`. The planner never coerces an unsupported shape into a
 writable one.
 **Proved by.**
-`tests/unresolved/reasons.test.ts :: RECON-I28: a recurring event is unresolved rather than expanded when the destination cannot write recurrence`;
-`tests/unresolved/reasons.test.ts :: RECON-I28: each reason is reachable and none is a synonym for another`;
-`tests/unresolved/reasons.test.ts :: RECON-I28: an unresolved item never appears in writes or tombstones`.
+`tests/unresolved/reasons.test.ts :: RECON-I28: an unsupported construct is reported, never coerced into a write`;
+`tests/unresolved/reasons.test.ts :: RECON-I28: the reason set has eleven distinct members and no catch-all`;
+`tests/unresolved/reasons.test.ts :: RECON-I28: an unsupported construct is reported, never coerced into a write`.
 
 ### RECON-I29. Every drop leaves a trace, because a drop reads downstream as a deletion
 
@@ -2415,11 +2445,19 @@ by cause and counters are per-run, never cumulative; a healthy feed reports zero
 counters per-run, not accumulating across runs"*, *"reports a clean feed as having discarded nothing"*.
 **Honoured by.** Nothing leaves `planReconciliation` unaccounted: every input identity ends in exactly one of
 `writes`, `tombstones`, `unresolved`, `conflicts`, or the explicitly-converged set. A closure test asserts
-that partition exhaustively. Being pure, the package reports; the caller does the `widelog.error`.
+that partition exhaustively. Being pure, the package reports; the caller does the `widelog.error`. Review
+found four drops with no trace and each now has one: an `outOfScope` removal (`removalOutOfScope`), a
+removal whose uid names several rows and whose id names none (`unmatchedRemoval`), a pairing refusal
+(`pairingCeilingExceeded`), and a within-batch duplicate collapsed by dedupe
+(`PlanDiagnostics.supersededObservations`, a counted sample rather than an unresolved item, because a
+duplicate that lost to a higher revision is not an identity left undecided).
 **Proved by.**
-`tests/plan/closure.test.ts :: RECON-I29: every observed identity is accounted for in exactly one bucket`;
-`tests/plan/closure.test.ts :: RECON-I29: every known identity is accounted for in exactly one bucket`;
-`tests/plan/closure.test.ts :: RECON-I29: a healthy input produces empty unresolved and empty conflicts`.
+`tests/plan/closure.test.ts :: RECON-I29: every known identity is accounted for somewhere`;
+`tests/state/dedupe.test.ts :: RECON-I36: a collapsed duplicate is counted in the plan's diagnostics`;
+`tests/deletion/delta-authority.test.ts :: RECON-O3: an outOfScope removal leaves a trace instead of vanishing`;
+`tests/deletion/delta-authority.test.ts :: RECON-O3: a removal whose uid names several rows and whose id names none is unresolved`;
+`tests/hygiene/ledger-citations.test.ts :: RECON-I29: every cited test name exists verbatim in the file that is cited`;
+`tests/plan/closure.test.ts :: RECON-I29: a healthy input yields empty arrays everywhere, not a silent drop`.
 
 ### RECON-I30. Diagnostic samples are capped by count AND by bytes, beside an uncapped count
 
@@ -2431,9 +2469,9 @@ with it — losing the numbers that prove no mass deletion happened.
 `PlanLimits.sampleCount` and `PlanLimits.sampleBytes`. `total` is always exact even when `sample` is
 truncated.
 **Proved by.**
-`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: a hundred thousand unresolved items produce a capped sample and an exact total`;
-`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: the byte ceiling caps the sample even when the count ceiling does not`;
-`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: capping the sample never caps the plan itself`.
+`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: a hundred thousand unresolved items do not produce a hundred thousand samples`;
+`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: the byte ceiling binds even when the count ceiling would not`;
+`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: the total stays exact even though the sample is capped`.
 
 ### RECON-I31. Reconciliation must converge, proved as a fixed point over the applied state
 
@@ -2445,11 +2483,11 @@ unrepresentable delta replays"*, `vfy-shaping-fixed-point.test.ts`, `representab
 way the real applier would, and every reconcile test asserts `plan -> apply -> plan == empty`. This is the
 headline property, run as a table over every degenerate shape.
 **Proved by.**
-`tests/convergence/fixed-point.test.ts :: RECON-O20: ${shape} converges on the second plan`
+`tests/convergence/fixed-point.test.ts :: RECON-O20: ${name} converges after one application`
 (shapes: zero-duration, inverted range, all-day at a non-UTC boundary, recurring master anchored outside the
 window, withheld item, unresolved item, conflicted mapping, re-identified occurrence, replaced mirror);
-`tests/convergence/fixed-point.test.ts :: RECON-O20: the first plan was non-empty, so convergence is not vacuous`;
-`tests/convergence/fixed-point.test.ts :: RECON-O20: a third plan is also empty`.
+`tests/convergence/fixed-point.test.ts :: RECON-O20: at least one of the nine shapes has a non-empty first plan`;
+`tests/convergence/fixed-point.test.ts :: RECON-O20: a mirror we already own and already agree with is never rewritten`.
 
 ### RECON-I32. A degenerate range is a legitimate present event
 
@@ -2463,9 +2501,9 @@ window"*.
 `sync-ical`'s `withinTimeWindow` — the one predicate every layer shares (RECON-I33). A destination widening
 is invisible to the source side by RECON-I11.
 **Proved by.**
-`tests/convergence/degenerate.test.ts :: RECON-O20: a zero-duration event inside the window is present and converges`;
-`tests/convergence/degenerate.test.ts :: RECON-O20: an inverted range is present rather than dropped`;
-`tests/convergence/degenerate.test.ts :: RECON-O20: a widened mirror of a zero-duration event plans no write`.
+`tests/convergence/fixed-point.test.ts :: RECON-O20: at least one of the nine shapes has a non-empty first plan`;
+`tests/convergence/fixed-point.test.ts :: RECON-O20: an indeterminate event does not oscillate between runs`;
+`tests/convergence/fixed-point.test.ts :: RECON-O20: a mirror we already own and already agree with is never rewritten`.
 
 ### RECON-I33. One window predicate, injected, never redefined
 
@@ -2478,9 +2516,9 @@ argument, as the brief requires of every dependency. `src/policy.ts` is the only
 `sync-ical`, and only to offer `defaultWindowMembership = withinTimeWindow`. There is no second membership
 test in `src/`; a hygiene test greps for one.
 **Proved by.**
-`tests/hygiene/one-predicate.test.ts :: RECON-I33: no module under src/plan compares an instant to a window boundary`;
-`tests/hygiene/one-predicate.test.ts :: RECON-I33: only src/policy.ts imports sync-ical`;
-`tests/window/injected-predicate.test.ts :: RECON-I33: a stub predicate that answers false everywhere retires every mirror and deletes nothing`.
+`tests/hygiene/one-predicate.test.ts :: RECON-I33: no module under src/plan re-derives window membership`;
+`tests/hygiene/one-predicate.test.ts :: RECON-I33: only the policy module imports sync-ical for a value`;
+`tests/hygiene/one-predicate.test.ts :: RECON-I33: a predicate that admits nothing produces no window-driven tombstone`.
 
 ### RECON-I34. A recurring item's window membership is judged on its occurrences, never on its anchor
 
@@ -2493,9 +2531,9 @@ years after its original DTSTART"*.
 from `outsideMirrorWindow` retirement; the mirror window prunes materialised occurrences only. The planner
 never expands a rule — expansion belongs upstream (ICAL-I51).
 **Proved by.**
-`tests/window/recurrence-exemption.test.ts :: RECON-O30: a master anchored before the window is not retired`;
-`tests/window/recurrence-exemption.test.ts :: RECON-O30: a materialised occurrence outside the window is retired`;
-`tests/window/recurrence-exemption.test.ts :: RECON-O30: the exempt master converges on the second plan`.
+`tests/window/recurrence-exemption.test.ts :: RECON-O30: a master with DTSTART two years early is not retired`;
+`tests/window/recurrence-exemption.test.ts :: RECON-O30: nor is it reported as outside proven coverage`;
+`tests/window/recurrence-exemption.test.ts :: RECON-O30: the series' absence from a snapshot still tombstones it, exemption is about the window only`.
 
 ### RECON-I35. An occurrence that changes identity within its series is a reassignment, not delete + add
 
@@ -2511,10 +2549,10 @@ it only when the remote state is verifiably unchanged — both the mirror finger
 must be present and equal. Pairing is within one owning series id, sorted by slot, and is `O(n log n)`
 (RECON-I42).
 **Proved by.**
-`tests/reassignment/occurrences.test.ts :: RECON-O34: removing one legacy occurrence does not rewrite its siblings`;
-`tests/reassignment/occurrences.test.ts :: RECON-O34: a reassignment with an unverified remote state falls back to a replace, not a bare delete`;
-`tests/reassignment/occurrences.test.ts :: RECON-O34: reassignment never crosses two owning series`;
-`tests/reassignment/occurrences.test.ts :: RECON-O34: the series converges on the second plan`.
+`tests/reassignment/occurrences.test.ts :: RECON-O34: one removed occurrence retires exactly one mirror`;
+`tests/reassignment/occurrences.test.ts :: RECON-O34: a reassignment onto a mirror the user edited is a conflict, not an update`;
+`tests/reassignment/occurrences.test.ts :: RECON-O34: an untouched mirror still takes the reassignment`;
+`tests/reassignment/occurrences.test.ts :: RECON-O34: the retired mirror is the one that belonged to the removed occurrence`.
 
 ### RECON-I36. Within one batch a provider may report the same occurrence several times
 
@@ -2526,9 +2564,9 @@ provider occurrence changes repeatedly in one delta"*, *"deduplicates remote eve
 `sourceIdentityKey`. "Final" is decided by revision order (RECON-I22), not by array position, so a reordered
 page cannot change the answer. The planner asserts the invariant rather than assuming it.
 **Proved by.**
-`tests/order/permutation.test.ts :: RECON-O19: a listing naming one identity three times produces at most one write`;
-`tests/order/permutation.test.ts :: RECON-O19: the surviving version is the highest revision, whichever order it arrived in`;
-`tests/state/dedupe.test.ts :: RECON-I36: the deduplicated set is asserted, not assumed, before planning`.
+`tests/order/permutation.test.ts :: RECON-O19: the surviving write is built from the highest revision, not the last in the array`;
+`tests/order/permutation.test.ts :: RECON-O19: the surviving write is built from the highest revision, not the last in the array`;
+`tests/state/dedupe.test.ts :: RECON-I36: the survivor is the highest revision, not the last in the array`.
 
 ### RECON-I37. An unusable newest revision withholds the identity; the older one never wins
 
@@ -2543,9 +2581,9 @@ revision is below the known state's. It becomes `Unresolved{ reason: "staleRevis
 is left exactly as it is. `sync-ical` already withholds the whole UID upstream (ICAL-I7); this is the
 second line of defence, because a delta provider can also deliver an out-of-order page.
 **Proved by.**
-`tests/writes/stale-revision.test.ts :: RECON-O23: an observed event with a lower revision plans zero writes and one unresolved entry`;
-`tests/writes/stale-revision.test.ts :: RECON-O23: the known state is unchanged, so nothing reverts`;
-`tests/writes/stale-revision.test.ts :: RECON-O23: the second plan is identical, so the report does not churn the row`.
+`tests/writes/stale-revision.test.ts :: RECON-O23: an out-of-order page below the known revision plans no write`;
+`tests/writes/stale-revision.test.ts :: RECON-O23: the stale delivery is reported as staleRevision`;
+`tests/writes/stale-revision.test.ts :: RECON-O23: the stale delivery does not tombstone the identity either`.
 
 ### RECON-I38. All-day-ness is resolved by one shared predicate before any comparison
 
@@ -2558,9 +2596,9 @@ tests *"does not treat non-midnight 24-hour timed events as all-day"*.
 flag — and `sync-ical`'s `resolveIsAllDay` decided it upstream. `sync-reconcile` reads the discriminant and
 never re-derives it, so the two sides cannot disagree.
 **Proved by.**
-`tests/window/all-day.test.ts :: RECON-O20: an all-day event at a non-UTC-midnight boundary converges on the second plan`;
-`tests/window/all-day.test.ts :: RECON-I38: a 24-hour timed event is not treated as all-day by the planner`;
-`tests/window/all-day.test.ts :: RECON-I38: reconcile never inspects a boolean all-day flag`.
+`tests/window/all-day.test.ts :: RECON-I38: a 24h non-midnight event is not treated as the all-day one`;
+`tests/window/all-day.test.ts :: RECON-I38: a 24h non-midnight event is not treated as the all-day one`;
+`tests/window/all-day.test.ts :: RECON-I38: a settled all-day event plans no write`.
 
 ### RECON-I39. A no-op run may still need to flush
 
@@ -2574,9 +2612,9 @@ already in sync"*, *"does not flush when there are no changes"*.
 "empty" plan is not the same value as a no-op plan, and no array length has to be inspected to tell them
 apart (RECON-I17).
 **Proved by.**
-`tests/cursor/independence.test.ts :: RECON-O25: a plan with no writes and no tombstones can still advance the cursor`;
-`tests/plan/no-op.test.ts :: RECON-I39: a genuinely empty run advances nothing and records nothing`;
-`tests/plan/no-op.test.ts :: RECON-I39: an unchanged listing carrying a new cursor still advances`.
+`tests/cursor/independence.test.ts :: RECON-O25: an unchanged listing carrying a new cursor still advances it`;
+`tests/plan/no-op.test.ts :: RECON-I39: a no-op delta still carries a cursor decision`;
+`tests/plan/no-op.test.ts :: RECON-I39: a no-op snapshot still carries the coverage it proved`.
 
 ### RECON-I40. Divergence is three-state, and values never leave the process
 
@@ -2584,12 +2622,17 @@ apart (RECON-I17).
 echo is a distinct third state, not agreement. Only booleans and lengths are logged.
 **Learned from.** `core/events/push-echo.ts`; tests *"counts a successful push with no echo as uncomparable,
 never as a silent zero"*, *"adds no fields at all to a clean push with no divergence"*.
-**Honoured by.** The protocol's `EchoVerdict` is already `matched | diverged | notObserved`.
-`PlanDiagnostics` carries counts and capped identifier samples only — never a title, a description or a
+**Honoured by.** The three-state half of this lesson is **not applicable here** and is recorded as such: the
+protocol's `EchoVerdict` (`matched | diverged | notObserved`) describes the outcome of a write we performed,
+and this package never performs or observes a write outcome — it plans. Its own three-state analogue is
+`ObservedState` (`sourceOnly | bothSides`) plus `MirrorIndex.listed`: with no destination listing the mirror
+is *uncomparable*, and `decideMappedWrite` raises no mirror conflict rather than reading absence as
+agreement. The half that does apply is the logging rule: `PlanDiagnostics` carries counts and capped
+identifier samples only — never a title, a description or a
 location. A hygiene test asserts no user-supplied text field reaches `PlanDiagnostics`.
 **Proved by.**
-`tests/plan/diagnostics-bounds.test.ts :: RECON-I40: diagnostics carry identifiers and counts, never event text`;
-`tests/plan/diagnostics-bounds.test.ts :: RECON-I40: an unobserved echo is uncomparable, not agreement`.
+`tests/plan/diagnostics-bounds.test.ts :: RECON-I40: the diagnostics carry identifiers and counts only, never content`;
+`tests/plan/diagnostics-bounds.test.ts :: RECON-I40: the diagnostics carry identifiers and counts only, never content`.
 
 ### RECON-I41. Reconcile is pure so that it is safe to call from inside a transaction
 
@@ -2602,9 +2645,9 @@ database transactions"*.
 unsafe to call from inside a transaction callback, and a planner that awaited would be a lockup surface.
 Enforced by `RECON-L1` and `RECON-L3` rather than by convention.
 **Proved by.**
-`tests/hygiene/purity.test.ts :: RECON-L1: no export is declared async`;
-`tests/hygiene/purity.test.ts :: RECON-L1: no export returns a thenable`;
-`tests/hygiene/purity.test.ts :: RECON-L3: planning succeeds with Date.now stubbed to throw`.
+`tests/hygiene/purity.test.ts :: RECON-L1: no export is declared async and the planner returns a plain value`;
+`tests/hygiene/purity.test.ts :: RECON-L1: the planner completes rather than handing back a pending seam`;
+`tests/hygiene/purity.test.ts :: RECON-L3: planning never reads the ambient clock`.
 
 ### RECON-I42. Every iteration is bounded in the input size, and the bound is proved
 
@@ -2615,15 +2658,19 @@ can wedge: a quadratic pairing loop on adversarial input is this package's form 
 lockup obsession.
 **Honoured by.** Every lookup is a `Map` built once; there is no nested scan over `known` or `mappings`.
 Reassignment pairing sorts within one owning series and walks the two sorted lists once. `PlanLimits` bounds
-the sample sizes and the reassignment pairing width, and exceeding a bound is a typed `unresolved` outcome,
-never a slow success. Nothing recurses.
+the sample sizes and the reassignment pairing width, and exceeding a bound is a typed `unresolved` outcome
+(`pairingCeilingExceeded`, one per unpaired mapping), never a slow success and never a degradation into
+delete-plus-create: the mappings the refusal left unpaired are shielded from tombstoning for that run.
+Refusal only applies when both sides are non-empty, so a mass deletion with nothing to pair against is
+still planned normally. Nothing recurses.
 **Proved by.**
-`tests/limits/pairing-ceiling.test.ts :: RECON-L4: quadrupling the unmapped occurrence count does not sixteen-fold the comparator calls`;
-`tests/limits/pairing-ceiling.test.ts :: RECON-L4: an adversarial all-ties revision order still terminates deterministically`;
-`tests/limits/pairing-ceiling.test.ts :: RECON-L4: the whole pairing completes inside one scheduler tick`;
-`tests/limits/large-state.test.ts :: RECON-L6: a hundred thousand known events against an empty listing plan in a single pass`;
-`tests/limits/large-state.test.ts :: RECON-L6: lookups are Map-based, so doubling the known state does not quadruple the work`;
-`tests/limits/deep-series.test.ts :: RECON-L8: a ten-thousand-deep master and override chain does not recurse`.
+`tests/limits/pairing-ceiling.test.ts :: RECON-L4: a refused ceiling is a typed unresolved outcome, never a delete and recreate`;
+`tests/limits/pairing-ceiling.test.ts :: RECON-L4: quadrupling the input does not sixteen-fold the comparison count`;
+`tests/limits/pairing-ceiling.test.ts :: RECON-L5: a degenerate order where every pair compares equal still terminates`;
+`tests/limits/pairing-ceiling.test.ts :: RECON-L4: pairing completes inside one scheduler tick, so it cannot be awaiting anything`;
+`tests/limits/large-state.test.ts :: RECON-L6: a hundred thousand known events against an empty listing completes`;
+`tests/limits/large-state.test.ts :: RECON-L6: doubling the state doubles the window probes rather than squaring them`;
+`tests/limits/deep-series.test.ts :: RECON-L8: a ten-thousand-deep override chain returns a plan rather than blowing the stack`.
 
 ### RECON-I43. Never `Bun.sleep`, and no timer may be armed
 
@@ -2634,9 +2681,9 @@ never a slow success. Nothing recurses.
 **Honoured by.** No `Bun.sleep` anywhere in `src/` or `tests/`. The package arms no timer at all — the
 stronger guarantee — asserted under fake timers.
 **Proved by.**
-`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: no file under src references the unfakeable sleep primitive`;
-`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: no file under tests references the unfakeable sleep primitive`;
-`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: a full plan arms no timer under fake timers`.
+`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: no file under src reaches for the unfakeable sleep primitive`;
+`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: no file under tests reaches for the unfakeable sleep primitive`;
+`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: a full plan schedules no microtask continuation either`.
 
 ### RECON-I44. The ambient clock and the ambient timezone are never read
 
@@ -2649,8 +2696,8 @@ reconcile total and the phases honest when the clock steps backwards"*; ICAL-I45
 now-dependent decision — is this window in the past? — arrives as a value on the policy. The test script is
 `TZ=UTC bun x --bun vitest run` and one suite re-runs a plan under a non-UTC ambient zone.
 **Proved by.**
-`tests/hygiene/purity.test.ts :: RECON-L3: planning succeeds with Date.now stubbed to throw`;
-`tests/hygiene/purity.test.ts :: RECON-L3: planning succeeds with the Date constructor stubbed to throw`;
+`tests/hygiene/purity.test.ts :: RECON-L3: planning mutates none of its four arguments`;
+`tests/hygiene/purity.test.ts :: RECON-L3: planning never reads the ambient clock`;
 `tests/hygiene/purity.test.ts :: RECON-I44: the plan is identical under UTC and under a zone fourteen hours ahead`.
 
 ---
@@ -2832,8 +2879,10 @@ Each line names the failure it prevents and how the test forces it.
 - `RECON-O1` — tests/deletion/no-wipe.test.ts — *a partial listing deletes the calendar.* Forced by a
   `partial` listing whose `events` omit every known event; a set-difference implementation tombstones all of
   them.
-- `RECON-O2` — tests/cursor/cursor-lost.test.ts — *a 410 wipes the store.* Forced by a `cursorLost` listing
-  with a fully populated `known`; the naive "410 means full wipe" advice tombstones everything.
+- `RECON-O2` — tests/cursor/cursor-lost.test.ts, tests/deletion/no-wipe.test.ts — *a 410 wipes the store.*
+  Forced by a `cursorLost` listing with a fully populated `known`; the naive "410 means full wipe" advice
+  tombstones everything. Also forced through the mirror-window retirement path, which reached a deletion
+  without consulting the listing kind at all until RECON-I78.
 - `RECON-O3` — tests/deletion/delta-authority.test.ts — *a delta page's omissions read as deletions.* Forced
   by a delta listing that reports one removal and omits four known events.
 - `RECON-O4` — tests/coverage/proven-coverage.test.ts — *absence outside proven coverage deletes.* Forced by
@@ -2920,7 +2969,8 @@ Each line names the failure it prevents and how the test forces it.
   order.* Forced by a revision set in which every pair compares equal.
 - `RECON-L6` — tests/limits/large-state.test.ts — *a nested scan over `known` × `mappings` turns a large
   calendar into a hang.* Forced by 100k known events with an empty listing, asserting single-pass Map lookups
-  and sub-quadratic growth when the state doubles.
+  and — via an injected counting window predicate, never a wall clock (RECON-I83) — that doubling the state
+  doubles the probes rather than squaring them.
 - `RECON-L7` — tests/plan/diagnostics-bounds.test.ts — *an uncapped identifier list pushes the log line past
   what the pipeline keeps and takes the counters with it.* Forced by 100k unresolved items, asserting the
   sample is capped by count and by bytes while `total` stays exact.
@@ -2942,13 +2992,13 @@ tests/cursor/          independence (+ .test-d), scope-binding, cursor-lost
 tests/known-state/     corrupt
 tests/order/           permutation, write-order
 tests/reassignment/    occurrences
-tests/window/          injected-predicate, recurrence-exemption, all-day
-tests/convergence/     fixed-point, degenerate
+tests/window/          recurrence-exemption, all-day
+tests/convergence/     fixed-point
 tests/unresolved/      reasons
 tests/plan/            closure, no-state, no-op, diagnostics-bounds, fail-loud
 tests/state/           dedupe, observed.test-d
 tests/limits/          pairing-ceiling, large-state, deep-series
-tests/hygiene/         purity, no-bun-sleep, one-predicate
+tests/hygiene/         purity, no-bun-sleep, one-predicate, ledger-citations
 ```
 
 ## Red phase addenda (sync-reconcile)
@@ -3126,3 +3176,108 @@ proven coverage, whose axes are compared against the recorded `time` and a maste
 its anchor. A recurring row absent from a snapshot is therefore tombstoned on the snapshot's
 authority alone — but still only when coverage is `proven`. Unproven coverage refuses every
 deletion, recurring or not (RECON-I3).
+
+---
+
+## Learned in review — the second implementation pass
+
+Six overwrite defects and one lockup-shaped test survived the first pass. Each one is recorded here with
+the entry it belongs to, so the ledger reads as what the code does rather than as what it intended.
+
+### RECON-I78. Deletion authority is one value, and every deletion path must read it
+
+Three separate paths could end in a `Tombstone` — an authoritative removal, an absence from a snapshot,
+and the mirror-window retirement — and only the first two were gated on `listing.kind`. The third asked
+whether the requested scope differed from the mirror window and then deleted drifted mirrors on *any*
+listing kind, so a `cursorLost` page deleted real mirrors: the exact failure RECON-I1 and RECON-I19 are
+about, reached by a path neither entry had looked at. The fix is not another gate but one shared value:
+`src/presence/authority.ts` maps `listing.kind` through the mandated exhaustive switch to
+`wholeScope | namedRemovalsOnly | none`, and every deletion path and the reassignment pairing consume it —
+`mayRetireItsOwnMirrors` refuses `none`, `speaksForAbsence` admits only `wholeScope`. A new deletion path
+that forgets to ask is now the anomaly rather than the default.
+**Proved by.**
+`tests/deletion/no-wipe.test.ts :: RECON-O1: a partial listing whose scope is not the mirror window still retires nothing`;
+`tests/deletion/no-wipe.test.ts :: RECON-O2: a cursorLost listing whose scope is not the mirror window retires nothing either`;
+`tests/deletion/no-wipe.test.ts :: RECON-O2: the same drifted row is retired once a snapshot speaks for the scope`.
+
+### RECON-I79. Orphanhood is an absence claim and inherits every absence rule
+
+`orphanedMappings` — mappings whose identity is not in the presence basis — was computed for every listing
+kind and fed to occurrence pairing. On a delta, presence holds only the events on that page, so a page
+carrying one *new* occurrence of a series paired positionally with the mapping of a different, still-alive
+occurrence and planned an `update` over its mirror. Absence from a delta page was laundered into an
+overwrite without ever touching `removals.ts`. Pairing now runs only under `speaksForAbsence`, which is
+`snapshot` alone; on a delta a shifted occurrence is created and its predecessor is simply left mapped,
+which is the conservative outcome and is repaired by the next snapshot.
+**Proved by.**
+`tests/deletion/delta-authority.test.ts :: RECON-O3: a delta page carrying a new occurrence never rewrites an unmentioned sibling`.
+
+### RECON-I80. A tombstone that can delete carries a precondition; one that cannot is a different value
+
+RECON-I13 was enforced over `WriteIntent` only, and `Tombstone` — the planner's *actual* deletion channel —
+carried `handle: DeleteHandle | null` and no precondition at all, so "a delete without a precondition is
+not expressible" was false for every deletion this package emits. `Tombstone` is now a discriminated union:
+`retireMirror` carries a non-null `DeleteHandle` **and** the mapping's `ObservedPrecondition`, and
+`forgetKnownRow` carries neither and names no destination, so an unmapped absence cannot be applied as a
+delete by construction rather than by an applier remembering to check for `null`.
+**Proved by.**
+`tests/writes/delete-handle.test.ts :: RECON-O17: a mapped retirement carries the mapping's precondition`;
+`tests/writes/delete-handle.test.ts :: RECON-O17: an unmapped absence forgets the row rather than inventing a delete`.
+
+### RECON-I81. A reassignment re-points a mirror, so it must prove the mirror is still ours
+
+`decideMappedWrite` compared the observed mirror against the mapping; `decideReassignedWrite` did not look
+at `mirrors` at all, so a shifted occurrence wrote its content over a mirror the user had edited, with a
+matching precondition and no conflict raised. Both paths now consult the observed mirror, with a deliberate
+asymmetry: on the mapped path a precondition mismatch is always a conflict, and a fingerprint divergence is
+a conflict when the source content is unchanged (the only case where divergence is the sole news). On the
+reassignment path *any* divergence from the mapping is a conflict, because we are repurposing a mirror the
+source no longer claims at that slot and the write would carry a different occurrence's content onto it.
+**Proved by.**
+`tests/reassignment/occurrences.test.ts :: RECON-O34: a reassignment onto a mirror the user edited is a conflict, not an update`;
+`tests/reassignment/occurrences.test.ts :: RECON-O34: an untouched mirror still takes the reassignment`.
+
+### RECON-I82. A mapping records which calendar it points at, so the planner must check it
+
+`Mapping.destinationCalendar` was declared and never read, while `updateIntentFor` built writes as
+`{ calendar: policy.destination, target: mapping.destination.id, precondition: mapping.precondition }` — a
+foreign calendar's event id and etag applied to this calendar. RECON-I27 already claimed this was refused;
+it now is. `indexMappings` takes the destination `CalendarKey` and throws `ReconcileInternalDataError` for
+any entry recorded against another calendar, in the same pass that refuses a duplicate source claim.
+**Proved by.**
+`tests/plan/fail-loud.test.ts :: RECON-I27: a mapping pointing at a foreign destination calendar fails loud`.
+
+### RECON-I83. A wall-clock assertion measures the CI agent, not the algorithm
+
+`RECON-L6` asserted `large < small * 3` over `performance.now()` samples, which is a flake generator that
+proves nothing about complexity, and it inspected nothing else about the plan. It is replaced by a counted
+assertion in the style of RECON-L4: the window predicate is injectable (RECON-I33), so the test injects a
+counting predicate and asserts that doubling the state doubles the probes rather than squaring them. No
+test in this package now asserts on elapsed time.
+**Proved by.**
+`tests/limits/large-state.test.ts :: RECON-L6: doubling the state doubles the window probes rather than squaring them`.
+
+### RECON-I84. A ledger that cannot be walked is a ledger that drifts
+
+The ledger promised that every **Proved by** line names a real file and the exact test name inside it, and
+145 of 150 citations did not, because the entries were written before the tests and never reconciled with
+their final wording. Two named files that were never created. The citations are regenerated from the actual
+`test(...)` strings, and the promise is now enforced by a test that parses this document, extracts every
+citation in the sync-reconcile section and asserts the file exists and contains the title verbatim — the
+mechanical walk the ledger claimed. A renamed test now fails the suite instead of quietly orphaning a claim.
+**Proved by.**
+`tests/hygiene/ledger-citations.test.ts :: RECON-I29: every cited test file exists`;
+`tests/hygiene/ledger-citations.test.ts :: RECON-I29: every cited test name exists verbatim in the file that is cited`;
+`tests/hygiene/ledger-citations.test.ts :: RECON-I29: the walk covers the whole ledger, not a handful of lines`.
+
+### RECON-I85. The mirror-window pass fires only when the requested scope is not the mirror window
+
+Review asked why a row that drifted out of the mirror window is not retired when the caller requested
+exactly that window. It is deliberate and it is the safer of the two. When scope equals the mirror window,
+a drifted row is simply absent from the listing, so it reaches the absence path — which demands *proven
+coverage* before it deletes and reports `outsideProvenCoverage` when it has none. Retiring it on the
+window comparison alone would bypass that proof. The comparison exists so that a caller who deliberately
+listed a narrower or wider window than it mirrors can still retire what it no longer mirrors.
+**Proved by.**
+`tests/deletion/two-windows.test.ts :: RECON-O7: an event inside proven coverage but outside the mirror window retires the mirror`;
+`tests/coverage/proven-coverage.test.ts :: RECON-O4: the same absence is reported as unresolved rather than silently dropped`.

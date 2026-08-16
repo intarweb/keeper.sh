@@ -1,6 +1,7 @@
 import type { RemoteEvent } from "@keeper.sh/sync-protocol";
 import type { SourceIdentity } from "../identity/source-identity";
 import { sourceIdentityKey } from "../identity/source-identity";
+import { compareNumbers, compareText } from "../plan/order";
 import { rankOfRevision } from "./revision";
 
 interface IdentifiedEvent {
@@ -17,13 +18,10 @@ interface DedupedObservations {
 const compareObservedRevisions = (left: RemoteEvent, right: RemoteEvent): number => {
   const leftRank = rankOfRevision(left.revision);
   const rightRank = rankOfRevision(right.revision);
-  if (leftRank === rightRank) {
-    return 0;
+  if (leftRank !== rightRank) {
+    return compareNumbers(leftRank, rightRank);
   }
-  if (leftRank < rightRank) {
-    return -1;
-  }
-  return 1;
+  return compareText(left.fingerprint.value, right.fingerprint.value);
 };
 
 const dedupeObservations = (observations: readonly IdentifiedEvent[]): DedupedObservations => {

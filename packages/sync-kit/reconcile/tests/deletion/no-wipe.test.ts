@@ -3,6 +3,7 @@ import { planReconciliation, removalBasis } from "../../src/index";
 import {
   cursorLostListing,
   foreignEvent,
+  instant,
   knownEvent,
   knownState,
   mapping,
@@ -11,7 +12,9 @@ import {
   policy,
   slotIdentity,
   snapshotListing,
+  sourceCalendar,
   sourceOnly,
+  timedAt,
 } from "../support/fixtures";
 import { presenceBasis } from "../../src/index";
 
@@ -28,6 +31,37 @@ const everyIdentityMapped = () =>
       mapping({ identity, destinationId: `mirror-${index + 1}` }),
     ),
   );
+
+const narrowMirrorWindow = {
+  start: instant("2026-03-01T00:00:00.000Z"),
+  end: instant("2026-04-01T00:00:00.000Z"),
+};
+
+const narrowScope = {
+  calendar: sourceCalendar,
+  window: {
+    start: instant("2026-06-01T00:00:00.000Z"),
+    end: instant("2026-12-31T00:00:00.000Z"),
+  },
+  expandRecurrences: false,
+};
+
+const driftedIdentity = slotIdentity(
+  "evt-drifted",
+  "2026-02-01T09:00:00.000Z",
+  "2026-02-01T10:00:00.000Z",
+);
+
+const driftedKnownState = () =>
+  knownState([
+    knownEvent({
+      identity: driftedIdentity,
+      time: timedAt("2026-02-01T09:00:00.000Z", "2026-02-01T10:00:00.000Z"),
+    }),
+  ]);
+
+const driftedMappings = () =>
+  mappingSet([mapping({ identity: driftedIdentity, destinationId: "mirror-outside" })]);
 
 describe("a listing that never claimed to be complete", () => {
   test("RECON-O1: a partial listing omitting every known event tombstones none of them", () => {
@@ -88,6 +122,39 @@ describe("a listing that never claimed to be complete", () => {
 
     expect(plan.tombstones).toEqual([]);
     expect(plan.writes).toEqual([]);
+  });
+
+  test("RECON-O1: a partial listing whose scope is not the mirror window still retires nothing", () => {
+    const plan = planReconciliation(
+      sourceOnly(partialListing({ events: [], scope: narrowScope })),
+      driftedKnownState(),
+      driftedMappings(),
+      policy({ mirrorWindow: narrowMirrorWindow }),
+    );
+
+    expect(plan.tombstones).toEqual([]);
+  });
+
+  test("RECON-O2: a cursorLost listing whose scope is not the mirror window retires nothing either", () => {
+    const plan = planReconciliation(
+      sourceOnly(cursorLostListing({ scope: narrowScope })),
+      driftedKnownState(),
+      driftedMappings(),
+      policy({ mirrorWindow: narrowMirrorWindow }),
+    );
+
+    expect(plan.tombstones).toEqual([]);
+  });
+
+  test("RECON-O2: the same drifted row is retired once a snapshot speaks for the scope", () => {
+    const plan = planReconciliation(
+      sourceOnly(snapshotListing({ events: [], scope: narrowScope })),
+      driftedKnownState(),
+      driftedMappings(),
+      policy({ mirrorWindow: narrowMirrorWindow }),
+    );
+
+    expect(plan.tombstones.map((tombstone) => tombstone.cause)).toEqual(["outsideMirrorWindow"]);
   });
 
   test("RECON-O1: a snapshot that genuinely omits everything is the only shape that may tombstone", () => {

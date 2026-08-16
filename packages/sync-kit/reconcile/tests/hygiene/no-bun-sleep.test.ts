@@ -34,14 +34,17 @@ describe("timing primitives fake timers cannot patch", () => {
     }
   });
 
-  test("RECON-L2: a full plan schedules no microtask continuation either", () => {
-    let settledDuringPlan = false;
-    const plan = planFor(steadyScenario());
+  test("RECON-L2: a full plan schedules no microtask continuation either", async () => {
+    let drainedBeforeThePlanReturned = false;
     queueMicrotask(() => {
-      settledDuringPlan = true;
+      drainedBeforeThePlanReturned = true;
     });
 
-    expect(settledDuringPlan).toBe(false);
-    expect(plan.writes).toBeDefined();
+    const plan = planFor(steadyScenario());
+
+    expect(drainedBeforeThePlanReturned).toBe(false);
+    expect(plan.cursor).toEqual({ kind: "hold", reason: "noCursorOffered" });
+    await Promise.resolve();
+    expect(drainedBeforeThePlanReturned).toBe(true);
   });
 });

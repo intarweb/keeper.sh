@@ -157,6 +157,7 @@ const knownAfter = (scenario: Scenario, plan: Plan): KnownState => {
   );
   const observedRows = observedEvents(scenario.observed).map((event) => ({
     identity: expectedObservedIdentity(event),
+    remoteId: event.id,
     sourceFingerprint: sourcePrint(event.fingerprint.value),
     revision: event.revision,
     time: event.content.time ?? anchorAsTime(event),

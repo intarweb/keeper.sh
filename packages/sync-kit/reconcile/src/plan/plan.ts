@@ -27,6 +27,9 @@ const unresolvedReasons = [
   "corruptKnownState",
   "unsupportedByDestination",
   "provenanceIndeterminate",
+  "unmatchedRemoval",
+  "removalOutOfScope",
+  "pairingCeilingExceeded",
 ] as const;
 type UnresolvedReason = (typeof unresolvedReasons)[number];
 
@@ -64,11 +67,21 @@ type PlannedWrite =
       readonly intent?: never;
     };
 
-interface Tombstone {
-  readonly identity: SourceIdentity;
-  readonly cause: TombstoneCause;
-  readonly handle: DeleteHandle | null;
-}
+type Tombstone =
+  | {
+      readonly kind: "retireMirror";
+      readonly identity: SourceIdentity;
+      readonly cause: TombstoneCause;
+      readonly handle: DeleteHandle;
+      readonly precondition: ObservedPrecondition;
+    }
+  | {
+      readonly kind: "forgetKnownRow";
+      readonly identity: SourceIdentity;
+      readonly cause: TombstoneCause;
+      readonly handle?: never;
+      readonly precondition?: never;
+    };
 
 interface Unresolved {
   readonly identity: SourceIdentity | null;
@@ -93,6 +106,7 @@ interface PlanDiagnostics {
   readonly conflicts: BoundedSample;
   readonly tombstoned: BoundedSample;
   readonly suppressedEchoes: BoundedSample;
+  readonly supersededObservations: BoundedSample;
   readonly identitiesConsidered: number;
 }
 

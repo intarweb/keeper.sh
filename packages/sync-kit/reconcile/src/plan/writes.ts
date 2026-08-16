@@ -17,6 +17,7 @@ import type { SourceIdentity } from "../identity/source-identity";
 import { sourceIdentityKey } from "../identity/source-identity";
 import type { ReconciliationPolicy } from "../policy";
 import type { IdentifiedEvent } from "../state/dedupe";
+import type { TimeShape } from "../state/event-shape";
 import { startInstantOf, timeShapeOf } from "../state/event-shape";
 import type { KnownEvent, KnownIndex } from "../state/known";
 import type { Mapping, MappingIndexes } from "../state/mappings";
@@ -26,7 +27,7 @@ import { conflictCauseOf } from "./conflicts";
 import type { Conflict, PlannedWrite, Unresolved } from "./plan";
 import { observedPreconditionOf, samePrecondition } from "./preconditions";
 import { pairReassignedOccurrences } from "./reassignment";
-import type { Reassignment } from "./reassignment";
+import type { Reassignment, ReassignmentPairing } from "./reassignment";
 
 interface WriteInput {
   readonly observations: readonly IdentifiedEvent[];
@@ -41,7 +42,7 @@ interface WriteDerivation {
   readonly writes: readonly PlannedWrite[];
   readonly conflicts: readonly Conflict[];
   readonly unresolved: readonly Unresolved[];
-  readonly reassignedKeys: readonly string[];
+  readonly claimedMappingKeys: readonly string[];
 }
 
 type Decision =
@@ -141,6 +142,18 @@ const staleMappingConflict = (mapping: Mapping, baseline: KnownEvent): Conflict 
 const mirrorDivergedFromTheMapping = (mapping: Mapping, mirror: RemoteEvent): boolean =>
   !sameMirror(mirrorFingerprintOf(mirror.fingerprint), mapping.mirrorFingerprint);
 
+const preconditionAlreadyStale = (mapping: Mapping, mirror: RemoteEvent): boolean =>
+  !samePrecondition(
+    mapping.precondition,
+    observedPreconditionOf(mirror, mapping.precondition.kind),
+  );
+
+const mirrorIsNoLongerTheOneWeWrote = (mapping: Mapping, mirror: RemoteEvent): boolean =>
+  preconditionAlreadyStale(mapping, mirror) || mirrorDivergedFromTheMapping(mapping, mirror);
+
+const observedMirrorFor = (mapping: Mapping, input: WriteInput): RemoteEvent | null =>
+  input.mirrors.byId.get(mapping.destination.id.value) ?? null;
+
 const decideMappedWrite = (
   observation: IdentifiedEvent,
   mapping: Mapping,
@@ -154,24 +167,19 @@ const decideMappedWrite = (
       unresolved: { identity: observation.identity, id: event.id, reason: "staleRevision" },
     };
   }
-  const mirror = input.mirrors.byId.get(mapping.destination.id.value) ?? null;
-  if (
-    mirror &&
-    !samePrecondition(
-      mapping.precondition,
-      observedPreconditionOf(mirror, mapping.precondition.kind),
-    )
-  ) {
+  const mirror = observedMirrorFor(mapping, input);
+  if (mirror && preconditionAlreadyStale(mapping, mirror)) {
     return { kind: "conflict", conflict: conflictFor(mapping, event, mirror) };
   }
   const baseline = baselineFingerprintOf(row, mapping);
   if (row && !sameSource(mapping.sourceFingerprint, baseline)) {
     return { kind: "conflict", conflict: staleMappingConflict(mapping, row) };
   }
-  if (sameSource(sourceFingerprintOf(event.fingerprint), baseline)) {
-    if (mirror && mirrorDivergedFromTheMapping(mapping, mirror)) {
-      return { kind: "conflict", conflict: conflictFor(mapping, event, mirror) };
-    }
+  const unchanged = sameSource(sourceFingerprintOf(event.fingerprint), baseline);
+  if (unchanged && mirror && mirrorDivergedFromTheMapping(mapping, mirror)) {
+    return { kind: "conflict", conflict: conflictFor(mapping, event, mirror) };
+  }
+  if (unchanged) {
     return nothingToDo;
   }
   if (!writableIntoMirrorWindow(event, input.policy)) {
@@ -188,7 +196,7 @@ const decideMappedWrite = (
   };
 };
 
-const shapeOfKnown = (row: KnownEvent): string => {
+const shapeOfKnown = (row: KnownEvent): TimeShape => {
   if (row.recurring) {
     return "recurring";
   }
@@ -204,6 +212,10 @@ const representationChanged = (row: KnownEvent | undefined, event: RemoteEvent):
 
 const decideReassignedWrite = (reassignment: Reassignment, input: WriteInput): Decision => {
   const { mapping, observation } = reassignment;
+  const mirror = observedMirrorFor(mapping, input);
+  if (mirror && mirrorIsNoLongerTheOneWeWrote(mapping, mirror)) {
+    return { kind: "conflict", conflict: conflictFor(mapping, observation.event, mirror) };
+  }
   const settledRow = input.known.byIdentity.get(sourceIdentityKey(observation.identity));
   if (
     settledRow &&
@@ -291,6 +303,30 @@ const unmappedObservations = (input: WriteInput): readonly IdentifiedEvent[] =>
     (observation) => !input.indexes.bySourceIdentity.has(sourceIdentityKey(observation.identity)),
   );
 
+const refusedPairingReported = (pairing: ReassignmentPairing): readonly Unresolved[] => {
+  if (!pairing.refused) {
+    return [];
+  }
+  return pairing.unpairedMappings.map((mapping) => ({
+    identity: mapping.sourceIdentity,
+    id: null,
+    reason: "pairingCeilingExceeded",
+  }));
+};
+
+const mappingsShieldedFromTombstoning = (pairing: ReassignmentPairing): readonly string[] => {
+  const reassigned = pairing.reassignments.map((reassignment) =>
+    sourceIdentityKey(reassignment.mapping.sourceIdentity),
+  );
+  if (!pairing.refused) {
+    return reassigned;
+  }
+  return [
+    ...reassigned,
+    ...pairing.unpairedMappings.map((mapping) => sourceIdentityKey(mapping.sourceIdentity)),
+  ];
+};
+
 const deriveWrites = (input: WriteInput): WriteDerivation => {
   const pairing = pairReassignedOccurrences(
     unmappedObservations(input),
@@ -305,10 +341,8 @@ const deriveWrites = (input: WriteInput): WriteDerivation => {
   return {
     writes: writesOf(decisions),
     conflicts: conflictsOf(decisions),
-    unresolved: unresolvedOf(decisions),
-    reassignedKeys: pairing.reassignments.map((reassignment) =>
-      sourceIdentityKey(reassignment.mapping.sourceIdentity),
-    ),
+    unresolved: [...unresolvedOf(decisions), ...refusedPairingReported(pairing)],
+    claimedMappingKeys: mappingsShieldedFromTombstoning(pairing),
   };
 };
 

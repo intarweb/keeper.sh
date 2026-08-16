@@ -1,7 +1,15 @@
 import { describe, expect, test } from "vitest";
 import { firstOf } from "../support/at";
-import { dedupeObservations } from "../../src/index";
-import { foreignEvent, slotIdentity } from "../support/fixtures";
+import { dedupeObservations, planReconciliation } from "../../src/index";
+import {
+  foreignEvent,
+  knownState,
+  mappingSet,
+  policy,
+  slotIdentity,
+  snapshotListing,
+  sourceOnly,
+} from "../support/fixtures";
 
 const identity = slotIdentity("evt-1", "2026-03-10T09:00:00.000Z", "2026-03-10T10:00:00.000Z");
 
@@ -46,5 +54,35 @@ describe("at most one observation survives per identity", () => {
 
   test("RECON-I36: deduping an empty batch is an empty batch, not a throw", () => {
     expect(dedupeObservations([])).toEqual({ kept: [], supersededKeys: [], comparisons: 0 });
+  });
+
+  test("RECON-I36: an equal-revision collision is decided by fingerprint, not by feed order", () => {
+    const sameRevision = (fingerprint: string) => ({
+      identity,
+      event: foreignEvent({ id: "evt-1", uid: "evt-1", revision: 4, fingerprint }),
+    });
+    const forwards = dedupeObservations([sameRevision("fp-a"), sameRevision("fp-b")]);
+    const backwards = dedupeObservations([sameRevision("fp-b"), sameRevision("fp-a")]);
+
+    expect(firstOf(forwards.kept).event.fingerprint.value).toBe("fp-b");
+    expect(firstOf(backwards.kept).event.fingerprint.value).toBe("fp-b");
+  });
+
+  test("RECON-I36: a collapsed duplicate is counted in the plan's diagnostics", () => {
+    const plan = planReconciliation(
+      sourceOnly(
+        snapshotListing({
+          events: [
+            foreignEvent({ id: "evt-1", uid: "evt-1", revision: 1, fingerprint: "fp-same" }),
+            foreignEvent({ id: "evt-1", uid: "evt-1", revision: 2, fingerprint: "fp-same" }),
+          ],
+        }),
+      ),
+      knownState([]),
+      mappingSet([]),
+      policy(),
+    );
+
+    expect(plan.diagnostics.supersededObservations.total).toBe(1);
   });
 });
