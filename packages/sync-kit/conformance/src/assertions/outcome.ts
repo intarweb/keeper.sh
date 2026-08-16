@@ -1,8 +1,28 @@
 import type { Result, WriteIntent, WriteOutcome } from "@keeper.sh/sync-protocol";
+import { assertNever } from "@keeper.sh/sync-protocol";
 import type { WriteLogEntry } from "../options";
 import { violated } from "../violation";
 
-const overwritingKinds = new Set(["created", "updated", "deleted"]);
+const overwritesTheRemoteCopy = (outcome: WriteOutcome): boolean => {
+  switch (outcome.kind) {
+    case "created":
+    case "updated":
+    case "deleted": {
+      return true;
+    }
+    case "alreadyExists":
+    case "unchanged":
+    case "alreadyAbsent":
+    case "conflict":
+    case "unrepresentable":
+    case "notAttempted": {
+      return false;
+    }
+    default: {
+      return assertNever(outcome);
+    }
+  }
+};
 
 const assertConflictNotOverwrite = (result: Result<WriteOutcome>): void => {
   if (!result.ok) {
@@ -14,7 +34,7 @@ const assertConflictNotOverwrite = (result: Result<WriteOutcome>): void => {
       `a conflicting write failed as "${result.failure.kind}" instead of a typed conflict`,
     );
   }
-  if (overwritingKinds.has(result.value.kind)) {
+  if (overwritesTheRemoteCopy(result.value)) {
     throw violated(
       "CONF-O15",
       `a conflicting write answered "${result.value.kind}", which overwrote the differing remote copy`,
@@ -22,17 +42,30 @@ const assertConflictNotOverwrite = (result: Result<WriteOutcome>): void => {
   }
 };
 
-const isRemoval = (intent: WriteIntent): boolean =>
+type RemovalIntent = Extract<WriteIntent, { kind: "delete" } | { kind: "retire" }>;
+
+const isRemoval = (intent: WriteIntent): intent is RemovalIntent =>
   intent.kind === "delete" || intent.kind === "retire";
 
-const assertNoDeleteThenCreate = (writeLog: readonly WriteLogEntry[]): void => {
-  let removals = 0;
+const removedTargetOf = (intent: WriteIntent): string | null => {
+  if (!isRemoval(intent)) {
+    return null;
+  }
+  return intent.target.value;
+};
+
+const assertNoUnplannedRecreation = (
+  writeLog: readonly WriteLogEntry[],
+  plannedRemovals: readonly string[],
+): void => {
+  let unplannedRemovals = 0;
   for (const entry of writeLog) {
-    if (isRemoval(entry.intent)) {
-      removals += 1;
+    const removed = removedTargetOf(entry.intent);
+    if (removed !== null && !plannedRemovals.includes(removed)) {
+      unplannedRemovals += 1;
       continue;
     }
-    if (entry.intent.kind === "create" && removals > 0) {
+    if (entry.intent.kind === "create" && unplannedRemovals > 0) {
       throw violated(
         "CONF-O25",
         "the write log carries a delete followed by a create, which is a blind recreation",
@@ -61,4 +94,9 @@ const assertNoUnconditionalWrite = (writeLog: readonly WriteLogEntry[]): void =>
   }
 };
 
-export { assertConflictNotOverwrite, assertNoDeleteThenCreate, assertNoUnconditionalWrite };
+export {
+  assertConflictNotOverwrite,
+  assertNoUnconditionalWrite,
+  assertNoUnplannedRecreation,
+  overwritesTheRemoteCopy,
+};

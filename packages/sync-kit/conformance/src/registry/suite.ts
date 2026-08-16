@@ -12,12 +12,10 @@ import { lockupCases } from "../cases/lockups";
 import { provenanceCases } from "../cases/provenance";
 import { windowCases } from "../cases/window";
 import { writeCases } from "../cases/writes";
-import type { SkippedCase } from "../report";
 import type { ConformanceCase } from "./case";
 
 interface CaseSelection<Provider extends ProviderId = ProviderId> {
   readonly selected: readonly ConformanceCase<Provider>[];
-  readonly skipped: readonly SkippedCase[];
 }
 
 const allCases = <Provider extends ProviderId>(
@@ -37,25 +35,9 @@ const allCases = <Provider extends ProviderId>(
   ...lockupCases(supports),
 ];
 
-const skippedFrom = <Provider extends ProviderId>(
-  records: readonly ConformanceCase<Provider>[],
-): readonly SkippedCase[] =>
-  records.flatMap((record) => {
-    if (record.gate.kind !== "skip") {
-      return [];
-    }
-    return [{ id: record.id, capability: record.gate.capability, reason: record.gate.reason }];
-  });
-
 const selectConformanceCases = <Provider extends ProviderId>(
   supports: Capabilities<Provider>,
-): CaseSelection<Provider> => {
-  const records = allCases(supports);
-  return {
-    selected: records.filter((record) => record.gate.kind !== "skip"),
-    skipped: skippedFrom(records),
-  };
-};
+): CaseSelection<Provider> => ({ selected: allCases(supports) });
 
 const conformanceCaseOf = <Provider extends ProviderId>(
   id: ConformanceCaseId,

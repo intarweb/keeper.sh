@@ -40,6 +40,8 @@ const abortedSignal = (): AbortSignal => {
 
 const dayMs = 24 * 60 * 60 * 1000;
 
+const retryCeiling = { maxAttempts: 3, retryDelayCeilingMs: 2 } as const;
+
 const windowFor = (id: ConformanceCaseId): TimeWindow => {
   const start = Date.parse("2026-06-01T00:00:00.000Z") + conformanceCaseIds.indexOf(id) * 40 * dayMs;
   return {
@@ -79,61 +81,103 @@ const lockupCases = <Provider extends ProviderId>(
     "a retry path stops at the attempt ceiling it was given",
     async (context) => {
       const scope = await seedOne(context, "CONF-L1");
+      const callsBefore = context.environment.transport.callCount();
+      const startedAt = Date.parse(context.environment.clock.now().value);
       context.environment.transport.answerWith({
         kind: "reject",
-        failure: { kind: "rateLimited", retryAfter: null, scope: supports.quotaScope },
-        times: 1,
+        failure: {
+          kind: "rateLimited",
+          retryAfter: { kind: "instant", value: "2099-01-01T00:00:00.000Z" },
+          scope: supports.quotaScope,
+        },
+        times: Number.MAX_SAFE_INTEGER,
       });
 
       const answered = await listChanges(context, scope, null, {
-        maxAttempts: 1,
-        retryDelayCeilingMs: 1,
+        maxAttempts: retryCeiling.maxAttempts,
+        retryDelayCeilingMs: retryCeiling.retryDelayCeilingMs,
       });
       context.environment.transport.answerWith({ kind: "pass" });
+      const spent = context.environment.transport.callCount() - callsBefore;
+      const elapsed = Date.parse(context.environment.clock.now().value) - startedAt;
 
       insist(
         "CONF-L1",
         failureKindOf(answered) === "rateLimited",
-        "an operation given a single attempt tried again anyway",
+        "a transport that never stopped rate limiting was answered as something else",
       );
+      insist(
+        "CONF-L1",
+        spent === retryCeiling.maxAttempts,
+        `an operation given ${retryCeiling.maxAttempts} attempts reached the transport ${spent} times`,
+      );
+      insist(
+        "CONF-L1",
+        elapsed <= retryCeiling.maxAttempts * retryCeiling.retryDelayCeilingMs,
+        "a provider-supplied retry delay was obeyed instead of capped by the budget",
+      );
+      await context.provider.contract.conformance.retryCeilingProven();
     },
   ),
 
   defineCase(
     supports,
     "CONF-L2",
-    "an operation with no budget left settles instead of waiting on a transport that never answers",
+    "an operation waiting on a transport that never answers settles at its deadline",
     async (context) => {
       const scope = await seedOne(context, "CONF-L2");
+      const callsBefore = context.environment.transport.callCount();
       context.environment.transport.stall();
 
-      const answered = await listChanges(context, scope, null, { deadlineMs: 0 });
+      const answered = await listChanges(context, scope, null, {
+        deadlineMs: conformanceLimits.stallDeadlineMs,
+      });
       context.environment.transport.resume();
 
+      insist(
+        "CONF-L2",
+        context.environment.transport.callCount() > callsBefore,
+        "the operation never reached the transport, so its deadline proved nothing",
+      );
       insist(
         "CONF-L2",
         notAttemptedReasonOf(answered) === "budgetExhausted",
         "an exhausted budget was reported as something other than an exhausted budget",
       );
+      await context.provider.contract.conformance.deadlineOnNeverResolvingStub();
     },
   ),
 
   defineCase(
     supports,
     "CONF-L3",
-    "a caller's abort is reported as an abort, never as a provider timeout",
+    "a caller's abort mid-flight is reported as an abort, never as a provider timeout",
     async (context) => {
       const scope = await seedOne(context, "CONF-L3");
+      const caller = new AbortController();
+      const callsBefore = context.environment.transport.callCount();
       context.environment.transport.stall();
 
-      const answered = await listChanges(context, scope, null, { signal: abortedSignal() });
+      const pending = listChanges(context, scope, null, {
+        signal: caller.signal,
+        deadlineMs: conformanceLimits.stallDeadlineMs,
+      });
+      await Promise.resolve();
+      caller.abort();
+      const answered = await pending;
       context.environment.transport.resume();
 
+      insist(
+        "CONF-L3",
+        context.environment.transport.callCount() > callsBefore,
+        "the caller was cancelled before it ever reached the transport it claims to have left",
+      );
       insist(
         "CONF-L3",
         notAttemptedReasonOf(answered) === "aborted",
         "a caller's cancellation was misattributed to the provider",
       );
+      await context.provider.contract.conformance.abortMidFlightCleansUp();
     },
   ),
 
@@ -158,6 +202,7 @@ const lockupCases = <Provider extends ProviderId>(
         settled.every((entry) => entry.status === "fulfilled" && !entry.value.ok),
         "a follower behind a failed leader was told the run succeeded",
       );
+      await context.provider.contract.conformance.followerRejectsWhenLeaderFails();
     },
   ),
 
@@ -216,6 +261,7 @@ const lockupCases = <Provider extends ProviderId>(
         ),
         "two concurrent calls over different windows were answered with each other's listing",
       );
+      await context.provider.contract.conformance.concurrentSameKeyDoesNotDeadlock();
     },
   ),
 
@@ -236,6 +282,7 @@ const lockupCases = <Provider extends ProviderId>(
         afterwards.ok,
         "the operation after a throwing one inherited the dead attempt instead of starting its own",
       );
+      await context.provider.contract.conformance.leaseReleasedOnThrow();
     },
   ),
 
@@ -335,8 +382,8 @@ const lockupCases = <Provider extends ProviderId>(
       );
       insist(
         "CONF-L11",
-        context.environment.transport.inFlightPeak() <= conformanceLimits.concurrency,
-        "the fan-out ran more work at once than the concurrency it declared",
+        context.environment.transport.inFlightPeak() <= context.environment.concurrency,
+        "the fan-out ran more work at once than the concurrency the suite handed it",
       );
     },
   ),

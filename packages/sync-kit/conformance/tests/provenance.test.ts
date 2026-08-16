@@ -1,7 +1,6 @@
 import type { RemoteEvent } from "@keeper.sh/sync-protocol";
 import { describe, expect, test } from "vitest";
 import { derivableRemovals } from "../src/assertions/no-removal";
-import { referenceCalendar } from "../src/reference/provider";
 import { listChanges, okValue, write } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
 import {
@@ -13,6 +12,8 @@ import {
   spanning,
   summarise,
   timedAt,
+  knownFrom,
+  seedOf,
 } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
@@ -68,7 +69,7 @@ describe("we never echo our own writes and never touch a stranger's event", () =
 
   test("CONF-O17: a foreign canary survives every reconciliation the suite generates", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [canary], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([canary], []));
     const before = await harness.provider.inspect();
 
     await write(harness.provider, harness.environment, createIntent("mirrored", mirrored));
@@ -85,12 +86,12 @@ describe("we never echo our own writes and never touch a stranger's event", () =
 
   test("CONF-O17: no removal is ever derivable for a foreign event", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [canary], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([canary], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
     const removable = derivableRemovals({
       listing,
-      known: { calendar: referenceCalendar, ids: new Map([["canary", canary.id]]) },
+      known: knownFrom([canary]),
       withinWindow: () => true,
     });
 

@@ -1,11 +1,12 @@
 import type {
+  CalendarKey,
   Capabilities,
   ChangeListing,
-  KnownEvents,
   ProviderId,
   RemoteEvent,
 } from "@keeper.sh/sync-protocol";
 import { assertNoRemovalDerivable, derivableRemovals } from "../assertions/no-removal";
+import type { KnownIdentity, KnownMirror } from "../assertions/no-removal";
 import type { ConformanceCase } from "../registry/case";
 import {
   caseScope,
@@ -21,9 +22,20 @@ import {
   uidsOf,
 } from "./support";
 
-const knownOf = (calendar: KnownEvents["calendar"], uids: readonly string[]): KnownEvents => ({
+const knownAt = (uid: string, day: string): KnownIdentity => ({
+  uid,
+  id: { kind: "remoteEventId", value: `id-${uid}` },
+  time: {
+    kind: "timed",
+    start: { kind: "instant", value: `${day}T09:00:00.000Z` },
+    end: { kind: "instant", value: `${day}T10:00:00.000Z` },
+    zone: null,
+  },
+});
+
+const knownOf = (calendar: CalendarKey, uids: readonly string[]): KnownMirror => ({
   calendar,
-  ids: new Map(uids.map((uid) => [uid, { kind: "remoteEventId", value: `id-${uid}` }])),
+  entries: uids.map((uid) => knownAt(uid, "2026-03-02")),
 });
 
 const presentIdentities = (listing: ChangeListing): readonly string[] => [
@@ -187,6 +199,7 @@ const deletionSafetyCases = <Provider extends ProviderId>(
         }).length === 0,
         "a removal was derived inside a band the listing never covered",
       );
+      await context.provider.contract.conformance.deletionInputsShareOneCalendar();
     },
   ),
 
@@ -225,19 +238,19 @@ const deletionSafetyCases = <Provider extends ProviderId>(
     async (context) => {
       const scope = caseScope(context);
       const uid = markedWith("CONF-O12", "row");
-      await seedWith(
-        context,
-        [
-          foreignEvent(scope.calendar, {
-            uid,
-            start: "2026-03-02T09:00:00.000Z",
-            end: "2026-03-02T10:00:00.000Z",
-          }),
-        ],
-        [uid],
-      );
+      const feed = [
+        foreignEvent(scope.calendar, {
+          uid,
+          start: "2026-03-02T09:00:00.000Z",
+          end: "2026-03-02T10:00:00.000Z",
+        }),
+      ];
+      await seedWith(context, feed);
+      await listChanges(context, scope);
+      await seedWith(context, feed, { corruptKnownRows: [uid] });
 
       const listing = listingOf("CONF-O12", await listChanges(context, scope));
+      const repeated = listingOf("CONF-O12", await listChanges(context, scope));
       await seedWith(context, []);
       insist(
         "CONF-O12",
@@ -249,6 +262,11 @@ const deletionSafetyCases = <Provider extends ProviderId>(
         (listing.removals ?? []).length === 0,
         "corrupt known state produced removals",
       );
+      insist(
+        "CONF-O12",
+        repeated.kind === "cursorLost",
+        "a feed identical to the previous poll was short-circuited past the corrupt row it had to recover",
+      );
     },
   ),
 
@@ -256,6 +274,7 @@ const deletionSafetyCases = <Provider extends ProviderId>(
     const scope = caseScope(context);
     const kept = markedWith("CONF-O13", "kept");
     const gone = markedWith("CONF-O13", "gone");
+    const ambiguous = `id-${markedWith("CONF-O13", "ambiguous")}`;
     const seeded = [
       foreignEvent(scope.calendar, {
         uid: kept,
@@ -270,22 +289,34 @@ const deletionSafetyCases = <Provider extends ProviderId>(
     ];
     await seedWith(context, seeded);
     await listChanges(context, scope);
-    await seedWith(context, withoutUid(seeded, gone));
+    await seedWith(context, withoutUid(seeded, gone), {
+      unattributableRemovals: [ambiguous],
+    });
 
     const listing = listingOf("CONF-O13", await listChanges(context, scope));
     const named = namedRemovalUids(listing);
     if (supports.removalsAreAmbiguous) {
       insist(
         "CONF-O13",
-        named.length === 0,
+        named.length === 0 || listing.kind === "cursorLost",
         "an adapter whose removals are ambiguous still emitted an authoritative deletion",
       );
       return;
     }
     insist(
       "CONF-O13",
+      named.includes(gone),
+      "an identity the source really dropped was not named as removed",
+    );
+    insist(
+      "CONF-O13",
       named.every((uid) => uid.length > 0),
       "an authoritative removal arrived without the identity it removes",
+    );
+    insist(
+      "CONF-O13",
+      !named.includes(ambiguous),
+      "a tombstone the adapter could not attribute was still reported as an authoritative removal",
     );
   }),
 
@@ -346,20 +377,40 @@ const deletionSafetyCases = <Provider extends ProviderId>(
           end: "2026-03-03T10:00:00.000Z",
         }),
       ];
+      const unnamed = `id-${markedWith("CONF-O34", "unnamed")}`;
       await seedWith(context, seeded);
       await listChanges(context, scope);
-      await seedWith(context, withoutUid(seeded, cancelled));
+      await seedWith(context, seeded, {
+        cancelled: [cancelled],
+        unattributableRemovals: [unnamed],
+      });
 
       const listing = listingOf("CONF-O34", await listChanges(context, scope));
+      const removals = listing.removals ?? [];
+      const outOfScope = removals.filter((removal) => removal.kind === "outOfScope");
       insist(
         "CONF-O34",
-        (listing.removals ?? []).every((removal) => removal.kind !== "outOfScope"),
-        "an out-of-scope marker was mixed into the authoritative removals",
+        removals.some((removal) => removal.kind === "cancelled" && removal.uid.value === cancelled),
+        "an identity the source reported as cancelled was not removed as a cancellation",
       );
       insist(
         "CONF-O34",
-        namedRemovalUids(listing).includes(cancelled),
-        "an identity the source really dropped was not named as removed",
+        !namedRemovalUids(listing).includes(kept),
+        "an identity the source still reports was named as removed",
+      );
+      insist(
+        "CONF-O34",
+        outOfScope.every((removal) => removal.id.value === unnamed),
+        "an identity the adapter could name was demoted to an out-of-scope marker",
+      );
+      insist(
+        "CONF-O34",
+        derivableRemovals({
+          listing,
+          known: knownOf(scope.calendar, [kept]),
+          withinWindow: context.withinWindow,
+        }).length === 0,
+        "an out-of-scope marker drove a deletion of an identity the source still holds",
       );
     },
   ),

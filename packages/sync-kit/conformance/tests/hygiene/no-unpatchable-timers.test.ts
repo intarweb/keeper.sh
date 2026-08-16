@@ -3,30 +3,27 @@ import { createTestClock } from "../../src/clock";
 import { filesMatching } from "../support/sources";
 import { suiteStart } from "../support/harness";
 
-const abortTimeout = ["AbortSignal", "timeout"].join(".");
-const timersPromises = ["node", "timers/promises"].join(":");
+const abortTimeoutThisFileMustNotSpellOutItself = ["AbortSignal", "timeout"].join(".");
+const timersModuleThisFileMustNotSpellOutItself = ["node", "timers/promises"].join(":");
 
 describe("deadlines are built only from primitives fake timers patch", () => {
   test("CONF-I52: no file under src uses the unpatchable AbortSignal timeout", async () => {
-    const offenders = await filesMatching("src", abortTimeout);
+    const offenders = await filesMatching("src", abortTimeoutThisFileMustNotSpellOutItself);
 
     expect(offenders).toEqual([]);
-    expect(() => createTestClock({ start: suiteStart })).not.toThrow();
   });
 
   test("CONF-I52: no file under tests uses the unpatchable AbortSignal timeout", async () => {
-    const offenders = await filesMatching("tests", abortTimeout);
+    const offenders = await filesMatching("tests", abortTimeoutThisFileMustNotSpellOutItself);
 
     expect(offenders).toEqual([]);
-    expect(() => createTestClock({ start: suiteStart })).not.toThrow();
   });
 
   test("CONF-I52: nothing imports the node timers/promises module", async () => {
-    const inSource = await filesMatching("src", timersPromises);
-    const inTests = await filesMatching("tests", timersPromises);
+    const inSource = await filesMatching("src", timersModuleThisFileMustNotSpellOutItself);
+    const inTests = await filesMatching("tests", timersModuleThisFileMustNotSpellOutItself);
 
     expect([...inSource, ...inTests]).toEqual([]);
-    expect(() => createTestClock({ start: suiteStart })).not.toThrow();
   });
 
   test("CONF-I52: the clock owns its own AbortController rather than borrowing one", async () => {

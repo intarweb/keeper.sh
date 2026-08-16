@@ -3,6 +3,8 @@ import type {
   EventTime,
   Fingerprint,
   FingerprintContract,
+  OccurrenceDuration,
+  RecurrenceAnchor,
   RecurrencePayload,
 } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
@@ -92,6 +94,43 @@ const recurrenceProjection = (recurrence: RecurrencePayload): CanonicalValue => 
   exceptions: recurrence.exceptions,
 });
 
+const durationProjection = (duration: OccurrenceDuration): CanonicalValue => {
+  switch (duration.kind) {
+    case "exact": {
+      return { kind: duration.kind, seconds: duration.seconds };
+    }
+    case "nominal": {
+      return { kind: duration.kind, days: duration.days };
+    }
+    default: {
+      return assertNever(duration);
+    }
+  }
+};
+
+const anchorProjection = (anchor: RecurrenceAnchor, normalise: boolean): CanonicalValue => {
+  switch (anchor.kind) {
+    case "timed": {
+      return {
+        kind: anchor.kind,
+        start: identityInstant(anchor.start.value, normalise),
+        zone: anchor.zone.value,
+        duration: durationProjection(anchor.duration),
+      };
+    }
+    case "allDay": {
+      return {
+        kind: anchor.kind,
+        startDate: anchor.startDate.value,
+        duration: durationProjection(anchor.duration),
+      };
+    }
+    default: {
+      return assertNever(anchor);
+    }
+  }
+};
+
 const normalisedValue = (value: CanonicalValue, normalise: boolean): CanonicalValue => {
   if (typeof value !== "string") {
     return value;
@@ -117,7 +156,11 @@ const contentProjection = (content: EditableContent, normalise: boolean): Canoni
   if (content.recurrence === null) {
     return { ...described, time: timeProjection(content.time, normalise) };
   }
-  return { ...described, recurrence: recurrenceProjection(content.recurrence) };
+  return {
+    ...described,
+    recurrence: recurrenceProjection(content.recurrence),
+    anchor: anchorProjection(content.anchor, normalise),
+  };
 };
 
 const encodeIdentity = (

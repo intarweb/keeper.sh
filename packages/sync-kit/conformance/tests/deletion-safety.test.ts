@@ -5,7 +5,16 @@ import { referenceCalendar } from "../src/reference/provider";
 import { ConformanceViolation } from "../src/violation";
 import { failureOf, listChanges, listingKindOf, okValue } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
-import { foreignEvent, instant, scopeOver, spanning } from "./support/protocol";
+import {
+  foreignEvent,
+  instant,
+  knownFrom,
+  knownNamed,
+  scopeOver,
+  seedOf,
+  spanning,
+  timedAt,
+} from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
 const scope = scopeOver(march);
@@ -31,15 +40,12 @@ const charlie = foreignEvent({
 
 const threeEvents = [alpha, bravo, charlie];
 
-const knownFromSeed = () => ({
-  calendar: referenceCalendar,
-  ids: new Map(threeEvents.map((event) => [event.uid.value, event.id])),
-});
+const knownFromSeed = () => knownFrom(threeEvents);
 
 describe("a short read is never a deletion", () => {
   test("CONF-O1: a page truncated to one of three events never yields a snapshot", async () => {
     const harness = await referenceHarness(truncatingAfter(1));
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
 
     const result = await listChanges(harness.provider, harness.environment, scope);
 
@@ -50,7 +56,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O1: a truncated page derives no removal even though two seeded events are missing", async () => {
     const harness = await referenceHarness(truncatingAfter(1));
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -63,7 +69,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O1: a truncated page returns a continuation and structurally cannot carry a cursor", async () => {
     const harness = await referenceHarness(truncatingAfter(1));
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -80,7 +86,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O2: a transport failure and an empty calendar are two distinguishable outputs", async () => {
     const failing = await referenceHarness();
-    await failing.provider.seed({ events: [], corruptKnownRows: [] });
+    await failing.provider.seed(seedOf([], []));
     failing.environment.transport.answerWith({
       kind: "reject",
       failure: { kind: "transport", status: 503, disposition: "transient" },
@@ -89,7 +95,7 @@ describe("a short read is never a deletion", () => {
     const failed = await listChanges(failing.provider, failing.environment, scope);
 
     const empty = await referenceHarness();
-    await empty.provider.seed({ events: [], corruptKnownRows: [] });
+    await empty.provider.seed(seedOf([], []));
     const emptied = await listChanges(empty.provider, empty.environment, scope);
 
     expect(failureOf(failed).kind).toBe("transport");
@@ -101,7 +107,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O2: a genuinely empty calendar still proves its coverage", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -112,7 +118,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O3: the reference declares snapshotAbsence, so absence inside coverage is a removal", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [alpha], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([alpha], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -129,7 +135,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O4: proven coverage is the narrower window, never the requested one", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
     const wider = scopeOver(spanning("2020-01-01T00:00:00.000Z", "2030-01-01T00:00:00.000Z"));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, wider));
@@ -141,16 +147,13 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O4: nothing in the requested-but-uncovered band is derivable as a removal", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
     const wider = scopeOver(spanning("2020-01-01T00:00:00.000Z", "2030-01-01T00:00:00.000Z"));
     const listing = okValue(await listChanges(harness.provider, harness.environment, wider));
 
     const removed = derivableRemovals({
       listing,
-      known: {
-        calendar: referenceCalendar,
-        ids: new Map([["ancient", { kind: "remoteEventId", value: "id-ancient" }]]),
-      },
+      known: knownNamed("ancient", timedAt("2026-03-02T09:00:00.000Z", "2026-03-02T10:00:00.000Z")),
       withinWindow: () => true,
     });
 
@@ -166,7 +169,7 @@ describe("a short read is never a deletion", () => {
       start: "2026-03-05T10:00:00.000Z",
       end: "2026-03-05T09:00:00.000Z",
     });
-    await harness.provider.seed({ events: [unrepresentable], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([unrepresentable], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -174,10 +177,7 @@ describe("a short read is never a deletion", () => {
     expect(
       derivableRemovals({
         listing,
-        known: {
-          calendar: referenceCalendar,
-          ids: new Map([["inverted", unrepresentable.id]]),
-        },
+        known: knownFrom([unrepresentable]),
         withinWindow: () => true,
       }),
     ).toEqual([]);
@@ -186,7 +186,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O12: a corrupt known row demands a resync and emits zero removals", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: ["bravo"] });
+    await harness.provider.seed(seedOf(threeEvents, ["bravo"]));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -205,7 +205,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O34: cancelled, unnamed and outOfScope are three different verdicts", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     const removals = listing.removals ?? [];
@@ -219,7 +219,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O41: a truncated page's resumable token is a Continuation, never a SyncCursor", async () => {
     const harness = await referenceHarness(truncatingAfter(2));
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -230,7 +230,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O41: resuming from the continuation eventually proves coverage without ever deleting", async () => {
     const harness = await referenceHarness(truncatingAfter(2));
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
     const resume = first.continuation ?? null;
 
@@ -244,7 +244,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O1: assertNoRemovalDerivable throws a typed ConformanceViolation on a snapshot short read", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [alpha], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([alpha], []));
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     expect(() => assertNoRemovalDerivable(listing)).toThrow(ConformanceViolation);
@@ -253,7 +253,7 @@ describe("a short read is never a deletion", () => {
 
   test("CONF-O4: a coverage window proved for a different calendar is refused", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: threeEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(threeEvents, []));
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     expect(listing.coverage?.calendar.calendar.value).toBe(

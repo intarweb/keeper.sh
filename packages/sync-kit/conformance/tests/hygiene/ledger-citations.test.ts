@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "vitest";
 import { caseIdsCitedBy, conformanceCaseIds, ledgerEntryOf } from "../../src/case-id";
 import type { ConformanceCaseId, LedgerEntryId } from "../../src/case-id";
 import { packageRoot, readSource, sourceFiles } from "../support/sources";
@@ -17,10 +17,13 @@ const conformanceSectionOf = (ledger: string): string =>
 const isCaseId = (value: string): value is ConformanceCaseId =>
   conformanceCaseIds.some((id) => id === value);
 
-const plannedCaseParagraphsIn = (body: string): readonly string[] =>
+const provingMarker = "**Proved by.**";
+
+const provingClaimsIn = (body: string): readonly string[] =>
   body
     .split(/\n\n+/)
-    .filter((paragraph) => paragraph.includes("**Planned case.**"));
+    .filter((paragraph) => paragraph.includes(provingMarker))
+    .map((paragraph) => paragraph.slice(paragraph.indexOf(provingMarker)));
 
 const citationsIn = (section: string): readonly Citation[] => {
   const entries = section.split(/^### (CONF-I\d+)\./gm);
@@ -31,7 +34,7 @@ const citationsIn = (section: string): readonly Citation[] => {
     if (!entry || !body) {
       continue;
     }
-    for (const paragraph of plannedCaseParagraphsIn(body)) {
+    for (const paragraph of provingClaimsIn(body)) {
       const files = [
         ...paragraph.matchAll(/`conformance\/(tests\/[^`\s]+\.test\.ts)`/g),
       ].flatMap((match) => {
@@ -73,9 +76,13 @@ const titlesIn = (text: string): readonly string[] =>
     return [title];
   });
 
-const citations = citationsIn(conformanceSectionOf(await ledgerText()));
+let citations: readonly Citation[] = [];
 
 describe("the ledger can be walked against the suite", () => {
+  beforeAll(async () => {
+    citations = citationsIn(conformanceSectionOf(await ledgerText()));
+  });
+
   test("CONF-I59: every cited test file exists and every case resolves to a real ledger entry", async () => {
     const section = conformanceSectionOf(await ledgerText());
     const files = new Set(await sourceFiles("tests"));

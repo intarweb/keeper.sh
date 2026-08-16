@@ -20,6 +20,8 @@ import type {
   WriteIntent,
 } from "@keeper.sh/sync-protocol";
 import type { CanonicalValue } from "../../src/canonical";
+import type { ProviderSeed } from "../../src/options";
+import type { KnownMirror } from "../../src/assertions/no-removal";
 import { referenceCalendar } from "../../src/reference/provider";
 
 const instant = (value: string): Instant => ({ kind: "instant", value });
@@ -185,9 +187,32 @@ const deleteIntent = (handle: string, version: string): WriteIntent<"reference">
   reason: "sourceDeleted",
 });
 
+const knownFrom = (events: readonly RemoteEvent[]): KnownMirror => ({
+  calendar: referenceCalendar,
+  entries: events.map((event) => ({ uid: event.uid.value, id: event.id, time: timeOf(event) })),
+});
+
+const knownNamed = (uid: string, time: EventTime): KnownMirror => ({
+  calendar: referenceCalendar,
+  entries: [{ uid, id: { kind: "remoteEventId", value: `id-${uid}` }, time }],
+});
+
+const seedOf = (
+  events: readonly RemoteEvent[],
+  corruptKnownRows: readonly string[] = [],
+): ProviderSeed => ({
+  events,
+  corruptKnownRows,
+  cancelled: [],
+  unattributableRemovals: [],
+});
+
 export {
   contextOf,
   createIntent,
+  knownFrom,
+  knownNamed,
+  seedOf,
   deleteIntent,
   normalized,
   updateIntent,

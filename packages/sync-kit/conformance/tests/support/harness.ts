@@ -12,7 +12,10 @@ import { installation, instant, isInsideWindow } from "./protocol";
 
 const suiteStart = instant("2026-03-11T00:00:00.000Z");
 
-const countingHash = (input: string): string => `h${input.length}:${input.slice(0, 16)}`;
+const countingHash = (input: string): string =>
+  `h${input.length}:${new Bun.CryptoHasher("sha256").update(input).digest("hex").slice(0, 16)}`;
+
+const collidingHash = (input: string): string => `collides:${input.length}`;
 
 const environmentFor = (): ConformanceEnvironment =>
   createConformanceEnvironment({
@@ -67,9 +70,10 @@ interface MutantOutcome {
   readonly failed: readonly ConformanceCaseId[];
 }
 
-const runSuiteAgainstMutant = async (defect: ConformanceCaseId): Promise<MutantOutcome> => {
-  const environment = environmentFor();
-  const provider = await createMutantReferenceProvider(environment, defect);
+const runSuiteAgainst = async (
+  provider: ProviderUnderTest<"reference">,
+  environment: ConformanceEnvironment,
+): Promise<MutantOutcome> => {
   const selection = selectConformanceCases(referenceCapabilities);
   const failed: ConformanceCaseId[] = [];
   try {
@@ -93,13 +97,25 @@ const runSuiteAgainstMutant = async (defect: ConformanceCaseId): Promise<MutantO
   return { failed };
 };
 
+const runSuiteAgainstMutant = async (defect: ConformanceCaseId): Promise<MutantOutcome> => {
+  const environment = environmentFor();
+  return runSuiteAgainst(await createMutantReferenceProvider(environment, defect), environment);
+};
+
+const runSuiteAgainstUnmutatedReference = async (): Promise<MutantOutcome> => {
+  const environment = environmentFor();
+  return runSuiteAgainst(await createReferenceProvider(environment), environment);
+};
+
 export {
+  collidingHash,
   countingHash,
   environmentFor,
   referenceHarness,
   runCaseAgainst,
   runReferenceCase,
   runSuiteAgainstMutant,
+  runSuiteAgainstUnmutatedReference,
   suiteStart,
 };
 export type { MutantOutcome, ReferenceHarness };

@@ -177,11 +177,26 @@ const foreignEvent = (calendar: CalendarKey, draft: EventDraft): RemoteEvent => 
   };
 };
 
+interface SeedOptions {
+  readonly corruptKnownRows?: readonly string[];
+  readonly cancelled?: readonly string[];
+  readonly unattributableRemovals?: readonly string[];
+}
+
 const seedWith = <Provider extends ProviderId>(
   context: CaseContext<Provider>,
   events: readonly RemoteEvent[],
-  corruptKnownRows: readonly string[] = [],
-): Promise<void> => context.provider.seed({ events, corruptKnownRows });
+  options: SeedOptions = {},
+): Promise<void> =>
+  context.provider.seed({
+    events,
+    corruptKnownRows: options.corruptKnownRows ?? [],
+    cancelled: (options.cancelled ?? []).map((uid) => ({ kind: "eventUid", value: uid })),
+    unattributableRemovals: (options.unattributableRemovals ?? []).map((id) => ({
+      kind: "remoteEventId",
+      value: id,
+    })),
+  });
 
 const writeLogSince = async <Provider extends ProviderId>(
   provider: ProviderUnderTest<Provider>,
@@ -249,4 +264,4 @@ export {
   writeLogLength,
   writeLogSince,
 };
-export type { ContextOptions, EventDraft };
+export type { ContextOptions, EventDraft, SeedOptions };

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import { derivableRemovals } from "../src/assertions/no-removal";
-import { referenceCalendar } from "../src/reference/provider";
 import { listChanges, okValue, write } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
 import {
@@ -12,6 +11,8 @@ import {
   spanning,
   timeOf,
   timedAt,
+  knownFrom,
+  seedOf,
 } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
@@ -45,12 +46,12 @@ const zeroDuration = foreignEvent({
 describe("one window predicate, agreeing at every boundary", () => {
   test("CONF-O27: the lower edge is admitted by the same predicate at listing and removal time", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [onTheLowerEdge], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([onTheLowerEdge], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
     const removable = derivableRemovals({
       listing,
-      known: { calendar: referenceCalendar, ids: new Map([["lower-edge", onTheLowerEdge.id]]) },
+      known: knownFrom([onTheLowerEdge]),
       withinWindow: isInsideWindow,
     });
 
@@ -61,7 +62,7 @@ describe("one window predicate, agreeing at every boundary", () => {
 
   test("CONF-O27: the upper edge gets the same verdict from the predicate on both sides", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [onTheUpperEdge], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([onTheUpperEdge], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
     const listed = (listing.events ?? []).some((event) => event.uid.value === "upper-edge");
@@ -73,7 +74,7 @@ describe("one window predicate, agreeing at every boundary", () => {
 
   test("CONF-O27: an inverted window admits nothing and removes nothing", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [onTheLowerEdge], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([onTheLowerEdge], []));
     const inverted = scopeOver(
       spanning("2026-04-01T00:00:00.000Z", "2026-03-01T00:00:00.000Z"),
     );
@@ -84,7 +85,7 @@ describe("one window predicate, agreeing at every boundary", () => {
     expect(
       derivableRemovals({
         listing,
-        known: { calendar: referenceCalendar, ids: new Map([["lower-edge", onTheLowerEdge.id]]) },
+        known: knownFrom([onTheLowerEdge]),
         withinWindow: isInsideWindow,
       }),
     ).toEqual([]);
@@ -93,14 +94,14 @@ describe("one window predicate, agreeing at every boundary", () => {
 
   test("CONF-O26: an event reported outside the requested window is returned and never removed", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [outsideTheWindow], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([outsideTheWindow], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     expect(
       derivableRemovals({
         listing,
-        known: { calendar: referenceCalendar, ids: new Map([["outside", outsideTheWindow.id]]) },
+        known: knownFrom([outsideTheWindow]),
         withinWindow: isInsideWindow,
       }),
     ).toEqual([]);
@@ -109,7 +110,7 @@ describe("one window predicate, agreeing at every boundary", () => {
 
   test("CONF-O26: two polls do not oscillate an out-of-window event between add and retire", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [outsideTheWindow], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([outsideTheWindow], []));
 
     await listChanges(harness.provider, harness.environment, scope);
     const afterFirst = await harness.provider.inspect();
@@ -122,7 +123,7 @@ describe("one window predicate, agreeing at every boundary", () => {
 
   test("CONF-O28: a zero-duration event is preserved at the source", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [zeroDuration], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([zeroDuration], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
     const found = (listing.events ?? []).filter((event) => event.uid.value === "degenerate");

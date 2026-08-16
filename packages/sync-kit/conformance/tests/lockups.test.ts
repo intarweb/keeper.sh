@@ -4,7 +4,7 @@ import { stallingOn } from "../src/fixtures";
 import { conformanceLimits } from "../src/limits";
 import { failureOf, listChanges, okValue } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
-import { foreignEvent, scopeOver, spanning } from "./support/protocol";
+import { foreignEvent, scopeOver, seedOf, spanning } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
 const april = spanning("2026-04-01T00:00:00.000Z", "2026-05-01T00:00:00.000Z");
@@ -49,7 +49,7 @@ afterEach(() => {
 describe("nothing in this package can wedge", () => {
   test("CONF-L1: a retry path stops at the declared attempt ceiling", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     harness.environment.transport.answerWith({
       kind: "reject",
       failure: {
@@ -75,7 +75,7 @@ describe("nothing in this package can wedge", () => {
     const tight = await referenceHarness();
     const loose = await referenceHarness();
     for (const harness of [tight, loose]) {
-      await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+      await harness.provider.seed(seedOf(seedEvents, []));
       harness.environment.transport.answerWith({
         kind: "reject",
         failure: { kind: "rateLimited", retryAfter: null, scope: "perUser" },
@@ -102,7 +102,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L1: a provider-supplied retry delay is capped by the budget, not obeyed", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     harness.environment.transport.answerWith({
       kind: "reject",
       failure: {
@@ -128,7 +128,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L2: a permanently pending transport settles as a typed failure at the deadline", async () => {
     const harness = await referenceHarness(stallingOn(() => true));
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
 
     const pending = listChanges(harness.provider, harness.environment, scope, null, {
       deadlineMs: conformanceLimits.deadlineMs,
@@ -141,7 +141,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L2: reaching the deadline leaves no timer behind", async () => {
     const harness = await referenceHarness(stallingOn(() => true));
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
 
     const pending = listChanges(harness.provider, harness.environment, scope, null, {
       deadlineMs: conformanceLimits.deadlineMs,
@@ -156,7 +156,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L3: an abort mid-flight is reported as aborted, never as a provider timeout", async () => {
     const harness = await referenceHarness(stallingOn(() => true));
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     const caller = new AbortController();
 
     const pending = listChanges(harness.provider, harness.environment, scope, null, {
@@ -174,8 +174,8 @@ describe("nothing in this package can wedge", () => {
   test("CONF-L3: an abort and a deadline produce different outcomes", async () => {
     const aborted = await referenceHarness(stallingOn(() => true));
     const expired = await referenceHarness(stallingOn(() => true));
-    await aborted.provider.seed({ events: seedEvents, corruptKnownRows: [] });
-    await expired.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await aborted.provider.seed(seedOf(seedEvents, []));
+    await expired.provider.seed(seedOf(seedEvents, []));
     const caller = new AbortController();
 
     const abortedRun = listChanges(aborted.provider, aborted.environment, scope, null, {
@@ -198,7 +198,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L4: a single-flight leader's rejection reaches every follower", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     harness.environment.transport.answerWith({ kind: "throw", times: 1 });
 
     const followers = Array.from({ length: 5 }, () =>
@@ -214,7 +214,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L4: a caller arriving after the rejection starts a fresh attempt", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     harness.environment.transport.answerWith({ kind: "throw", times: 1 });
     const first = listChanges(harness.provider, harness.environment, scope);
     await vi.advanceTimersByTimeAsync(1000);
@@ -232,7 +232,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L5: coalesced callers each receive their own diagnostics object", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
 
     const leading = listChanges(harness.provider, harness.environment, scope);
     const following = listChanges(harness.provider, harness.environment, scope);
@@ -247,7 +247,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L6: overlapping key sets acquired in opposite orders both settle", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
 
     const forward = Promise.all([
       listChanges(harness.provider, harness.environment, scope),
@@ -266,7 +266,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L7: a lease taken by a synchronously throwing body is released", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     harness.environment.transport.answerWith({ kind: "throw", times: 1 });
     const thrown = listChanges(harness.provider, harness.environment, scope);
     await vi.advanceTimersByTimeAsync(1000);
@@ -284,7 +284,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L7: a lease taken by a rejecting body is released", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     harness.environment.transport.answerWith({
       kind: "reject",
       failure: { kind: "transport", status: 500, disposition: "permanent" },
@@ -306,7 +306,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L8: no timer survives a completed operation", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
 
     const listing = listChanges(harness.provider, harness.environment, scope);
     await vi.advanceTimersByTimeAsync(1000);
@@ -320,7 +320,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L8: no timer survives a failed operation", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     harness.environment.transport.answerWith({ kind: "throw", times: 1 });
 
     const listing = listChanges(harness.provider, harness.environment, scope);
@@ -335,7 +335,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L9: an aborted waiter does not strand the waiters behind it", async () => {
     const harness = await referenceHarness(stallingOn(() => true));
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     const cancelled = new AbortController();
 
     const first = listChanges(harness.provider, harness.environment, scope, null, {
@@ -365,7 +365,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L10: an aborted queued task does not leak its concurrency permit", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     const cancelled = new AbortController();
 
     const indices = [...Array.from({ length: conformanceLimits.fanOutTasks }).keys()];
@@ -388,7 +388,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L11: a fan-out returns one result per task even when one stalls forever", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
 
     const tasks = Array.from({ length: conformanceLimits.fanOutTasks }, () =>
       listChanges(harness.provider, harness.environment, scope, null, {
@@ -406,7 +406,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L11: a fan-out never exceeds the declared concurrency", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
 
     const tasks = Array.from({ length: conformanceLimits.fanOutTasks }, () =>
       listChanges(harness.provider, harness.environment, scope),
@@ -422,7 +422,7 @@ describe("nothing in this package can wedge", () => {
 
   test("CONF-L12: an unattempted run is neither a success nor a failure", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seedEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seedEvents, []));
     const caller = new AbortController();
     caller.abort();
 
@@ -435,27 +435,17 @@ describe("nothing in this package can wedge", () => {
     await harness.dispose();
   });
 
-  test("CONF-L1: the generated case passes for the reference provider", async () => {
-    await expect(runReferenceCase("CONF-L1")).resolves.toBeUndefined();
+});
+
+describe("the generated lockup cases drive real timers, as an adapter's own suite will", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
   });
 
-  test("CONF-L2: the generated case passes for the reference provider", async () => {
-    await expect(runReferenceCase("CONF-L2")).resolves.toBeUndefined();
-  });
-
-  test("CONF-L4: the generated case passes for the reference provider", async () => {
-    await expect(runReferenceCase("CONF-L4")).resolves.toBeUndefined();
-  });
-
-  test("CONF-L7: the generated case passes for the reference provider", async () => {
-    await expect(runReferenceCase("CONF-L7")).resolves.toBeUndefined();
-  });
-
-  test("CONF-L11: the generated case passes for the reference provider", async () => {
-    await expect(runReferenceCase("CONF-L11")).resolves.toBeUndefined();
-  });
-
-  test("CONF-L12: the generated case passes for the reference provider", async () => {
-    await expect(runReferenceCase("CONF-L12")).resolves.toBeUndefined();
-  });
+  test.each(["CONF-L1", "CONF-L2", "CONF-L3", "CONF-L4", "CONF-L7", "CONF-L11", "CONF-L12"] as const)(
+    "%s: the generated case passes for the reference provider",
+    async (id) => {
+      await expect(runReferenceCase(id)).resolves.toBeUndefined();
+    },
+  );
 });

@@ -10,6 +10,7 @@ import {
   spanning,
   summarise,
   timedAt,
+  seedOf,
 } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
@@ -34,8 +35,8 @@ describe("identical input is zero work", () => {
   test("CONF-O8: the same colliding pair produces the same winner in either feed order", async () => {
     const forward = await referenceHarness();
     const backward = await referenceHarness();
-    await forward.provider.seed({ events: [early, late], corruptKnownRows: [] });
-    await backward.provider.seed({ events: [late, early], corruptKnownRows: [] });
+    await forward.provider.seed(seedOf([early, late], []));
+    await backward.provider.seed(seedOf([late, early], []));
 
     const first = okValue(await listChanges(forward.provider, forward.environment, scope));
     const second = okValue(await listChanges(backward.provider, backward.environment, scope));
@@ -49,7 +50,7 @@ describe("identical input is zero work", () => {
 
   test("CONF-O9: a second identical poll writes nothing at all", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [early], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([early], []));
     await listChanges(harness.provider, harness.environment, scope);
     const afterFirst = await harness.provider.inspect();
 
@@ -104,7 +105,7 @@ describe("identical input is zero work", () => {
 
   test("CONF-O22: one identity repeated in a listing is one entry, last observation wins", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [early, late, early], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([early, late, early], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
     const collided = (listing.events ?? []).filter((event) => event.uid.value === "collider");
@@ -116,8 +117,8 @@ describe("identical input is zero work", () => {
   test("CONF-O22: reversing the repeats picks the same winner", async () => {
     const forward = await referenceHarness();
     const backward = await referenceHarness();
-    await forward.provider.seed({ events: [early, late], corruptKnownRows: [] });
-    await backward.provider.seed({ events: [late, early], corruptKnownRows: [] });
+    await forward.provider.seed(seedOf([early, late], []));
+    await backward.provider.seed(seedOf([late, early], []));
 
     const first = okValue(await listChanges(forward.provider, forward.environment, scope));
     const second = okValue(await listChanges(backward.provider, backward.environment, scope));
@@ -131,7 +132,7 @@ describe("identical input is zero work", () => {
 
   test("CONF-O9: a failed poll is still not a write", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [early], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([early], []));
     harness.environment.transport.answerWith({
       kind: "reject",
       failure: { kind: "transport", status: 500, disposition: "permanent" },

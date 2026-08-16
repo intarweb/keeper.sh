@@ -26,9 +26,6 @@ const insertionOrderKeys = (keys: readonly string[]): readonly string[] => keys;
 const isCanonicalArray = (value: CanonicalValue): value is readonly CanonicalValue[] =>
   Array.isArray(value);
 
-const presentMembers = (value: Record<string, CanonicalValue>): readonly string[] =>
-  Object.keys(value).filter((key) => (value[key] ?? null) !== null);
-
 const canonicaliseWith = (order: KeyOrder, value: CanonicalValue): string => {
   if (value === null) {
     return "null";
@@ -45,7 +42,7 @@ const canonicaliseWith = (order: KeyOrder, value: CanonicalValue): string => {
   if (isCanonicalArray(value)) {
     return `[${value.map((member) => canonicaliseWith(order, member)).join(",")}]`;
   }
-  return `{${order(presentMembers(value))
+  return `{${order(Object.keys(value))
     .map((key) => `${JSON.stringify(key)}:${canonicaliseWith(order, value[key] ?? null)}`)
     .join(",")}}`;
 };

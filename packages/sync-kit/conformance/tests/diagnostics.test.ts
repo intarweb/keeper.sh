@@ -11,6 +11,7 @@ import {
   scopeOver,
   spanning,
   timedAt,
+  seedOf,
 } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
@@ -70,7 +71,7 @@ describe("diagnostics are bounded, exact, and carry no content", () => {
 
   test("CONF-O19: the leak scan actually fires when content is present", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [benign], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([benign], []));
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     expect(() => assertNoContentInDiagnostics(listing, ["benign"])).toThrow();
@@ -79,7 +80,7 @@ describe("diagnostics are bounded, exact, and carry no content", () => {
 
   test("CONF-O30: a clean listing reports all-zero totals", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [benign], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([benign], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -95,7 +96,7 @@ describe("diagnostics are bounded, exact, and carry no content", () => {
       start: "2026-03-05T10:00:00.000Z",
       end: "2026-03-05T09:00:00.000Z",
     });
-    await harness.provider.seed({ events: [unrepresentable], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([unrepresentable], []));
     await write(harness.provider, harness.environment, createIntent("ours", secretiveEvent));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
@@ -107,7 +108,7 @@ describe("diagnostics are bounded, exact, and carry no content", () => {
 
   test("CONF-O30: two identical polls produce identical diagnostics including sample order", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: manyWithheld.slice(0, 5), corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(manyWithheld.slice(0, 5), []));
 
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
     const second = okValue(await listChanges(harness.provider, harness.environment, scope));
@@ -118,7 +119,7 @@ describe("diagnostics are bounded, exact, and carry no content", () => {
 
   test("CONF-O31: the sample is bounded by entry count while the total stays exact", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: manyWithheld, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(manyWithheld, []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -137,7 +138,7 @@ describe("diagnostics are bounded, exact, and carry no content", () => {
       start: "2026-03-06T10:00:00.000Z",
       end: "2026-03-06T09:00:00.000Z",
     });
-    await harness.provider.seed({ events: [pathological], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([pathological], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -153,7 +154,7 @@ describe("diagnostics are bounded, exact, and carry no content", () => {
 
   test("CONF-O42: a failed run leaks no diagnostics into the run that follows it", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [benign], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([benign], []));
     harness.environment.transport.answerWith({
       kind: "reject",
       failure: { kind: "transport", status: 500, disposition: "permanent" },

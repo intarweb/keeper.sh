@@ -33,7 +33,9 @@ const createTestClock = (options: TestClockOptions): TestClock => {
     const wakeAt = currentMs + milliseconds;
     const pending = Promise.withResolvers<null>();
     const armedTimer: TimerHolder = { current: null };
+    const listening = new AbortController();
     const disarm = (): void => {
+      listening.abort();
       if (armedTimer.current === null) {
         return;
       }
@@ -52,7 +54,7 @@ const createTestClock = (options: TestClockOptions): TestClock => {
         disarm();
         pending.reject(new SleepAborted());
       },
-      { once: true },
+      { once: true, signal: listening.signal },
     );
     await pending.promise;
   };

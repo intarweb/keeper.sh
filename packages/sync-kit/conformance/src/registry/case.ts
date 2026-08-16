@@ -11,8 +11,7 @@ interface CaseContext<Provider extends ProviderId = ProviderId> {
 
 type CaseGate =
   | { readonly kind: "ungated" }
-  | { readonly kind: "branch"; readonly capability: keyof Capabilities; readonly branch: string }
-  | { readonly kind: "skip"; readonly capability: keyof Capabilities; readonly reason: string };
+  | { readonly kind: "branch"; readonly capability: keyof Capabilities; readonly branch: string };
 
 interface ConformanceCase<Provider extends ProviderId = ProviderId> {
   readonly id: ConformanceCaseId;

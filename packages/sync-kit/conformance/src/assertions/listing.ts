@@ -1,4 +1,13 @@
-import type { ChangeListing, ListingScope, RemoteEvent, Result } from "@keeper.sh/sync-protocol";
+import type {
+  ChangeListing,
+  ListingDiagnostics,
+  ListingScope,
+  RemoteEvent,
+  Removal,
+  Result,
+  WithheldEvent,
+} from "@keeper.sh/sync-protocol";
+import { assertNever } from "@keeper.sh/sync-protocol";
 import type { CanonicalValue } from "../canonical";
 import { canonicalise } from "../canonical";
 import { violated } from "../violation";
@@ -44,26 +53,56 @@ const identifiersOf = (event: RemoteEvent): CanonicalValue => ({
   fingerprint: event.fingerprint.value,
 });
 
-const loggableFacts = (listing: ChangeListing): CanonicalValue => ({
-  kind: listing.kind,
-  diagnostics: {
-    withheld: [...listing.diagnostics.withheld.sample],
-    selfAuthored: [...listing.diagnostics.selfAuthored.sample],
-    unrepresentable: [...listing.diagnostics.unrepresentable.sample],
-    pagesFetched: listing.diagnostics.pagesFetched,
-  },
-  events: (listing.events ?? []).map((event) => identifiersOf(event)),
-  withheld: (listing.withheld ?? []).map((entry) => ({
+const loggableDiagnostics = (diagnostics: ListingDiagnostics): CanonicalValue => ({
+  withheld: [...diagnostics.withheld.sample],
+  selfAuthored: [...diagnostics.selfAuthored.sample],
+  unrepresentable: [...diagnostics.unrepresentable.sample],
+  pagesFetched: diagnostics.pagesFetched,
+});
+
+const loggableEvents = (events: readonly RemoteEvent[]): CanonicalValue =>
+  events.map((event) => identifiersOf(event));
+
+const loggableWithheld = (withheld: readonly WithheldEvent[]): CanonicalValue =>
+  withheld.map((entry) => ({
     uid: entry.uid?.value ?? null,
     id: entry.id?.value ?? null,
     reason: entry.reason,
-  })),
-  removals: (listing.removals ?? []).map((removal) => ({
-    kind: removal.kind,
-    id: removal.id.value,
-  })),
-  cursor: listing.cursor?.value ?? null,
-});
+  }));
+
+const loggableRemovals = (removals: readonly Removal[]): CanonicalValue =>
+  removals.map((removal) => ({ kind: removal.kind, id: removal.id.value }));
+
+const loggableFacts = (listing: ChangeListing): CanonicalValue => {
+  switch (listing.kind) {
+    case "snapshot":
+    case "delta": {
+      return {
+        kind: listing.kind,
+        diagnostics: loggableDiagnostics(listing.diagnostics),
+        events: loggableEvents(listing.events),
+        withheld: loggableWithheld(listing.withheld),
+        removals: loggableRemovals(listing.removals),
+        cursor: listing.cursor?.value ?? null,
+      };
+    }
+    case "partial": {
+      return {
+        kind: listing.kind,
+        diagnostics: loggableDiagnostics(listing.diagnostics),
+        events: loggableEvents(listing.events),
+        withheld: loggableWithheld(listing.withheld),
+        continuation: listing.continuation.value,
+      };
+    }
+    case "cursorLost": {
+      return { kind: listing.kind, diagnostics: loggableDiagnostics(listing.diagnostics) };
+    }
+    default: {
+      return assertNever(listing);
+    }
+  }
+};
 
 const assertNoContentInDiagnostics = (
   listing: ChangeListing,

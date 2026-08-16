@@ -11,6 +11,8 @@ interface ReferenceStore {
   readonly objects: () => readonly RemoteEvent[];
   readonly writeLog: () => readonly WriteLogEntry[];
   readonly corruptKnownRows: () => readonly string[];
+  readonly cancelled: () => readonly EventUid[];
+  readonly unattributableRemovals: () => readonly RemoteEventId[];
   readonly calendar: () => CalendarKey;
   readonly replaceObjects: (events: readonly RemoteEvent[]) => void;
   readonly record: (entry: WriteLogEntry) => void;
@@ -28,6 +30,8 @@ const signatureOf = (event: RemoteEvent): string =>
 const createReferenceStore = (calendar: CalendarKey): ReferenceStore => {
   let stored: readonly RemoteEvent[] = [];
   let corrupt: readonly string[] = [];
+  let cancellations: readonly EventUid[] = [];
+  let unattributable: readonly RemoteEventId[] = [];
   let reported: readonly ReportedIdentity[] = [];
   const log: WriteLogEntry[] = [];
   const sequences = new Map<string, number>();
@@ -52,12 +56,17 @@ const createReferenceStore = (calendar: CalendarKey): ReferenceStore => {
 
   return {
     seed: (next: ProviderSeed) => {
-      corrupt = next.corruptKnownRows;
-      replaceObjects(next.events);
+      const { cancelled, corruptKnownRows, events, unattributableRemovals } = next;
+      corrupt = corruptKnownRows;
+      cancellations = cancelled;
+      unattributable = unattributableRemovals;
+      replaceObjects(events);
     },
     objects: () => stored,
     writeLog: () => log,
     corruptKnownRows: () => corrupt,
+    cancelled: () => cancellations,
+    unattributableRemovals: () => unattributable,
     calendar: () => calendar,
     replaceObjects,
     record: (entry: WriteLogEntry) => {

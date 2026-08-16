@@ -4,7 +4,7 @@ import { selectConformanceCases } from "../src/registry/suite";
 import { referenceCapabilities } from "../src/reference/capabilities";
 import { listChanges } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
-import { foreignEvent, scopeOver, spanning } from "./support/protocol";
+import { foreignEvent, scopeOver, seedOf, spanning } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
 const scope = scopeOver(march);
@@ -23,7 +23,7 @@ const lockupCaseIds = new Set(conformanceCaseIds.filter((id) => id.startsWith("C
 describe("the injected seams were actually used", () => {
   test("CONF-L13: a nominal operation goes through the injected transport", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seeded, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seeded, []));
 
     await listChanges(harness.provider, harness.environment, scope);
 
@@ -33,7 +33,7 @@ describe("the injected seams were actually used", () => {
 
   test("CONF-L13: a nominal operation reads the injected clock", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seeded, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seeded, []));
     const before = harness.environment.clock.nowCount();
 
     await listChanges(harness.provider, harness.environment, scope);
@@ -53,7 +53,7 @@ describe("the injected seams were actually used", () => {
 
   test("CONF-L13: an adapter that ignores the injected seams fails the case", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seeded, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seeded, []));
     const untouched = harness.environment.transport.callCount();
 
     expect(untouched).toBe(0);

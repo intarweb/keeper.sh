@@ -1,16 +1,28 @@
 import type {
+  CalendarKey,
   ChangeListing,
   EventTime,
-  KnownEvents,
+  RemoteEventId,
   TimeWindow,
   WindowMembership,
 } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
 import { violated } from "../violation";
 
+interface KnownIdentity {
+  readonly uid: string;
+  readonly id: RemoteEventId;
+  readonly time: EventTime;
+}
+
+interface KnownMirror {
+  readonly calendar: CalendarKey;
+  readonly entries: readonly KnownIdentity[];
+}
+
 interface RemovalBasis {
   readonly listing: ChangeListing;
-  readonly known: KnownEvents;
+  readonly known: KnownMirror;
   readonly withinWindow: WindowMembership;
 }
 
@@ -32,13 +44,6 @@ const assertNoRemovalDerivable = (listing: ChangeListing): void => {
     }
   }
 };
-
-const spanning = (window: TimeWindow): EventTime => ({
-  kind: "timed",
-  start: window.start,
-  end: window.end,
-  zone: null,
-});
 
 const provesTheWholeRequest = (covered: TimeWindow, requested: TimeWindow): boolean =>
   covered.start.value === requested.start.value && covered.end.value === requested.end.value;
@@ -74,11 +79,11 @@ const absentFromSnapshot = (
   if (!provesTheWholeRequest(listing.coverage.covered, listing.scope.window)) {
     return [];
   }
-  if (!basis.withinWindow(listing.coverage.covered, spanning(listing.coverage.covered))) {
-    return [];
-  }
   const present = presentIdentities(listing);
-  return [...basis.known.ids.keys()].filter((uid) => !present.has(uid));
+  const covered = basis.known.entries.filter((entry) =>
+    basis.withinWindow(listing.coverage.covered, entry.time),
+  );
+  return covered.filter((entry) => !present.has(entry.uid)).map((entry) => entry.uid);
 };
 
 const derivableRemovals = (basis: RemovalBasis): readonly string[] => {
@@ -90,7 +95,9 @@ const derivableRemovals = (basis: RemovalBasis): readonly string[] => {
     }
     case "delta": {
       const named = new Set(namedRemovals(listing));
-      return [...basis.known.ids.keys()].filter((uid) => named.has(uid));
+      return basis.known.entries
+        .filter((entry) => named.has(entry.uid))
+        .map((entry) => entry.uid);
     }
     case "snapshot": {
       return absentFromSnapshot(listing, basis);
@@ -102,4 +109,4 @@ const derivableRemovals = (basis: RemovalBasis): readonly string[] => {
 };
 
 export { assertNoRemovalDerivable, derivableRemovals };
-export type { RemovalBasis };
+export type { KnownIdentity, KnownMirror, RemovalBasis };

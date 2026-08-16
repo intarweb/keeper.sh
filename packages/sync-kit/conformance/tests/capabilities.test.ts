@@ -1,9 +1,13 @@
-import type { RemoteEvent } from "@keeper.sh/sync-protocol";
+import type { Capabilities, RemoteEvent } from "@keeper.sh/sync-protocol";
 import { describe, expect, test } from "vitest";
+import { allDayAs } from "../src/cases/capabilities";
 import { referenceCapabilities } from "../src/reference/capabilities";
 import { conformanceCaseIds } from "../src/case-id";
+import type { CaseGate } from "../src/registry/case";
+import { branchNameOf } from "../src/registry/gates";
 import { ungatedCaseIds } from "../src/report";
 import { selectConformanceCases } from "../src/registry/suite";
+import type { CaseSelection } from "../src/registry/suite";
 import { failureOf, listChanges, okValue, write } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
 import { createIntent, occurrence, scopeOver, spanning, timedAt } from "./support/protocol";
@@ -31,6 +35,25 @@ const zoneIdsOf = (events: readonly RemoteEvent[]): string[] =>
     return [time.zone.value];
   });
 
+const refusesEverything: Capabilities<"reference"> = {
+  ...referenceCapabilities,
+  delta: { kind: "none" },
+  deletionAuthority: "explicitRemovalsOnly",
+  removalsAreAmbiguous: true,
+  provenanceChannel: "none",
+  recurrenceWrite: "none",
+  echoesWrites: false,
+  allDay: "utcMidnightPair",
+  representableRange: { ...referenceCapabilities.representableRange, zeroDuration: "reject" },
+};
+
+const refusingCapabilities: readonly [string, Capabilities<"reference">][] = [
+  ["the reference's own capabilities", referenceCapabilities],
+  ["an adapter that refuses everything it can", refusesEverything],
+];
+
+const ungatedGate: CaseGate = { kind: "ungated" };
+
 const isAcceptedByIntl = (zone: string): boolean => {
   try {
     const formatter = new Intl.DateTimeFormat("en-US", { timeZone: zone });
@@ -55,23 +78,25 @@ describe("a declared refusal must actually refuse", () => {
     expect(ungatedCaseIds).toContain("CONF-O24");
   });
 
-  test("CONF-O29: every skipped case names the capability that skipped it", () => {
-    const selection = selectConformanceCases(referenceCapabilities);
+  test.each(refusingCapabilities)(
+    "CONF-O29: %s selects a branch and still runs every declared case",
+    (_name, supports) => {
+      const selection = selectConformanceCases(supports);
+      const covered = selection.selected.map((record) => record.id).toSorted();
 
-    expect(selection.skipped.filter((entry) => entry.reason.length === 0)).toEqual([]);
-    expect(
-      selection.skipped.filter((entry) => !conformanceCaseIds.includes(entry.id)),
-    ).toEqual([]);
-  });
+      expect(covered).toEqual([...conformanceCaseIds].toSorted());
+    },
+  );
 
-  test("CONF-O29: selection covers every declared case id exactly once", () => {
-    const selection = selectConformanceCases(referenceCapabilities);
-    const covered = [
-      ...selection.selected.map((record) => record.id),
-      ...selection.skipped.map((entry) => entry.id),
-    ].toSorted();
+  test("CONF-O29: a refusing capability takes a different branch, never no branch", () => {
+    const declining = selectConformanceCases(refusesEverything);
+    const accepting = selectConformanceCases(referenceCapabilities);
+    const branchOf = (selection: CaseSelection<"reference">, id: string): string | null =>
+      branchNameOf(selection.selected.find((record) => record.id === id)?.gate ?? ungatedGate);
 
-    expect(covered).toEqual([...conformanceCaseIds].toSorted());
+    expect(branchOf(declining, "CONF-O11")).toBe("noDelta");
+    expect(branchOf(accepting, "CONF-O11")).toBe("windowBoundToCursor");
+    expect(branchOf(declining, "CONF-O28")).toBe("reject");
   });
 
   test("CONF-O35: an unrepresentable construct is refused with its exact constraint", async () => {
@@ -135,6 +160,57 @@ describe("a declared refusal must actually refuse", () => {
 
     expect(failureOf(result).kind).toBe("unrepresentable");
     await harness.dispose();
+  });
+
+  test("CONF-O45: an all-day event round-trips in the representation the adapter declared", async () => {
+    const harness = await referenceHarness();
+    const submitted = allDayAs("all-day", harness.supports.allDay);
+
+    await write(harness.provider, harness.environment, createIntent("all-day", submitted));
+    const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
+    const mirrored = (listing.events ?? []).find((event) => event.uid.value === "all-day");
+
+    expect(harness.supports.allDay).toBe("dateOnly");
+    expect(mirrored?.content.time?.kind).toBe("allDay");
+    await harness.dispose();
+  });
+
+  test("CONF-O46: a declared throttle status is classified as rateLimited, an undeclared one is not", async () => {
+    const harness = await referenceHarness();
+    harness.environment.transport.answerWith({
+      kind: "status",
+      status: 429,
+      retryAfter: { kind: "instant", value: "2099-01-01T00:00:00.000Z" },
+      times: Number.MAX_SAFE_INTEGER,
+    });
+    const throttled = await listChanges(harness.provider, harness.environment, scope, null, {
+      maxAttempts: 1,
+    });
+    harness.environment.transport.answerWith({
+      kind: "status",
+      status: 599,
+      retryAfter: null,
+      times: Number.MAX_SAFE_INTEGER,
+    });
+    const rejected = await listChanges(harness.provider, harness.environment, scope, null, {
+      maxAttempts: 1,
+    });
+
+    expect(failureOf(throttled)).toEqual({
+      kind: "rateLimited",
+      retryAfter: { kind: "instant", value: "2099-01-01T00:00:00.000Z" },
+      scope: "perUser",
+    });
+    expect(failureOf(rejected).kind).toBe("transport");
+    await harness.dispose();
+  });
+
+  test("CONF-O45: the generated case passes for the reference provider", async () => {
+    await expect(runReferenceCase("CONF-O45")).resolves.toBeUndefined();
+  });
+
+  test("CONF-O46: the generated case passes for the reference provider", async () => {
+    await expect(runReferenceCase("CONF-O46")).resolves.toBeUndefined();
   });
 
   test("CONF-O29: the generated case passes for the reference provider", async () => {

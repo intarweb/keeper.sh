@@ -1,4 +1,4 @@
-export { planConformanceRun, runConformance } from "./run-conformance";
+export { conformanceHash, planConformanceRun, runConformance } from "./run-conformance";
 export type { ConformanceRunPlan, PlannedCase } from "./run-conformance";
 
 export { caseIdsCitedBy, conformanceCaseIds, ledgerEntryOf } from "./case-id";
@@ -8,7 +8,7 @@ export { ConformanceViolation } from "./violation";
 export type { ViolationDetail } from "./violation";
 
 export { ungatedCaseIds } from "./report";
-export type { ConformanceReport, SelectedCase, SkippedCase } from "./report";
+export type { ConformanceReport, SelectedCase } from "./report";
 
 export type {
   ConformanceEnvironment,
@@ -17,6 +17,7 @@ export type {
   ProviderSeed,
   ProviderUnderTest,
   RunConformanceOptions,
+  SuiteRunner,
   TestClock,
   TransportBehaviour,
   TransportStub,
@@ -40,7 +41,7 @@ export type { CaseSelection } from "./registry/suite";
 export type { CaseContext, CaseFamily, CaseGate, ConformanceCase } from "./registry/case";
 
 export { assertNoRemovalDerivable, derivableRemovals } from "./assertions/no-removal";
-export type { RemovalBasis } from "./assertions/no-removal";
+export type { KnownIdentity, KnownMirror, RemovalBasis } from "./assertions/no-removal";
 export {
   assertCoverageProven,
   assertCursorWithheld,
@@ -49,13 +50,13 @@ export {
 } from "./assertions/listing";
 export {
   assertConflictNotOverwrite,
-  assertNoDeleteThenCreate,
+  assertNoUnplannedRecreation,
   assertNoUnconditionalWrite,
 } from "./assertions/outcome";
 
 export { createReferenceProvider, referenceCalendar } from "./reference/provider";
 export { createMutantReferenceProvider } from "./reference/mutants";
-export { referenceCapabilities } from "./reference/capabilities";
+export { referenceCapabilities, referenceMinimumSpanSeconds } from "./reference/capabilities";
 
 export {
   composeDecorators,

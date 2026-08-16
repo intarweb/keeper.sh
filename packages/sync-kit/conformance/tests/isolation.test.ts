@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { listChanges, listingKindOf, okValue } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
-import { foreignEvent, scopeOver, spanning } from "./support/protocol";
+import { foreignEvent, scopeOver, seedOf, spanning } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
 const scope = scopeOver(march);
@@ -28,7 +28,7 @@ const doomed = foreignEvent({
 describe("one bad event does not stall the feed", () => {
   test("CONF-O6: a listing carrying one unusable item still returns the other items", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [usable, unusable], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([usable, unusable], []));
 
     const result = await listChanges(harness.provider, harness.environment, scope);
 
@@ -39,10 +39,10 @@ describe("one bad event does not stall the feed", () => {
 
   test("CONF-O6: a real deletion in the same payload as an unusable item still applies", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [usable, unusable, doomed], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([usable, unusable, doomed], []));
     await listChanges(harness.provider, harness.environment, scope);
 
-    await harness.provider.seed({ events: [usable, unusable], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([usable, unusable], []));
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
     const removed = (listing.removals ?? []).flatMap((removal) => {
       if (removal.kind === "outOfScope") {
@@ -57,7 +57,7 @@ describe("one bad event does not stall the feed", () => {
 
   test("CONF-O6: a second identical poll of a malformed feed is byte-identical", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: [usable, unusable], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([usable, unusable], []));
 
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
     const second = okValue(await listChanges(harness.provider, harness.environment, scope));

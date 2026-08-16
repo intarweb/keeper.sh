@@ -23,6 +23,7 @@ import type {
   WriteIntent,
   WriteOutcome,
 } from "@keeper.sh/sync-protocol";
+import type { ThrottleSignal } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
 import type { ConformanceCaseId } from "../case-id";
 import type { KeyOrder } from "../canonical";
@@ -32,7 +33,7 @@ import { raceDeadline, standardAnswers } from "../deadline";
 import { conformanceLimits } from "../limits";
 import type { ConformanceEnvironment, ProviderSeed, ProviderUnderTest } from "../options";
 import { createSingleFlight } from "../single-flight";
-import { failureOfTransportError } from "../transport";
+import { failureOfTransportError, TransportStatus } from "../transport";
 import { referenceCalendar } from "./calendar";
 import { referenceCapabilities } from "./capabilities";
 import { createCursorMint, scopeKeyOf } from "./cursor";
@@ -59,12 +60,19 @@ interface ReferenceOptions {
   readonly defect: Defect;
 }
 
+interface DecidedWrite {
+  readonly outcome: Result<WriteOutcome>;
+  readonly commit: () => void;
+}
+
 const remoteRefFor = (uid: string): RemoteRef => ({
   id: { kind: "remoteEventId", value: `id-${uid}` },
   deleteHandle: { kind: "deleteHandle", value: `handle-${uid}` },
 });
 
 const versionFor = (uid: string, revision: number): string => `v${revision}-${uid}`;
+
+const dayMs = 24 * 60 * 60 * 1000;
 
 const isRetryable = (failure: ProviderFailure): boolean => failure.kind === "rateLimited";
 
@@ -85,10 +93,33 @@ const withheldExcept = (
   excluded: (entry: WithheldEvent) => boolean,
 ): readonly WithheldEvent[] => withheld.filter((entry) => !excluded(entry));
 
-const unnamedRemoval = (): Removal => ({
-  kind: "outOfScope",
-  id: { kind: "remoteEventId", value: "id-unnamed" },
-});
+const midnightOf = (date: string): Instant => ({ kind: "instant", value: `${date}T00:00:00.000Z` });
+
+const asMidnightPair = (event: RemoteEvent): RemoteEvent => {
+  const { content } = event;
+  if (content.recurrence !== null || content.time.kind !== "allDay") {
+    return event;
+  }
+  return {
+    ...event,
+    content: {
+      ...content,
+      time: {
+        kind: "timed",
+        start: midnightOf(content.time.startDate.value),
+        end: midnightOf(content.time.endDateExclusive.value),
+        zone: { kind: "zoneId", value: "UTC" },
+      },
+    },
+  };
+};
+
+const plainlyDeleted = (removal: Removal): Removal => {
+  if (removal.kind !== "cancelled") {
+    return removal;
+  }
+  return { kind: "deleted", id: removal.id, uid: removal.uid };
+};
 
 const truncatedAsPartial = (
   scope: ListingScope,
@@ -105,6 +136,13 @@ const truncatedAsPartial = (
 
 const noop = (): null => null;
 
+const holds = (held: boolean, complaint: string): Promise<void> => {
+  if (!held) {
+    throw new Error(complaint);
+  }
+  return Promise.resolve();
+};
+
 const answeredWith = <Value>(value: Value): Promise<Value> => Promise.resolve(value);
 
 const staleConflict = (existing: RemoteEvent): Result<WriteOutcome> => ({
@@ -119,13 +157,6 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
   const { environment, defect } = options;
   const store = createReferenceStore(referenceCalendar);
   const mint = createCursorMint(environment.hash);
-  const flights = createSingleFlight<Result<ChangeListing>>({
-    retain: (settled) =>
-      defectIs(defect, "CONF-L7") &&
-      !settled.ok &&
-      settled.failure.kind === "transport" &&
-      settled.failure.status === null,
-  });
   const lifetime = new AbortController();
   const poisoned = new Set<string>();
   let deltaFloor = 0;
@@ -133,6 +164,8 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
   let leakedPermits = 0;
   let callersInFlight = 0;
   let abortsInBurst = 0;
+  let attemptsSpent = 0;
+  let attemptsAllowed = 0;
 
   const observedAt = (): Instant => {
     if (defectIs(defect, "CONF-L13")) {
@@ -182,15 +215,30 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     provenance: { kind: "foreign" },
   });
 
+  const isCancelled = (event: RemoteEvent): boolean =>
+    store.cancelled().some((uid) => uid.value === event.uid.value);
+
+  const liveObjects = (): readonly RemoteEvent[] =>
+    store.objects().filter((event) => !isCancelled(event));
+
   const markedIn = (id: ConformanceCaseId): readonly RemoteEvent[] =>
-    store.objects().filter((event) => isMarked(event.uid.value, id));
+    liveObjects().filter((event) => isMarked(event.uid.value, id));
 
   const unmarkedFeed = (id: ConformanceCaseId): ResolvedFeed =>
-    resolveFeed(store.objects().filter((event) => !isMarked(event.uid.value, id)));
+    resolveFeed(liveObjects().filter((event) => !isMarked(event.uid.value, id)));
+
+  const flights = createSingleFlight<Result<ChangeListing>>({
+    retain: (settled) =>
+      defectIs(defect, "CONF-L7") &&
+      markedIn("CONF-L7").length > 0 &&
+      !settled.ok &&
+      settled.failure.kind === "transport" &&
+      settled.failure.status === null,
+  });
 
   const resolvedFeed = (): ResolvedFeed => {
     if (defectIs(defect, "CONF-O22")) {
-      const resolved = resolveFeed(store.objects());
+      const resolved = resolveFeed(liveObjects());
       return {
         events: [...resolved.events, ...markedIn("CONF-O22")],
         withheld: resolved.withheld,
@@ -209,7 +257,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
       const oldest = markedIn("CONF-O7").filter((event) => event.revision === 1);
       return { events: [...rest.events, ...oldest], withheld: rest.withheld };
     }
-    return resolveFeed(store.objects());
+    return resolveFeed(liveObjects());
   };
 
   const defectiveFeed = (feed: ResolvedFeed): ResolvedFeed => {
@@ -240,7 +288,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     }
     if (defectIs(defect, "CONF-O27")) {
       return {
-        events: feed.events.filter((event) => !event.uid.value.endsWith(":lower")),
+        events: feed.events.filter((event) => !event.uid.value.endsWith(":onLowerEdge")),
         withheld: feed.withheld,
       };
     }
@@ -257,6 +305,9 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
           })),
         ],
       };
+    }
+    if (defectIs(defect, "CONF-O45")) {
+      return { events: feed.events.map((event) => asMidnightPair(event)), withheld: feed.withheld };
     }
     if (defectIs(defect, "CONF-O32")) {
       return {
@@ -340,8 +391,24 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     return isMarked(removal.uid.value, id);
   };
 
+  const cancelledRather = (removal: Removal): Removal => {
+    if (removal.kind === "outOfScope") {
+      return removal;
+    }
+    if (!store.cancelled().some((uid) => uid.value === removal.uid.value)) {
+      return removal;
+    }
+    return { kind: "cancelled", id: removal.id, uid: removal.uid };
+  };
+
+  const unattributableTombstones = (): readonly Removal[] =>
+    store.unattributableRemovals().map((id) => ({ kind: "outOfScope", id }));
+
   const removalsFor = (present: readonly ReportedIdentity[]): readonly Removal[] => {
-    const honest = removalsAgainst(store.reported(), present);
+    const honest = [
+      ...removalsAgainst(store.reported(), present).map((removal) => cancelledRather(removal)),
+      ...unattributableTombstones(),
+    ];
     if (defectIs(defect, "CONF-O13")) {
       return honest.map((removal) => {
         if (!marksCase(removal, "CONF-O13")) {
@@ -350,8 +417,8 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
         return anonymised(removal);
       });
     }
-    if (defectIs(defect, "CONF-O34") && honest.some((removal) => marksCase(removal, "CONF-O34"))) {
-      return [...honest, unnamedRemoval()];
+    if (defectIs(defect, "CONF-O34")) {
+      return honest.map((removal) => plainlyDeleted(removal));
     }
     return honest;
   };
@@ -376,6 +443,19 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
   const provenCoverageOf = (scope: ListingScope): CoverageWindow => {
     if (defectIs(defect, "CONF-O4")) {
       return { covered: scope.window, calendar: scope.calendar };
+    }
+    if (defectIs(defect, "CONF-O26") && markedIn("CONF-O26").length > 0) {
+      const honest = coverageOver(scope);
+      return {
+        covered: {
+          start: honest.covered.start,
+          end: {
+            kind: "instant",
+            value: new Date(Date.parse(honest.covered.end.value) + 90 * dayMs).toISOString(),
+          },
+        },
+        calendar: honest.calendar,
+      };
     }
     return coverageOver(scope);
   };
@@ -526,13 +606,38 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     return resumedListing(request.resume, request.scope, at);
   };
 
+  const declaredThrottleFor = (status: number): ThrottleSignal | null => {
+    if (defectIs(defect, "CONF-O46")) {
+      return null;
+    }
+    return referenceCapabilities.throttleSignals.find((signal) => signal.status === status) ?? null;
+  };
+
+  const failureOfError = (error: unknown): ProviderFailure => {
+    if (!(error instanceof TransportStatus)) {
+      return failureOfTransportError(error);
+    }
+    const signal = declaredThrottleFor(error.status);
+    if (signal === null) {
+      return { kind: "transport", status: error.status, disposition: "permanent" };
+    }
+    if (!signal.hasRetryAfter) {
+      return { kind: "rateLimited", retryAfter: null, scope: referenceCapabilities.quotaScope };
+    }
+    return {
+      kind: "rateLimited",
+      retryAfter: error.retryAfter,
+      scope: referenceCapabilities.quotaScope,
+    };
+  };
+
   const attemptListing = async (request: ListChangesRequest): Promise<Result<ChangeListing>> => {
     try {
       return await environment.transport.run("listChanges", () =>
         Promise.resolve(buildListing(request)),
       );
     } catch (error) {
-      const failure = failureOfTransportError(error);
+      const failure = failureOfError(error);
       if (defectIs(defect, "CONF-O2") && failure.kind === "transport" && failure.status === 503) {
         return { ok: true, value: emptySnapshot(request.scope, null) };
       }
@@ -540,9 +645,13 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     }
   };
 
-  const sleptBetweenAttempts = async (milliseconds: number): Promise<boolean> => {
+  const sleptBetweenAttempts = async (
+    milliseconds: number,
+    context: OperationContext,
+  ): Promise<boolean> => {
+    const waking = AbortSignal.any([lifetime.signal, context.signal]);
     try {
-      await environment.clock.sleep(milliseconds, lifetime.signal);
+      await environment.clock.sleep(milliseconds, waking);
       return true;
     } catch {
       return false;
@@ -563,6 +672,8 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
   ): Promise<Result<ChangeListing>> => {
     const ceiling = attemptCeiling(context);
     for (let attempt = 1; attempt <= ceiling; attempt += 1) {
+      attemptsSpent = Math.max(attemptsSpent, attempt);
+      attemptsAllowed = context.retryBudget.maxAttempts;
       const answered = await attemptListing(request);
       if (poisoned.has(key)) {
         poisoned.delete(key);
@@ -571,7 +682,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
       if (answered.ok || !isRetryable(answered.failure) || attempt === ceiling) {
         return answered;
       }
-      const slept = await sleptBetweenAttempts(retryDelayFor(answered.failure, context));
+      const slept = await sleptBetweenAttempts(retryDelayFor(answered.failure, context), context);
       if (!slept) {
         return { ok: false, failure: aborted };
       }
@@ -636,7 +747,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     if (defectIs(defect, "CONF-L9") && callersInFlight === 3) {
       poisoned.add(key);
     }
-    if (defectIs(defect, "CONF-L10") && callersInFlight > conformanceLimits.concurrency) {
+    if (defectIs(defect, "CONF-L10") && callersInFlight > environment.concurrency) {
       leakedPermits += 1;
     }
   };
@@ -659,7 +770,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
         leakedPermits -= 1;
         return { ok: false, failure: exhausted };
       }
-      if (defectIs(defect, "CONF-L11") && callersInFlight > conformanceLimits.concurrency) {
+      if (defectIs(defect, "CONF-L11") && callersInFlight > environment.concurrency) {
         await Promise.resolve();
         if (abortsInBurst === 0) {
           throw new Error("the reference mutant dropped a task out of its fan-out");
@@ -668,9 +779,14 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
       if (defectIs(defect, "CONF-L12") && context.signal.aborted) {
         environment.transport.run("listChanges", () => answeredWith(null)).catch(noop);
       }
+      const leadWithinItsOwnBudget = (): Promise<Result<ChangeListing>> =>
+        raceDeadline(context, deadlineAnswers(), () => leadListing(key, request, context));
       const answered = await raceDeadline(context, deadlineAnswers(), () =>
-        flights.run(key, () => leadListing(key, request, context)),
+        flights.run(key, leadWithinItsOwnBudget),
       );
+      if (!answered.ok && answered.failure.kind === "notAttempted") {
+        flights.abandon(key);
+      }
       return cloned(rememberFailure(await reattemptedAlone(request, answered)));
     } finally {
       callersInFlight -= 1;
@@ -769,32 +885,35 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     return sortedKeys;
   };
 
-  const submittedEncoding = (content: EditableContent): string =>
-    encodeIdentity(keyOrder(), !defectIs(defect, "CONF-O20"), content);
+  const submittedEncoding = (content: EditableContent): string => {
+    if (defectIs(defect, "CONF-O20")) {
+      return encodeIdentity(keyOrder(), false, content);
+    }
+    if (defectIs(defect, "CONF-O21")) {
+      return encodeIdentity(keyOrder(), true, content);
+    }
+    return encodeIdentity(keyOrder(), true, rewriteAsProviderWould(content));
+  };
 
   const storedEncoding = (content: EditableContent): string =>
     encodeIdentity(keyOrder(), true, content);
 
-  const createOutcome = (
-    intent: Extract<WriteIntent<"reference">, { kind: "create" }>,
-  ): Result<WriteOutcome> => {
-    const refusal = refusalFor(intent.content.content);
-    if (refusal !== null) {
-      return { ok: false, failure: refusal };
+  const decidedAs = (outcome: Result<WriteOutcome>): DecidedWrite => ({ outcome, commit: noop });
+
+  const decidedReplay = (
+    uid: string,
+    existing: RemoteEvent,
+    content: NormalizedContent<"reference">,
+  ): DecidedWrite => {
+    if (!defectIs(defect, "CONF-O14") || !isMarked(uid, "CONF-O14")) {
+      return decidedAs({
+        ok: true,
+        value: { kind: "alreadyExists", remote: remoteRefFor(uid), version: existing.version },
+      });
     }
-    const content = normalized(intent.content.content);
-    const uid = intent.idempotencyKey.value;
-    const existing = store.objects().find((event) => event.uid.value === uid);
-    if (existing && storedEncoding(existing.content) === submittedEncoding(intent.content.content)) {
-      if (!defectIs(defect, "CONF-O14") || !isMarked(uid, "CONF-O14")) {
-        return {
-          ok: true,
-          value: { kind: "alreadyExists", remote: remoteRefFor(uid), version: existing.version },
-        };
-      }
-      const duplicate = objectFor(`${uid}-duplicate`, content, 1);
-      store.replaceObjects([...store.objects(), duplicate]);
-      return {
+    const duplicate = objectFor(`${uid}-duplicate`, content, 1);
+    return {
+      outcome: {
         ok: true,
         value: {
           kind: "created",
@@ -802,37 +921,72 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
           version: duplicate.version,
           echo: echoFor(uid),
         },
-      };
-    }
-    if (existing) {
-      if (defectIs(defect, "CONF-O25")) {
-        replaceObject(uid, null);
+      },
+      commit: () => {
+        store.replaceObjects([...store.objects(), duplicate]);
+      },
+    };
+  };
+
+  const decidedContention = (uid: string, existing: RemoteEvent): DecidedWrite => {
+    const commit = (): void => {
+      if (!defectIs(defect, "CONF-O25")) {
+        return;
       }
-      if (defectIs(defect, "CONF-O15")) {
-        return {
+      replaceObject(uid, null);
+    };
+    if (defectIs(defect, "CONF-O15")) {
+      return {
+        outcome: {
           ok: true,
           value: { kind: "unchanged", remote: remoteRefFor(uid), version: existing.version },
-        };
-      }
-      return {
+        },
+        commit,
+      };
+    }
+    return {
+      outcome: {
         ok: true,
         value: {
           kind: "conflict",
           remote: remoteRefFor(uid),
           observed: { kind: "matchesVersion", version: existing.version },
         },
-      };
+      },
+      commit,
+    };
+  };
+
+  const decideCreate = (
+    intent: Extract<WriteIntent<"reference">, { kind: "create" }>,
+  ): DecidedWrite => {
+    const refusal = refusalFor(intent.content.content);
+    if (refusal !== null) {
+      return decidedAs({ ok: false, failure: refusal });
+    }
+    const content = normalized(intent.content.content);
+    const uid = intent.idempotencyKey.value;
+    const existing = store.objects().find((event) => event.uid.value === uid);
+    if (existing && storedEncoding(existing.content) === submittedEncoding(intent.content.content)) {
+      return decidedReplay(uid, existing, content);
+    }
+    if (existing) {
+      return decidedContention(uid, existing);
     }
     const created = objectFor(uid, content, 1);
-    store.replaceObjects([...store.objects(), created]);
-    disturbCanary();
     return {
-      ok: true,
-      value: {
-        kind: "created",
-        remote: remoteRefFor(uid),
-        version: created.version,
-        echo: echoFor(uid),
+      outcome: {
+        ok: true,
+        value: {
+          kind: "created",
+          remote: remoteRefFor(uid),
+          version: created.version,
+          echo: echoFor(uid),
+        },
+      },
+      commit: () => {
+        store.replaceObjects([...store.objects(), created]);
+        disturbCanary();
       },
     };
   };
@@ -841,7 +995,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     existing: RemoteEvent,
     precondition: Extract<WriteIntent<"reference">, { kind: "update" }>["precondition"],
   ): boolean => {
-    if (defectIs(defect, "CONF-O39")) {
+    if (defectIs(defect, "CONF-O39") && isMarked(existing.uid.value, "CONF-O39")) {
       return true;
     }
     if (precondition.kind === "matchesVersion") {
@@ -850,74 +1004,82 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     return precondition.fingerprint.value === existing.fingerprint.value;
   };
 
-  const updateOutcome = (
+  const decideUpdate = (
     intent: Extract<WriteIntent<"reference">, { kind: "update" }>,
-  ): Result<WriteOutcome> => {
+  ): DecidedWrite => {
     const existing = store.objects().find((event) => event.id.value === intent.target.value);
     if (!existing) {
-      return {
+      return decidedAs({
         ok: false,
         failure: { kind: "notFound", calendar: referenceCalendar, event: intent.target },
-      };
+      });
     }
     if (!preconditionHolds(existing, intent.precondition)) {
-      return staleConflict(existing);
+      return decidedAs(staleConflict(existing));
     }
     const refusal = refusalFor(intent.content.content);
     if (refusal !== null) {
-      return { ok: false, failure: refusal };
+      return decidedAs({ ok: false, failure: refusal });
     }
     const next = objectFor(
       existing.uid.value,
       normalized(intent.content.content),
       existing.revision + 1,
     );
-    replaceObject(existing.uid.value, next);
-    disturbCanary();
     return {
-      ok: true,
-      value: {
-        kind: "updated",
-        remote: remoteRefFor(existing.uid.value),
-        version: next.version,
-        echo: echoFor(existing.uid.value),
+      outcome: {
+        ok: true,
+        value: {
+          kind: "updated",
+          remote: remoteRefFor(existing.uid.value),
+          version: next.version,
+          echo: echoFor(existing.uid.value),
+        },
+      },
+      commit: () => {
+        replaceObject(existing.uid.value, next);
+        disturbCanary();
       },
     };
   };
 
-  const removalOutcome = (
+  const decideRemoval = (
     intent: Extract<WriteIntent<"reference">, { kind: "delete" } | { kind: "retire" }>,
-  ): Result<WriteOutcome> => {
+  ): DecidedWrite => {
     const existing = store
       .objects()
       .find((event) => event.deleteHandle.value === intent.target.value);
     if (!existing) {
-      return {
+      return decidedAs({
         ok: true,
         value: {
           kind: "alreadyAbsent",
           remote: { id: { kind: "remoteEventId", value: "absent" }, deleteHandle: intent.target },
         },
-      };
+      });
     }
     if (!preconditionHolds(existing, intent.precondition)) {
-      return staleConflict(existing);
+      return decidedAs(staleConflict(existing));
     }
-    replaceObject(existing.uid.value, null);
-    return { ok: true, value: { kind: "deleted", remote: remoteRefFor(existing.uid.value) } };
+    return {
+      outcome: { ok: true, value: { kind: "deleted", remote: remoteRefFor(existing.uid.value) } },
+      commit: () => {
+        replaceObject(existing.uid.value, null);
+      },
+    };
   };
 
-  const applyWrite = (intent: WriteIntent<"reference">): Result<WriteOutcome> => {
+  const decideWrite = (intent: WriteIntent<"reference">): DecidedWrite => {
     switch (intent.kind) {
       case "create": {
-        return createOutcome(intent);
+        return decideCreate(intent);
       }
       case "update": {
-        return updateOutcome(intent);
+        return decideUpdate(intent);
       }
       case "delete":
       case "retire": {
-        return removalOutcome(intent);
+        return decideRemoval(intent);
       }
       default: {
         return assertNever(intent);
@@ -946,15 +1108,27 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     store.record({ at, intent, outcome: answered.value });
   };
 
+  const committed = (decided: DecidedWrite, intent: WriteIntent<"reference">): DecidedWrite => {
+    decided.commit();
+    logWrite(intent, decided.outcome);
+    return decided;
+  };
+
+  const interleavesItsCommit = (): boolean => defectIs(defect, "CONF-O44");
+
   const attemptWrite = async (intent: WriteIntent<"reference">): Promise<Result<WriteOutcome>> => {
     try {
-      return await environment.transport.run("write", () => {
-        const answered = applyWrite(intent);
-        logWrite(intent, answered);
-        return Promise.resolve(answered);
+      return await environment.transport.run("write", (): Promise<Result<WriteOutcome>> => {
+        const decided = decideWrite(intent);
+        if (!interleavesItsCommit()) {
+          return Promise.resolve(committed(decided, intent).outcome);
+        }
+        return Promise.resolve()
+          .then(() => committed(decided, intent))
+          .then((settled) => settled.outcome);
       });
     } catch (error) {
-      return { ok: false, failure: failureOfTransportError(error) };
+      return { ok: false, failure: failureOfError(error) };
     }
   };
 
@@ -1006,12 +1180,41 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     return listChanges(request, context);
   };
 
-  const obligationHolds = (): Promise<void> => {
-    if (environment.clock.pendingTimers() > 0) {
-      throw new Error("the reference provider left a timer armed");
-    }
-    return Promise.resolve();
-  };
+  const noLeaseOutstanding = (): Promise<void> =>
+    holds(flights.inFlightKeys() === 0, "the reference provider still holds a coalescing lease");
+
+  const noCallerOutstanding = (): Promise<void> =>
+    holds(callersInFlight === 0, "the reference provider still counts a caller as in flight");
+
+  const noAbandonedFlight = (): Promise<void> =>
+    holds(
+      flights.inFlightKeys() === 0,
+      "a flight abandoned at its deadline is still registered against its key",
+    );
+
+  const noCancellationResidue = (): Promise<void> =>
+    holds(
+      poisoned.size === 0 && leakedPermits === 0,
+      "an aborted caller left a poisoned key or a leaked permit behind",
+    );
+
+  const attemptsWithinBudget = (): Promise<void> =>
+    holds(
+      attemptsSpent <= attemptsAllowed,
+      `the reference provider spent ${attemptsSpent} attempts of ${attemptsAllowed}`,
+    );
+
+  const noKeyStillHeld = (): Promise<void> =>
+    holds(
+      flights.inFlightKeys() === 0 && callersInFlight === 0,
+      "concurrent callers over one key left the key held after they all settled",
+    );
+
+  const oneCalendarBehindEveryDeletion = (): Promise<void> =>
+    holds(
+      new Set(store.objects().map((event) => event.calendar.calendar.value)).size <= 1,
+      "the reference store holds objects from two calendars, so a deletion could cross between them",
+    );
 
   return {
     contract: {
@@ -1030,13 +1233,13 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
       },
       fingerprint: referenceFingerprintContract,
       conformance: {
-        leaseReleasedOnThrow: obligationHolds,
-        followerRejectsWhenLeaderFails: obligationHolds,
-        deadlineOnNeverResolvingStub: obligationHolds,
-        abortMidFlightCleansUp: obligationHolds,
-        retryCeilingProven: obligationHolds,
-        concurrentSameKeyDoesNotDeadlock: obligationHolds,
-        deletionInputsShareOneCalendar: obligationHolds,
+        leaseReleasedOnThrow: noLeaseOutstanding,
+        followerRejectsWhenLeaderFails: noCallerOutstanding,
+        deadlineOnNeverResolvingStub: noAbandonedFlight,
+        abortMidFlightCleansUp: noCancellationResidue,
+        retryCeilingProven: attemptsWithinBudget,
+        concurrentSameKeyDoesNotDeadlock: noKeyStillHeld,
+        deletionInputsShareOneCalendar: oneCalendarBehindEveryDeletion,
       },
     },
     seed: (seed: ProviderSeed) => {

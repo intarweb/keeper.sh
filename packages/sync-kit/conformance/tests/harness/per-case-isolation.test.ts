@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { conformanceCaseIds } from "../../src/case-id";
 import { planConformanceRun } from "../../src/run-conformance";
 import type { ConformanceEnvironment, ProviderUnderTest } from "../../src/options";
 import { referenceCapabilities } from "../../src/reference/capabilities";
@@ -78,15 +79,15 @@ describe("a provider instance never outlives its case", () => {
     );
   });
 
-  test("CONF-I77: skipping is visible in the report rather than silent", () => {
+  test("CONF-I77: no capability value removes a case from the report", () => {
     const counting = countingCreate();
 
     const plan = planWith(counting);
-    const overlap = plan.report.skipped.filter((entry) =>
-      plan.report.selected.some((selected) => selected.id === entry.id),
+    const missing = conformanceCaseIds.filter(
+      (id) => !plan.report.selected.some((selected) => selected.id === id),
     );
 
-    expect(overlap).toEqual([]);
+    expect(missing).toEqual([]);
     expect(plan.report.ungated.length).toBeGreaterThan(0);
   });
 });

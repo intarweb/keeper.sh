@@ -1,4 +1,4 @@
-import type { OperationName, ProviderFailure } from "@keeper.sh/sync-protocol";
+import type { Instant, OperationName, ProviderFailure } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
 import type { TransportBehaviour, TransportStub } from "./options";
 
@@ -9,6 +9,18 @@ class TransportRejection extends Error {
     super(`the injected transport answered with "${failure.kind}"`);
     this.name = "TransportRejection";
     this.failure = failure;
+  }
+}
+
+class TransportStatus extends Error {
+  readonly status: number;
+  readonly retryAfter: Instant | null;
+
+  constructor(status: number, retryAfter: Instant | null) {
+    super(`the injected transport answered HTTP ${status}`);
+    this.name = "TransportStatus";
+    this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -24,6 +36,9 @@ const remainingBehaviour = (behaviour: TransportBehaviour): TransportBehaviour =
     return { ...behaviour, times: behaviour.times - 1 };
   }
   if (behaviour.kind === "throw" && behaviour.times > 1) {
+    return { ...behaviour, times: behaviour.times - 1 };
+  }
+  if (behaviour.kind === "status" && behaviour.times > 1) {
     return { ...behaviour, times: behaviour.times - 1 };
   }
   if (behaviour.kind === "stall") {
@@ -62,6 +77,9 @@ const createTransportStub = (): TransportStub => {
       case "reject": {
         return Promise.reject(new TransportRejection(current.failure));
       }
+      case "status": {
+        return Promise.reject(new TransportStatus(current.status, current.retryAfter));
+      }
       case "throw": {
         throw new TransportThrew(operation);
       }
@@ -94,4 +112,10 @@ const failureOfTransportError = (error: unknown): ProviderFailure => {
   return { kind: "transport", status: null, disposition: "permanent" };
 };
 
-export { createTransportStub, failureOfTransportError, TransportRejection, TransportThrew };
+export {
+  createTransportStub,
+  failureOfTransportError,
+  TransportRejection,
+  TransportStatus,
+  TransportThrew,
+};

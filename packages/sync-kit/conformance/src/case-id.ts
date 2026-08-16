@@ -42,6 +42,9 @@ const conformanceCaseIds = [
   "CONF-O41",
   "CONF-O42",
   "CONF-O43",
+  "CONF-O44",
+  "CONF-O45",
+  "CONF-O46",
   "CONF-L1",
   "CONF-L2",
   "CONF-L3",
@@ -119,6 +122,9 @@ const ledgerCitations: readonly LedgerCitation[] = [
   { entry: "CONF-I54", cases: ["CONF-L13"] },
   { entry: "CONF-I56", cases: ["CONF-O42"] },
   { entry: "CONF-I60", cases: ["CONF-O43"] },
+  { entry: "CONF-I79", cases: ["CONF-O44"] },
+  { entry: "CONF-I80", cases: ["CONF-O45"] },
+  { entry: "CONF-I81", cases: ["CONF-O46"] },
 ];
 
 const ledgerEntryOf = (id: ConformanceCaseId): LedgerEntryId => {

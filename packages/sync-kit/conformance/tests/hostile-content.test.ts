@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { failureOf, listChanges, listingKindOf, okValue } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
-import { foreignEvent, scopeOver, spanning } from "./support/protocol";
+import { foreignEvent, scopeOver, seedOf, spanning } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
 const scope = scopeOver(march);
@@ -34,7 +34,7 @@ const hostileEvents = hostileTitles.map((title, index) =>
 describe("event content cannot change how a failure is classified", () => {
   test("CONF-O23: hostile titles do not turn a healthy listing into a failure", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: hostileEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(hostileEvents, []));
 
     const result = await listChanges(harness.provider, harness.environment, scope);
 
@@ -46,8 +46,8 @@ describe("event content cannot change how a failure is classified", () => {
   test("CONF-O23: the identity of a hostile event matches the identity of a benign one", async () => {
     const hostile = await referenceHarness();
     const calm = await referenceHarness();
-    await hostile.provider.seed({ events: [hostileEvents[0] ?? benign], corruptKnownRows: [] });
-    await calm.provider.seed({ events: [benign], corruptKnownRows: [] });
+    await hostile.provider.seed(seedOf([hostileEvents[0] ?? benign], []));
+    await calm.provider.seed(seedOf([benign], []));
 
     const first = okValue(await listChanges(hostile.provider, hostile.environment, scope));
     const second = okValue(await listChanges(calm.provider, calm.environment, scope));
@@ -63,7 +63,7 @@ describe("event content cannot change how a failure is classified", () => {
 
   test("CONF-O23: a real rate limit is still classified as rateLimited whatever the content says", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: hostileEvents, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(hostileEvents, []));
     harness.environment.transport.answerWith({
       kind: "reject",
       failure: { kind: "rateLimited", retryAfter: null, scope: "perUser" },
@@ -86,7 +86,7 @@ describe("event content cannot change how a failure is classified", () => {
       start: "2026-03-02T09:00:00.000Z",
       end: "2026-03-02T10:00:00.000Z",
     });
-    await harness.provider.seed({ events: [nulled, benign], corruptKnownRows: [] });
+    await harness.provider.seed(seedOf([nulled, benign], []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
     const uids = (listing.events ?? []).map((event) => event.uid.value);

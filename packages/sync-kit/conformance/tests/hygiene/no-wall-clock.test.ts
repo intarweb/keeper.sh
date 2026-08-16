@@ -3,24 +3,24 @@ import { createTestClock } from "../../src/clock";
 import { filesMatching } from "../support/sources";
 import { suiteStart } from "../support/harness";
 
-const wallClockReadings = [
-  ["Date", "now()"].join("."),
-  ["performance", "now()"].join("."),
+const spelledInPieces = (pieces: readonly string[]): string => pieces.join(".");
+
+const readingsThisFileMustNotSpellOutItself = [
+  spelledInPieces(["Date", "now()"]),
+  spelledInPieces(["performance", "now()"]),
 ];
 
 describe("a deadline is asserted on the fake clock, never on the CI agent", () => {
-  test.each(wallClockReadings)("CONF-I53: no file under src reads %s", async (reading) => {
+  test.each(readingsThisFileMustNotSpellOutItself)("CONF-I53: no file under src reads %s", async (reading) => {
     const offenders = await filesMatching("src", reading);
 
     expect(offenders).toEqual([]);
-    expect(() => createTestClock({ start: suiteStart })).not.toThrow();
   });
 
-  test.each(wallClockReadings)("CONF-I53: no test file reads %s", async (reading) => {
+  test.each(readingsThisFileMustNotSpellOutItself)("CONF-I53: no test file reads %s", async (reading) => {
     const offenders = await filesMatching("tests", reading);
 
     expect(offenders).toEqual([]);
-    expect(() => createTestClock({ start: suiteStart })).not.toThrow();
   });
 
   test("CONF-I53: advancing the injected clock moves its own now, not the machine's", async () => {

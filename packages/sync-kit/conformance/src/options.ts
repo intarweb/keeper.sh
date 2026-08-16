@@ -1,5 +1,6 @@
 import type {
   Capabilities,
+  EventUid,
   Instant,
   InstallationId,
   OperationName,
@@ -7,6 +8,7 @@ import type {
   ProviderFailure,
   ProviderId,
   RemoteEvent,
+  RemoteEventId,
   WindowMembership,
   WriteIntent,
   WriteOutcome,
@@ -24,6 +26,12 @@ type TransportBehaviour =
   | { readonly kind: "pass" }
   | { readonly kind: "stall" }
   | { readonly kind: "reject"; readonly failure: ProviderFailure; readonly times: number }
+  | {
+      readonly kind: "status";
+      readonly status: number;
+      readonly retryAfter: Instant | null;
+      readonly times: number;
+    }
   | { readonly kind: "throw"; readonly times: number };
 
 interface TransportStub {
@@ -37,6 +45,7 @@ interface TransportStub {
 
 interface ConformanceEnvironment {
   readonly clock: TestClock;
+  readonly concurrency: number;
   readonly hash: (input: string) => string;
   readonly installation: InstallationId;
   readonly transport: TransportStub;
@@ -56,6 +65,8 @@ interface ProviderInspection {
 interface ProviderSeed {
   readonly events: readonly RemoteEvent[];
   readonly corruptKnownRows: readonly string[];
+  readonly cancelled: readonly EventUid[];
+  readonly unattributableRemovals: readonly RemoteEventId[];
 }
 
 interface ProviderUnderTest<Provider extends ProviderId = ProviderId> {
@@ -74,10 +85,17 @@ interface RunConformanceOptions<Provider extends ProviderId = ProviderId> {
   readonly supports: Capabilities<Provider>;
   readonly create: CreateProvider<Provider>;
   readonly withinWindow: WindowMembership;
+  readonly hash?: (input: string) => string;
+}
+
+interface SuiteRunner {
+  readonly describe: (name: string, body: () => void) => void;
+  readonly it: (name: string, body: () => Promise<void>) => void;
 }
 
 export type {
   ConformanceEnvironment,
+  SuiteRunner,
   CreateProvider,
   ProviderInspection,
   ProviderSeed,

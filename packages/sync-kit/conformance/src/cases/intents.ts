@@ -52,4 +52,16 @@ const updateIntent = <Provider extends ProviderId>(
   precondition: { kind: "matchesVersion", version },
 });
 
-export { createIntent, updateIntent, writableOf };
+const deleteIntent = <Provider extends ProviderId>(
+  calendar: CalendarKey,
+  handle: string,
+  version: RemoteVersion,
+): WriteIntent<Provider> => ({
+  kind: "delete",
+  calendar: writableOf(calendar),
+  target: { kind: "deleteHandle", value: handle },
+  precondition: { kind: "matchesVersion", version },
+  reason: "sourceDeleted",
+});
+
+export { createIntent, deleteIntent, updateIntent, writableOf };

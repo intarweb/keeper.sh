@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { expiringCursorAfter, truncatingAfter } from "../src/fixtures";
 import { failureOf, listChanges, listingKindOf, okValue } from "./support/drive";
 import { referenceHarness, runReferenceCase } from "./support/harness";
-import { foreignEvent, scopeOver, spanning } from "./support/protocol";
+import { foreignEvent, scopeOver, seedOf, spanning } from "./support/protocol";
 
 const march = spanning("2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z");
 const quarter = spanning("2026-01-01T00:00:00.000Z", "2026-07-01T00:00:00.000Z");
@@ -52,7 +52,7 @@ const scopeOfCursor = (listing: ChangeListing): ListingScope => {
 describe("a cursor is opaque, scoped, and never advanced past unapplied work", () => {
   test("CONF-O10: an expired cursor mid-pagination yields cursorLost and no tombstones", async () => {
     const harness = await referenceHarness(expiringCursorAfter(1));
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     const second = await listChanges(
@@ -70,7 +70,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O10: cursorLost is never expressed as an empty delta", async () => {
     const harness = await referenceHarness(expiringCursorAfter(1));
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     const second = okValue(
@@ -84,7 +84,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O11: a cursor minted under a narrow window is refused when the window widens", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
     const narrow = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     const widened = await listChanges(
@@ -101,7 +101,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O24: a truncated read never returns a sync cursor", async () => {
     const harness = await referenceHarness(truncatingAfter(1));
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 
@@ -111,7 +111,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O24: an aborted run never returns a sync cursor", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
     const caller = new AbortController();
     caller.abort();
 
@@ -125,7 +125,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O24: a transport failure never returns a sync cursor", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
     harness.environment.transport.answerWith({
       kind: "reject",
       failure: { kind: "transport", status: 500, disposition: "permanent" },
@@ -140,7 +140,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O37: a quiet calendar still advances its cursor while writing nothing", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
 
     const second = okValue(
@@ -160,7 +160,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O40: a cursor whose bytes were mutated yields cursorLost, never a throw", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
     const mutated = {
       kind: "syncCursor" as const,
@@ -176,7 +176,7 @@ describe("a cursor is opaque, scoped, and never advanced past unapplied work", (
 
   test("CONF-O40: the suite never parses the cursor it was handed", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(events, []));
 
     const listing = okValue(await listChanges(harness.provider, harness.environment, scope));
 

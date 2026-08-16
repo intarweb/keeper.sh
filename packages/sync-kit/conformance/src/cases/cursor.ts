@@ -6,7 +6,8 @@ import type {
   Result,
   SyncCursor,
 } from "@keeper.sh/sync-protocol";
-import type { ConformanceCase } from "../registry/case";
+import type { ConformanceCaseId } from "../case-id";
+import type { CaseContext, ConformanceCase } from "../registry/case";
 import {
   caseScope,
   decadeWindow,
@@ -32,6 +33,28 @@ const isLostOrRefused = (answered: Result<ChangeListing>): boolean => {
 const eventNamed = (listing: ChangeListing, uid: string): RemoteEvent | undefined =>
   (listing.events ?? []).find((event) => event.uid.value === uid);
 
+const mintedBy = <Provider extends ProviderId>(
+  id: ConformanceCaseId,
+  context: CaseContext<Provider>,
+  listing: ChangeListing,
+): SyncCursor | null => {
+  const cursor = cursorOf(listing);
+  if (context.supports.delta.kind === "none") {
+    insist(
+      id,
+      cursor === null,
+      "an adapter that declares no delta support handed back a sync cursor to resume from",
+    );
+    return null;
+  }
+  insist(
+    id,
+    cursor !== null,
+    "an adapter that declares tokenized delta support proved coverage without minting a cursor",
+  );
+  return cursor;
+};
+
 const cursorCases = <Provider extends ProviderId>(
   supports: Capabilities<Provider>,
 ): readonly ConformanceCase<Provider>[] => [
@@ -49,7 +72,7 @@ const cursorCases = <Provider extends ProviderId>(
         }),
       ]);
 
-      const first = cursorOf(listingOf("CONF-O10", await listChanges(context, scope)));
+      const first = mintedBy("CONF-O10", context, listingOf("CONF-O10", await listChanges(context, scope)));
       if (first === null) {
         return;
       }
@@ -90,7 +113,7 @@ const cursorCases = <Provider extends ProviderId>(
           end: "2026-03-02T10:00:00.000Z",
         }),
       ]);
-      const minted = cursorOf(listingOf("CONF-O11", await listChanges(context, scope)));
+      const minted = mintedBy("CONF-O11", context, listingOf("CONF-O11", await listChanges(context, scope)));
       if (minted === null) {
         return;
       }
@@ -126,7 +149,7 @@ const cursorCases = <Provider extends ProviderId>(
         end: "2026-03-02T10:00:00.000Z",
       });
       await seedWith(context, [alpha]);
-      const minted = cursorOf(listingOf("CONF-O24", await listChanges(context, scope)));
+      const minted = mintedBy("CONF-O24", context, listingOf("CONF-O24", await listChanges(context, scope)));
       if (minted === null) {
         return;
       }
@@ -169,7 +192,7 @@ const cursorCases = <Provider extends ProviderId>(
           end: "2026-03-02T10:00:00.000Z",
         }),
       ]);
-      const minted = cursorOf(listingOf("CONF-O37", await listChanges(context, scope)));
+      const minted = mintedBy("CONF-O37", context, listingOf("CONF-O37", await listChanges(context, scope)));
       if (minted === null) {
         return;
       }
@@ -206,7 +229,7 @@ const cursorCases = <Provider extends ProviderId>(
         location: "the location the patch omits",
       };
       await seedWith(context, [foreignEvent(scope.calendar, { ...draft, title: "Before" })]);
-      const minted = cursorOf(listingOf("CONF-O38", await listChanges(context, scope)));
+      const minted = mintedBy("CONF-O38", context, listingOf("CONF-O38", await listChanges(context, scope)));
       if (minted === null) {
         return;
       }
@@ -241,7 +264,7 @@ const cursorCases = <Provider extends ProviderId>(
           end: "2026-03-02T10:00:00.000Z",
         }),
       ]);
-      const minted = cursorOf(listingOf("CONF-O40", await listChanges(context, scope)));
+      const minted = mintedBy("CONF-O40", context, listingOf("CONF-O40", await listChanges(context, scope)));
       if (minted === null) {
         return;
       }

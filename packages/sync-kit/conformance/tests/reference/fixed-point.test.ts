@@ -9,13 +9,14 @@ import {
 import type { ProviderDecorator } from "../../src/fixtures";
 import { referenceCapabilities } from "../../src/reference/capabilities";
 import { selectConformanceCases } from "../../src/registry/suite";
-import { listChanges, okValue, write } from "../support/drive";
+import { failureOf, listChanges, okValue, write } from "../support/drive";
 import { referenceHarness, runCaseAgainst } from "../support/harness";
 import {
   createIntent,
   foreignEvent,
   occurrence,
   scopeOver,
+  seedOf,
   spanning,
   timedAt,
 } from "../support/protocol";
@@ -43,18 +44,22 @@ const mirrored = occurrence(
   timedAt("2026-03-04T09:00:00.000Z", "2026-03-04T10:00:00.000Z"),
 );
 
-const decorators: readonly [string, () => ProviderDecorator][] = [
-  ["bare", () => undecorated],
-  ["truncatingAfter(1)", () => truncatingAfter(1)],
-  ["expiringCursorAfter(1)", () => expiringCursorAfter(1)],
-  ["conflictingOn(create)", () => conflictingOn((intent) => intent.kind === "create")],
-  ["stallingOn(write)", () => stallingOn((operation) => operation === "write")],
+const decorators: readonly [string, () => ProviderDecorator, string][] = [
+  ["bare", () => undecorated, "snapshot"],
+  ["truncatingAfter(1)", () => truncatingAfter(1), "partial"],
+  ["expiringCursorAfter(1)", () => expiringCursorAfter(1), "snapshot"],
+  [
+    "conflictingOn(create)",
+    () => conflictingOn((intent) => intent.kind === "create"),
+    "snapshot",
+  ],
+  ["stallingOn(write)", () => stallingOn((operation) => operation === "write"), "snapshot"],
 ];
 
 describe("the reference provider is adversarial about its own success", () => {
   test("CONF-I55: list, apply, list, apply reaches a fixed point with zero further writes", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seeded, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seeded));
 
     await listChanges(harness.provider, harness.environment, scope);
     await write(harness.provider, harness.environment, createIntent("mirrored", mirrored));
@@ -89,7 +94,7 @@ describe("the reference provider is adversarial about its own success", () => {
 
   test("CONF-I55: a listing is byte-identical across two polls of unchanged input", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seeded, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seeded));
 
     const first = okValue(await listChanges(harness.provider, harness.environment, scope));
     const second = okValue(await listChanges(harness.provider, harness.environment, scope));
@@ -100,24 +105,64 @@ describe("the reference provider is adversarial about its own success", () => {
   });
 
   test.each(decorators)(
-    "CONF-I55: the %s fixture does not break correct behaviour of a listing",
-    async (name, decorate) => {
+    "CONF-I55: the %s fixture answers a first listing as exactly the kind it promises",
+    async (_name, decorate, expected) => {
       const harness = await referenceHarness(decorate());
-      await harness.provider.seed({ events: seeded, corruptKnownRows: [] });
+      await harness.provider.seed(seedOf(seeded));
 
       const result = await listChanges(harness.provider, harness.environment, scope);
 
-      expect(name.length).toBeGreaterThan(0);
-      expect(["snapshot", "delta", "partial", "cursorLost"]).toContain(
-        okValue(result).kind,
-      );
+      expect(okValue(result).kind).toBe(expected);
       await harness.dispose();
     },
   );
 
+  test("CONF-I55: the expiringCursorAfter(1) fixture loses the cursor on the poll after the first", async () => {
+    const harness = await referenceHarness(expiringCursorAfter(1));
+    await harness.provider.seed(seedOf(seeded));
+
+    const first = okValue(await listChanges(harness.provider, harness.environment, scope));
+    const resumed = await listChanges(
+      harness.provider,
+      harness.environment,
+      scope,
+      first.cursor ?? null,
+    );
+
+    expect(okValue(resumed).kind).toBe("cursorLost");
+    await harness.dispose();
+  });
+
+  test("CONF-I55: the conflictingOn(create) fixture turns a create into a typed conflict", async () => {
+    const harness = await referenceHarness(conflictingOn((intent) => intent.kind === "create"));
+
+    const answered = await write(
+      harness.provider,
+      harness.environment,
+      createIntent("mirrored", mirrored),
+    );
+
+    expect(okValue(answered).kind).toBe("conflict");
+    await harness.dispose();
+  });
+
+  test("CONF-I55: the stallingOn(write) fixture settles a write at its deadline, never never", async () => {
+    const harness = await referenceHarness(stallingOn((operation) => operation === "write"));
+
+    const answered = await write(
+      harness.provider,
+      harness.environment,
+      createIntent("mirrored", mirrored),
+      { deadlineMs: 20 },
+    );
+
+    expect(failureOf(answered)).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
+    await harness.dispose();
+  });
+
   test("CONF-I55: disposing the reference provider releases every timer it armed", async () => {
     const harness = await referenceHarness();
-    await harness.provider.seed({ events: seeded, corruptKnownRows: [] });
+    await harness.provider.seed(seedOf(seeded));
     await listChanges(harness.provider, harness.environment, scope);
 
     await harness.dispose();

@@ -1,13 +1,19 @@
 import type {
+  CalendarKey,
   Capabilities,
   EditableContent,
   ProviderId,
   RemoteVersion,
+  WriteIntent,
   WriteOutcome,
 } from "@keeper.sh/sync-protocol";
-import { assertNoDeleteThenCreate, assertNoUnconditionalWrite } from "../assertions/outcome";
-import type { ConformanceCase } from "../registry/case";
-import { createIntent, updateIntent } from "./intents";
+import {
+  assertConflictNotOverwrite,
+  assertNoUnconditionalWrite,
+  assertNoUnplannedRecreation,
+} from "../assertions/outcome";
+import type { CaseContext, ConformanceCase } from "../registry/case";
+import { createIntent, deleteIntent, updateIntent } from "./intents";
 import {
   caseScope,
   contentOf,
@@ -49,6 +55,36 @@ const echoKindOf = (outcome: WriteOutcome): string => {
 
 const meetingAt = (uid: string, hour: string): EditableContent =>
   contentOf({ uid, start: `2026-03-02T${hour}:00:00.000Z`, end: `2026-03-02T${hour}:30:00.000Z` });
+
+const seriesAnchoredAt = (uid: string, hour: string): EditableContent => ({
+  title: uid,
+  description: null,
+  location: null,
+  availability: "busy",
+  visibility: "default",
+  recurrence: { dialect: "rfc5545", value: "FREQ=WEEKLY;COUNT=3", exceptions: [] },
+  anchor: {
+    kind: "timed",
+    start: { kind: "instant", value: `2026-03-02T${hour}:00:00.000Z` },
+    zone: { kind: "zoneId", value: "UTC" },
+    duration: { kind: "exact", seconds: 1800 },
+  },
+});
+
+const createFor = <Provider extends ProviderId>(
+  context: CaseContext<Provider>,
+  supports: Capabilities<Provider>,
+  calendar: CalendarKey,
+  key: string,
+  hour: string,
+): WriteIntent<Provider> =>
+  createIntent(
+    supports,
+    calendar,
+    context.environment.installation,
+    key,
+    meetingAt(key, hour),
+  );
 
 const writeCases = <Provider extends ProviderId>(
   supports: Capabilities<Provider>,
@@ -154,7 +190,7 @@ const writeCases = <Provider extends ProviderId>(
           meetingAt(key, "11"),
         ),
       );
-      assertNoDeleteThenCreate(await writeLogSince(context.provider, before));
+      assertNoUnplannedRecreation(await writeLogSince(context.provider, before), []);
 
       if (!answered.ok) {
         insist(
@@ -218,45 +254,60 @@ const writeCases = <Provider extends ProviderId>(
     "a replace whose second half fails leaves a recoverable state",
     async (context) => {
       const scope = caseScope(context);
-      const key = markedWith("CONF-O25", "replaced");
+      const replaced = markedWith("CONF-O25", "replaced");
+      const blocker = markedWith("CONF-O25", "blocker");
       await seedWith(context, []);
+      const blocking = outcomeOf(
+        "CONF-O25",
+        await write(context, createFor(context, supports, scope.calendar, blocker, "07")),
+      );
+      const original = outcomeOf(
+        "CONF-O25",
+        await write(context, createFor(context, supports, scope.calendar, replaced, "09")),
+      );
       const before = await writeLogLength(context.provider);
-      const created = outcomeOf(
-        "CONF-O25",
-        await write(
-          context,
-          createIntent(
-            supports,
-            scope.calendar,
-            context.environment.installation,
-            key,
-            meetingAt(key, "09"),
-          ),
-        ),
-      );
+      const removed = `handle-${replaced}`;
 
-      await write(
+      const deleted = await write(
         context,
-        createIntent(
-          supports,
-          scope.calendar,
-          context.environment.installation,
-          key,
-          meetingAt(key, "11"),
-        ),
+        deleteIntent(scope.calendar, removed, versionOf(original)),
       );
-      const survivors = await objectsMarked(context.provider, "CONF-O25");
+      const recreated = await write(
+        context,
+        createFor(context, supports, scope.calendar, blocker, "11"),
+      );
       const logged = await writeLogSince(context.provider, before);
+      const survivors = await objectsMarked(context.provider, "CONF-O25");
+      assertConflictNotOverwrite(recreated);
+      assertNoUnplannedRecreation(logged, [removed]);
 
       insist(
         "CONF-O25",
-        survivors.length === 1,
-        "the half that had already succeeded was destroyed by the half that failed",
+        deleted.ok && deleted.value.kind === "deleted",
+        "the first half of the replace did not remove the copy it was pointed at",
       );
       insist(
         "CONF-O25",
-        logged.some((entry) => entry.outcome.kind === created.kind),
-        "the successful half was no longer reported separately once the second half failed",
+        logged.some((entry) => entry.intent.kind === "delete" && entry.intent.target.value === removed),
+        "the write log no longer names the target the failed replace had already deleted",
+      );
+      insist(
+        "CONF-O25",
+        survivors.some(
+          (event) =>
+            event.uid.value === blocker && event.version.value === versionOf(blocking).value,
+        ),
+        "the copy that blocked the second half was destroyed by the half that failed",
+      );
+
+      const retried = await write(
+        context,
+        createFor(context, supports, scope.calendar, replaced, "11"),
+      );
+      insist(
+        "CONF-O25",
+        retried.ok && retried.value.kind === "created",
+        "the state after a half-completed replace could not be recovered on the next run",
       );
     },
   ),
@@ -264,12 +315,11 @@ const writeCases = <Provider extends ProviderId>(
   defineCase(
     supports,
     "CONF-O36",
-    "moving an occurrence is one conditional write, not a delete plus an add",
+    "moving an occurrence is one conditional write against a target that is still ours",
     async (context) => {
       const scope = caseScope(context);
       const key = markedWith("CONF-O36", "occurrence");
       await seedWith(context, []);
-      const before = await writeLogLength(context.provider);
       const created = outcomeOf(
         "CONF-O36",
         await write(
@@ -279,10 +329,24 @@ const writeCases = <Provider extends ProviderId>(
             scope.calendar,
             context.environment.installation,
             key,
-            meetingAt(key, "09"),
+            seriesAnchoredAt(key, "09"),
           ),
         ),
       );
+      const listed = listingOf("CONF-O36", await listChanges(context, scope));
+      const mirrored = (listed.events ?? []).find((event) => event.uid.value === key);
+      const before = await writeLogLength(context.provider);
+      insist("CONF-O36", Boolean(mirrored), "the series we wrote did not come back through the adapter");
+      if (!mirrored) {
+        return;
+      }
+      if (supports.provenanceChannel !== "none") {
+        insist(
+          "CONF-O36",
+          mirrored.provenance.kind === "ours",
+          "an occurrence was reassigned against a target the adapter could not prove was ours",
+        );
+      }
 
       await write(
         context,
@@ -290,11 +354,13 @@ const writeCases = <Provider extends ProviderId>(
           supports,
           scope.calendar,
           `id-${key}`,
-          meetingAt(key, "11"),
+          seriesAnchoredAt(key, "11"),
           versionOf(created),
         ),
       );
       const logged = await writeLogSince(context.provider, before);
+      const moved = listingOf("CONF-O36", await listChanges(context, scope));
+      const reassigned = (moved.events ?? []).find((event) => event.uid.value === key);
       assertNoUnconditionalWrite(logged);
 
       insist(
@@ -302,6 +368,55 @@ const writeCases = <Provider extends ProviderId>(
         logged.every((entry) => entry.intent.kind !== "delete"),
         "moving an occurrence was expressed as a delete followed by an add",
       );
+      insist(
+        "CONF-O36",
+        logged.filter((entry) => entry.intent.kind === "update").length === 1,
+        "moving one occurrence took more than the single conditional write it needs",
+      );
+      insist(
+        "CONF-O36",
+        reassigned?.fingerprint.value !== mirrored.fingerprint.value,
+        "a series moved to a new anchor kept the fingerprint of the anchor it left",
+      );
+    },
+  ),
+
+  defineCase(
+    supports,
+    "CONF-O44",
+    "two writers holding the same precondition cannot both win",
+    async (context) => {
+      const scope = caseScope(context);
+      const key = markedWith("CONF-O44", "contended");
+      await seedWith(context, []);
+      const created = outcomeOf(
+        "CONF-O44",
+        await write(context, createFor(context, supports, scope.calendar, key, "09")),
+      );
+      const held = versionOf(created);
+
+      const [earlier, later] = await Promise.all([
+        write(context, updateIntent(supports, scope.calendar, `id-${key}`, meetingAt(key, "11"), held)),
+        write(context, updateIntent(supports, scope.calendar, `id-${key}`, meetingAt(key, "13"), held)),
+      ]);
+      const stored = await objectsMarked(context.provider, "CONF-O44");
+      const answers = [earlier, later];
+      const winners = answers.filter((answered) => answered.ok && answered.value.kind === "updated");
+      const losers = answers.filter((answered) => !winners.includes(answered));
+
+      insist(
+        "CONF-O44",
+        winners.length === 1,
+        `${winners.length} of two writers holding the same precondition were told they had won`,
+      );
+      insist(
+        "CONF-O44",
+        stored.length === 1 && stored.at(0)?.revision === 2,
+        "two concurrent writers left the calendar holding something other than one applied write",
+      );
+      for (const answered of losers) {
+        assertConflictNotOverwrite(answered);
+      }
     },
   ),
 
@@ -346,4 +461,4 @@ const writeCases = <Provider extends ProviderId>(
   ),
 ];
 
-export { echoKindOf, meetingAt, remoteIdOf, versionOf, writeCases };
+export { echoKindOf, meetingAt, remoteIdOf, seriesAnchoredAt, versionOf, writeCases };

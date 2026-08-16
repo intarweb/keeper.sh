@@ -2,7 +2,7 @@ import type { WriteIntent, WriteOutcome } from "@keeper.sh/sync-protocol";
 import { describe, expect, test } from "vitest";
 import {
   assertConflictNotOverwrite,
-  assertNoDeleteThenCreate,
+  assertNoUnplannedRecreation,
   assertNoUnconditionalWrite,
 } from "../src/assertions/outcome";
 import { conflictingOn } from "../src/fixtures";
@@ -76,7 +76,7 @@ describe("a write can never silently overwrite", () => {
     const inspection = await harness.provider.inspect();
 
     expect(() => assertConflictNotOverwrite(result)).not.toThrow();
-    expect(() => assertNoDeleteThenCreate(inspection.writeLog)).not.toThrow();
+    expect(() => assertNoUnplannedRecreation(inspection.writeLog, [])).not.toThrow();
     await harness.dispose();
   });
 
@@ -125,7 +125,7 @@ describe("a write can never silently overwrite", () => {
     expect(outcomeKindOf(created)).toBe("created");
     expect(outcomeKindOf(okValue(replacement))).toBe("conflict");
     expect(inspection.objects.map((event) => event.uid.value)).toContain("replaced");
-    expect(() => assertNoDeleteThenCreate(inspection.writeLog)).not.toThrow();
+    expect(() => assertNoUnplannedRecreation(inspection.writeLog, [])).not.toThrow();
     await harness.dispose();
   });
 
@@ -160,7 +160,7 @@ describe("a write can never silently overwrite", () => {
     await harness.dispose();
   });
 
-  test("CONF-O39: two concurrent writers cannot both succeed against one version", async () => {
+  test("CONF-O44: two concurrent writers cannot both succeed against one version", async () => {
     const harness = await referenceHarness();
     const created = okValue(
       await write(harness.provider, harness.environment, createIntent("contended", meeting)),
@@ -196,9 +196,11 @@ describe("a write can never silently overwrite", () => {
   });
 
   test("CONF-O25: the generated case passes for the reference provider", async () => {
-    await expect(
-      runReferenceCase("CONF-O25", conflictingOn(conflictOnKey("replaced-again"))),
-    ).resolves.toBeUndefined();
+    await expect(runReferenceCase("CONF-O25")).resolves.toBeUndefined();
+  });
+
+  test("CONF-O44: the generated case passes for the reference provider", async () => {
+    await expect(runReferenceCase("CONF-O44")).resolves.toBeUndefined();
   });
 
   test("CONF-O36: the generated case passes for the reference provider", async () => {
