@@ -34,6 +34,11 @@ const createLocalEvent = (id: string): MaterializedSyncableEvent => ({
   id,
   location: "Room 4",
   sourceEventUid: `source-event-uid-${id}`,
+  sourceFields: {
+    description: "Bring the notes",
+    location: "Room 4",
+    title: "Quarterly review",
+  },
   startTime: START_TIME,
   summary: "Quarterly review",
 });

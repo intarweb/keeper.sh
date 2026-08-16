@@ -9,6 +9,7 @@ import {
   normalizeText,
 } from "../events/content-hash";
 import { resolveIsAllDayEvent } from "../events/all-day";
+import { DEFAULT_EVENT_NAME } from "../events/default-event-name";
 import {
   TWO_WAY_WRITE_BACK_DAILY_CAP,
   TWO_WAY_WRITE_BACK_DAILY_WINDOW_MS,
@@ -377,17 +378,29 @@ const collectExpectedSource = (
  * the evidence it carries has to cover every one of those fields. Reporting the schedule
  * alone would let a title or a note edited between the classification and the lock go
  * unnoticed, and the event would be destroyed on the strength of a stale reading.
+ *
+ * The text has to be the source's own, never the projection pushed to the destination: on
+ * a calendar that hides names, descriptions or locations — the default for all three — the
+ * projection is a calendar-name template and two empty strings, which the source row can
+ * never match. Comparing against that would refuse every deletion forever. An event that
+ * arrives without its source row attached carries no text evidence at all, and the applier
+ * refuses a deletion whose evidence is incomplete rather than guessing at it.
  */
 const collectExpectedSourceForDelete = (
   localEvent: MaterializedSyncableEvent,
-): ExpectedSourceFields => ({
-  description: localEvent.description ?? "",
-  endTime: localEvent.endTime,
-  isAllDay: resolveLocalIsAllDay(localEvent),
-  location: localEvent.location ?? "",
-  startTime: localEvent.startTime,
-  summary: localEvent.summary,
-});
+): ExpectedSourceFields => {
+  const { sourceFields } = localEvent;
+  return {
+    endTime: localEvent.endTime,
+    isAllDay: resolveLocalIsAllDay(localEvent),
+    startTime: localEvent.startTime,
+    ...(sourceFields && {
+      description: sourceFields.description ?? "",
+      location: sourceFields.location ?? "",
+      summary: sourceFields.title ?? DEFAULT_EVENT_NAME,
+    }),
+  };
+};
 
 interface PendingDelete {
   deleteApproved: boolean;
@@ -860,6 +873,33 @@ const hasDivergedFromPush = (
   || !isSameSerializedSecond(observed.startTime, mapping.startTime)
   || !isSameSerializedSecond(observed.endTime, mapping.endTime);
 
+/*
+ * A rejection says the edit cannot reach the source. It must not also say the copy keeps
+ * it: recording the user's own edit as the new baseline leaves the destination stably
+ * wrong, with the witness agreeing with it and nothing left anywhere to notice. That is
+ * the one outcome worse than either writing the edit back or putting the copy back, and
+ * it contradicts what the product tells the user a repeating event or a hidden field
+ * does. So a copy that has really moved away from what we pushed is handed to the
+ * ordinary repair path with its witness left alone, exactly as one-way sync treats it.
+ * The witness is still adopted when nothing has really moved — a destination re-encoding
+ * its own copy of our push — because rebuilding that on every pass never terminates.
+ */
+const createUnwritableRejection = (
+  context: MappingContext,
+  observed: ObservedDestinationState,
+  reason: WriteBackRejectionReason,
+  released: boolean,
+): MappingOutcome => {
+  const { localEvent, mapping } = context;
+  if (hasDivergedFromPush(localEvent, mapping, observed)) {
+    return {
+      classification: { mappingId: mapping.id, observed, reason, type: "rejected" },
+      suppress: false,
+    };
+  }
+  return createRejection(mapping, observed, reason, released);
+};
+
 const classifyPresentMirror = (
   context: MappingContext,
   remoteEvent: RemoteEvent,
@@ -906,9 +946,17 @@ const classifyPresentMirror = (
   }
 
   if (isRecurringMapping(mapping)) {
-    return createRejection(mapping, observed, "recurring_event", released);
+    return createUnwritableRejection(context, observed, "recurring_event", released);
   }
 
+  /*
+   * The budget is spent because this mapping has already written to a real calendar as
+   * many times as it is ever allowed to. Handing the copy to the repair path would rebuild
+   * the mapping, and a rebuilt mapping carries neither a witness nor a spent budget — so
+   * the destination that exhausted the budget would be handed a fresh one on the next
+   * pass, and the source would be written to without bound. The copy is adopted, and the
+   * pair's quarantine is what tells the user their edit went nowhere.
+   */
   if (isBudgetSpent(mapping, now)) {
     return createRejection(mapping, observed, "write_back_quarantined", released);
   }
@@ -964,7 +1012,7 @@ const classifyPresentMirror = (
   }
 
   if (resolution.rejectionReason) {
-    return createRejection(mapping, observed, resolution.rejectionReason, released);
+    return createUnwritableRejection(context, observed, resolution.rejectionReason, released);
   }
 
   /*

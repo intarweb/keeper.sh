@@ -1,7 +1,9 @@
 import {
   DEFAULT_EVENT_NAME,
+  isWriteBackMode,
   normalizeText,
   resolveIsAllDayEvent,
+  resolveWriteBackPolicyState,
   TWO_WAY_EPOCH_QUARANTINE_LIMIT,
 } from "@keeper.sh/calendar";
 import type {
@@ -106,6 +108,11 @@ interface CommitUpdateInput {
   updates: WriteBackUpdates;
 }
 
+interface PairWriteBackAuthority {
+  writeBackMode: string;
+  writeBackState: string;
+}
+
 interface LockedWriteBackStore {
   commitDelete: (input: {
     eventStateId: string;
@@ -115,6 +122,16 @@ interface LockedWriteBackStore {
   commitUpdate: (
     input: CommitUpdateInput,
   ) => Promise<{ writeBackDailyCount?: number; writeBackEpoch: number }>;
+  /*
+   * The policy the classifier ran under was read before the destination listing, and the
+   * user can turn two-way sync off at any point in the seconds that follow. Nothing else
+   * this applier reads changes when they do, so the pair's own row is re-read here — the
+   * last moment before a real calendar is written to — and the write is abandoned rather
+   * than performed against a consent that has since been withdrawn.
+   */
+  readPairWriteBack: (
+    pair: { destinationCalendarId: string; sourceCalendarId: string },
+  ) => Promise<PairWriteBackAuthority | null>;
   readMappingSyncEventHash: (mappingId: string) => Promise<
     { syncEventHash: string | null } | null
   >;
@@ -278,7 +295,35 @@ const isStillTheStateWeClassified = async (
   return matchesExpectedSource(classification.expectedSource, snapshot);
 };
 
-type Outcome = "abandoned" | "applied" | "quarantined";
+/*
+ * A pair that no longer authorizes this write is not a failed attempt: nothing is retried,
+ * no budget is spent, and the rest of the pass leaves that pair alone. Deciding otherwise
+ * would let a user who has just switched two-way sync off watch the pass that was already
+ * running delete their originals anyway.
+ */
+const isPairStillAuthorized = async (
+  locked: LockedWriteBackStore,
+  classification: ActionableClassification,
+  target: WriteBackTarget,
+): Promise<boolean> => {
+  const pair = await locked.readPairWriteBack({
+    destinationCalendarId: target.destinationCalendarId,
+    sourceCalendarId: target.sourceCalendarId,
+  });
+  if (!pair || !isWriteBackMode(pair.writeBackMode)) {
+    return false;
+  }
+  const { paused, writeBackMode } = resolveWriteBackPolicyState(
+    pair.writeBackMode,
+    pair.writeBackState,
+  );
+  if (paused || writeBackMode === "off") {
+    return false;
+  }
+  return classification.type !== "delete" || writeBackMode === "edits_and_deletes";
+};
+
+type Outcome = "abandoned" | "applied" | "quarantined" | "withheld";
 
 const quarantineRunaway = async (
   input: WriteBackPassInput,
@@ -301,6 +346,9 @@ const runLockedUpdate = (
   input.store.withSourceLock(
     target.sourceCalendarId,
     async (locked): Promise<{ dailyCount: number; epoch: number; state: Outcome }> => {
+      if (!await isPairStillAuthorized(locked, classification, target)) {
+        return { dailyCount: NO_WORK, epoch: NO_WORK, state: "withheld" };
+      }
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
         return { dailyCount: NO_WORK, epoch: NO_WORK, state: "abandoned" };
       }
@@ -474,6 +522,10 @@ const applyDelete = async (
   const run = input.store.withSourceLock(
     target.sourceCalendarId,
     async (locked): Promise<Outcome> => {
+      if (!await isPairStillAuthorized(locked, classification, target)) {
+        await input.store.abandonTombstone(tombstoneId);
+        return "withheld";
+      }
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
         await input.store.abandonTombstone(tombstoneId);
         return "abandoned";
@@ -601,7 +653,7 @@ const runWriteBackPass = async (
       const outcome = await applyClassification(input, target, writer, classification, readNow());
 
       result[outcome] += 1;
-      if (outcome === "quarantined") {
+      if (outcome === "quarantined" || outcome === "withheld") {
         quarantinedPairKeys.add(createPairKey(target));
       }
       if (outcome === "applied") {
@@ -650,6 +702,7 @@ const runWriteBackPass = async (
 export { MAX_WRITE_BACKS_PER_PASS, runWriteBackPass };
 export type {
   LockedWriteBackStore,
+  PairWriteBackAuthority,
   SourceEventSnapshot,
   WriteBackPassResult,
   WriteBackStore,

@@ -397,9 +397,14 @@ export type {
   InboundClassification,
   InboundClassificationResult,
 } from "./core/sync/write-back";
-export { normalizeText } from "./core/events/content-hash";
+export {
+  createEditableEventContentHash,
+  createSyncEventContentHash,
+  normalizeText,
+} from "./core/events/content-hash";
 export {
   isWriteBackMode,
+  resolveWriteBackPolicyState,
   WRITE_BACK_MODES,
   WRITE_BACK_WITNESS_RESET,
 } from "./core/sync/write-back-policy";

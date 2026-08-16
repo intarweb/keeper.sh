@@ -13,6 +13,7 @@ import type {
 import type { SyncWindow } from "../sync/sync-range";
 import { TWO_WAY_DELETE_APPROVAL_TTL_MS } from "@keeper.sh/constants";
 import { parseAvailability } from "./availability";
+import { DEFAULT_EVENT_NAME } from "./default-event-name";
 import { isWriteBackMode, resolveWriteBackPolicyState } from "../sync/write-back-policy";
 import type { WriteBackPolicy } from "../sync/write-back-policy";
 import { parseStoredRecurrenceForMaterialization } from "./stored-recurrence";
@@ -123,7 +124,6 @@ const shouldExcludeSyncEvent = (event: {
   return false;
 };
 const TEMPLATE_TOKEN_PATTERN = /\{\{(\w+)\}\}/g;
-const DEFAULT_EVENT_NAME = "Busy";
 const DEFAULT_EVENT_NAME_TEMPLATE = "{{calendar_name}}";
 const resolveEventNameTemplate = (
   template: string,
@@ -306,6 +306,11 @@ const getEventsForCalendarsWithDiagnostics = async (
       location: excludeOrAbsent(result.excludeEventLocation, result.location),
       ...recurrence,
       sourceEventUid: result.sourceEventUid,
+      sourceFields: {
+        description: result.description,
+        location: result.location,
+        title: result.title,
+      },
       startTime: result.startTime,
       startTimeZone: orAbsent(result.startTimeZone),
       summary,

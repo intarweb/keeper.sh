@@ -458,6 +458,14 @@ const eventWriteBackTombstonesTable = pgTable(
     sourceCalendarId: uuid().notNull(),
     sourceEventUid: text().notNull(),
     state: text().notNull(),
+    /*
+     * The one reference a tombstone does carry. Everything it records is the user's own
+     * event text, so it cannot survive the account: deleting the account has to take the
+     * snapshots with it, whatever the retention window still says.
+     */
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
   },
   (table) => [
     index("event_write_back_tombstones_source_idx").on(
@@ -465,6 +473,7 @@ const eventWriteBackTombstonesTable = pgTable(
       table.appliedAt,
     ),
     index("event_write_back_tombstones_expiry_idx").on(table.expiresAt),
+    index("event_write_back_tombstones_user_idx").on(table.userId),
     uniqueIndex("event_write_back_tombstones_mapping_idx").on(table.eventMappingId),
   ],
 );

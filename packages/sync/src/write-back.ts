@@ -431,6 +431,20 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
       writeBackEpoch: row?.writeBackEpoch ?? NO_EPOCHS,
     };
   },
+  readPairWriteBack: async ({ destinationCalendarId, sourceCalendarId }) => {
+    const [row] = await locked
+      .select({
+        writeBackMode: sourceDestinationMappingsTable.writeBackMode,
+        writeBackState: sourceDestinationMappingsTable.writeBackState,
+      })
+      .from(sourceDestinationMappingsTable)
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ))
+      .limit(1);
+    return row ?? null;
+  },
   readMappingSyncEventHash: async (mappingId) => {
     const [row] = await locked
       .select({ syncEventHash: eventMappingsTable.syncEventHash })
@@ -634,6 +648,7 @@ const createDatabaseWriteBackStore = (
         sourceCalendarId: target.sourceCalendarId,
         sourceEventUid: target.sourceEventUid,
         state: "pending",
+        userId: config.userId,
       })
       .onConflictDoUpdate({
         set: { appliedAt: now, expiresAt, observedAt: now, snapshot, state: "pending" },

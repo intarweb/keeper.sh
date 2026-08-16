@@ -617,6 +617,13 @@
       "when": 1786830275153,
       "tag": "0087_cultured_absorbing_man",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1786845635611,
+      "tag": "0088_fat_mordo",
+      "breakpoints": true
     }
   ]
 }

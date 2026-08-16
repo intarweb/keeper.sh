@@ -100,6 +100,8 @@ const createHarness = (options: ProbeHarnessOptions = {}) => {
       return Promise.resolve({ writeBackEpoch: 1 });
     },
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
+    readPairWriteBack: () =>
+      Promise.resolve({ writeBackMode: "edits_and_deletes", writeBackState: "ok" }),
     readSourceEvent: (eventStateId) =>
       Promise.resolve(sourceEvents.get(eventStateId) ?? null),
   };

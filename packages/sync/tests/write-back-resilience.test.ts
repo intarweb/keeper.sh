@@ -108,6 +108,8 @@ const createHarness = (options: ResilienceOptions = {}) => {
       return Promise.resolve({ writeBackEpoch: epoch });
     },
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
+    readPairWriteBack: () =>
+      Promise.resolve({ writeBackMode: "edits_and_deletes", writeBackState: "ok" }),
     readSourceEvent: () => Promise.resolve(sourceEvent),
   };
 

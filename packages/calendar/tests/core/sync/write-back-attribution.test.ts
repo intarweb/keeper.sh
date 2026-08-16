@@ -278,7 +278,12 @@ describe("two-way sync: a field is written back only if it moved against its own
     expect(result.counters.blockedRedactedField).toBe(1);
   });
 
-  it("adopts the baseline and acts on nothing when every drifted field is redacted", () => {
+  /*
+   * The rename cannot travel to the source, so the copy is put back rather than kept.
+   * Recording "Dentist" as the new baseline would agree with the wrong copy and leave the
+   * destination stably misnaming the user's time with nothing left to notice it.
+   */
+  it("repairs the copy rather than adopting it when every drifted field is redacted", () => {
     const event = createLocalEvent({ summary: "Personal" });
     const adopted: ObservedFields = {
       description: REAL_DESCRIPTION,
@@ -289,17 +294,20 @@ describe("two-way sync: a field is written back only if it moved against its own
     const mapping = createWitnessedMapping(event, adopted);
     const observed: ObservedFields = { ...adopted, summary: "Dentist" };
 
-    const classification = classificationFor(buildInput(
+    const result = classifyInboundChanges(buildInput(
       createPolicy({ excludeEventName: true }),
       mapping,
       event,
       observed,
     ));
-    const update = classification["mappingUpdate"] as Record<string, unknown>;
+    const classification = result.classifications.find(
+      (candidate) => candidate.mappingId === MAPPING_ID,
+    ) as unknown as Record<string, unknown>;
 
     expect(classification["type"]).toBe("rejected");
     expect(classification["reason"]).toBe("redacted_field");
-    expect(update["destinationSummary"]).toBe("Dentist");
+    expect(classification["mappingUpdate"]).toBeUndefined();
+    expect(result.suppressedMappingIds).not.toContain(MAPPING_ID);
   });
 });
 

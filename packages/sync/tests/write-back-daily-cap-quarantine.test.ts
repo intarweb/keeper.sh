@@ -104,6 +104,8 @@ const createHarness = () => {
       });
     },
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
+    readPairWriteBack: () =>
+      Promise.resolve({ writeBackMode: "edits_and_deletes", writeBackState: "ok" }),
     readSourceEvent: () => Promise.resolve(createSourceEvent()),
   };
 
