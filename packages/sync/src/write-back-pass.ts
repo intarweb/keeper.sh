@@ -242,6 +242,20 @@ const matchesExpectedSource = (
     && (typeof expectedAllDay !== "boolean" || expectedAllDay === actualAllDay);
 };
 
+/*
+ * A deletion is unrecoverable, so it is authorized only by evidence that covers every field
+ * the classifier would have refused on. A classification that reports less than that — one
+ * produced before this guard existed, or by a pass still in flight during a deploy — is not
+ * evidence the source event is untouched, and the deletion is abandoned rather than guessed.
+ */
+const coversEveryField = (expected: ExpectedSourceFields): boolean =>
+  typeof expected.summary === "string"
+  && typeof expected.description === "string"
+  && typeof expected.location === "string"
+  && expected.startTime instanceof Date
+  && expected.endTime instanceof Date
+  && typeof expected.isAllDay === "boolean";
+
 const isStillTheStateWeClassified = async (
   locked: LockedWriteBackStore,
   classification: ActionableClassification,
@@ -249,6 +263,12 @@ const isStillTheStateWeClassified = async (
 ): Promise<boolean> => {
   const mapping = await locked.readMappingSyncEventHash(target.mappingId);
   if (!mapping || mapping.syncEventHash !== classification.expectedSyncEventHash) {
+    return false;
+  }
+  if (
+    classification.type === "delete"
+    && !coversEveryField(classification.expectedSource)
+  ) {
     return false;
   }
   const snapshot = await locked.readSourceEvent(target.eventStateId);
@@ -277,12 +297,12 @@ const runLockedUpdate = (
   target: WriteBackTarget,
   writer: CalendarSourceWriter,
   classification: Extract<InboundClassification, { type: "write-back" }>,
-): Promise<{ epoch: number; state: Outcome }> =>
+): Promise<{ dailyCount: number; epoch: number; state: Outcome }> =>
   input.store.withSourceLock(
     target.sourceCalendarId,
-    async (locked): Promise<{ epoch: number; state: Outcome }> => {
+    async (locked): Promise<{ dailyCount: number; epoch: number; state: Outcome }> => {
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
-        return { epoch: NO_WORK, state: "abandoned" };
+        return { dailyCount: NO_WORK, epoch: NO_WORK, state: "abandoned" };
       }
 
       /*
@@ -309,7 +329,11 @@ const runLockedUpdate = (
       );
       assertWriteAccepted(written, "Source write-back failed");
 
-      return { epoch: committed.writeBackEpoch, state: "applied" };
+      return {
+        dailyCount: committed.writeBackDailyCount ?? NO_WORK,
+        epoch: committed.writeBackEpoch,
+        state: "applied",
+      };
     },
   );
 
@@ -327,7 +351,7 @@ const quarantineRefusal = async (
 };
 
 type UpdateOutcome =
-  | { epoch: number; kind: "committed"; state: Outcome }
+  | { dailyCount: number; epoch: number; kind: "committed"; state: Outcome }
   | { kind: "over-budget" }
   | { kind: "refused"; refusal: SourceWriteRefusedError };
 
@@ -338,8 +362,13 @@ const runBudgetedUpdate = async (
   classification: Extract<InboundClassification, { type: "write-back" }>,
 ): Promise<UpdateOutcome> => {
   try {
-    const { epoch, state } = await runLockedUpdate(input, target, writer, classification);
-    return { epoch, kind: "committed", state };
+    const { dailyCount, epoch, state } = await runLockedUpdate(
+      input,
+      target,
+      writer,
+      classification,
+    );
+    return { dailyCount, epoch, kind: "committed", state };
   } catch (error) {
     if (error instanceof WriteBackDailyCapError) {
       return { kind: "over-budget" };
@@ -364,7 +393,18 @@ const applyUpdate = async (
   if (outcome.kind === "over-budget") {
     return quarantineRunaway(input, target);
   }
-  if (outcome.state === "applied" && outcome.epoch >= TWO_WAY_EPOCH_QUARANTINE_LIMIT) {
+  /*
+   * The classifier stops handing this mapping work the moment its daily count reaches the
+   * cap, so the budget has to be judged spent at the cap rather than past it. Judging it
+   * past the cap leaves the pair silently frozen for the rest of the day with nothing said.
+   */
+  if (
+    outcome.state === "applied"
+    && (
+      outcome.epoch >= TWO_WAY_EPOCH_QUARANTINE_LIMIT
+      || outcome.dailyCount >= TWO_WAY_WRITE_BACK_DAILY_CAP
+    )
+  ) {
     return quarantineRunaway(input, target);
   }
   return outcome.state;

@@ -78,6 +78,20 @@ describe("handlePatchDeleteConfirmationRoute", () => {
     expect(response.status).toBe(400);
   });
 
+  it("says so when the copies the approval was about are still there", async () => {
+    const response = await handlePatchDeleteConfirmationRoute(
+      { body: { decision: "apply" }, params, userId: "user-1" },
+      createDependencies({
+        resolveDeleteConfirmation: () => Promise.reject(new Error(
+          "The copies are still on the destination calendar,"
+          + " so the originals cannot be deleted",
+        )),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+  });
+
   it("returns 404 when the mapping does not exist", async () => {
     const response = await handlePatchDeleteConfirmationRoute(
       { body: { decision: "apply" }, params, userId: "user-1" },

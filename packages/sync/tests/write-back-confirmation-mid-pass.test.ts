@@ -55,7 +55,14 @@ const createTarget = (
 });
 
 const createDelete = (mappingId: string): InboundClassification => ({
-  expectedSource: { endTime: END_TIME, isAllDay: false, startTime: START_TIME },
+  expectedSource: {
+    description: "Bring the notes",
+    endTime: END_TIME,
+    isAllDay: false,
+    location: "Room 4",
+    startTime: START_TIME,
+    summary: "Quarterly review",
+  },
   expectedSyncEventHash: PUSHED_HASH,
   mappingId,
   sourceEventUid: `source-event-uid-${mappingId}`,

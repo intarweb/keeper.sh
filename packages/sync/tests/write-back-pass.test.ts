@@ -77,7 +77,14 @@ const createWriteBack = (
 const createDelete = (
   overrides: Partial<Extract<InboundClassification, { type: "delete" }>> = {},
 ): InboundClassification => ({
-  expectedSource: { endTime: END_TIME, isAllDay: false, startTime: START_TIME },
+  expectedSource: {
+    description: "Bring the notes",
+    endTime: END_TIME,
+    isAllDay: false,
+    location: "Room 4",
+    startTime: START_TIME,
+    summary: "Quarterly review",
+  },
   expectedSyncEventHash: PUSHED_HASH,
   mappingId: MAPPING_ID,
   sourceEventUid: SOURCE_EVENT_UID,
@@ -236,7 +243,16 @@ describe("runWriteBackPass: nothing is destroyed without a record of it", () => 
 
     await runWriteBackPass({
       calendarId: DESTINATION_CALENDAR_ID,
-      classifications: [createDelete()],
+      classifications: [createDelete({
+        expectedSource: {
+          description: "Bring the notes",
+          endTime: END_TIME,
+          isAllDay: false,
+          location: "Room 4",
+          startTime: START_TIME,
+          summary: "Root canal, Dr. Chen",
+        },
+      })],
       store: harness.store,
     });
 

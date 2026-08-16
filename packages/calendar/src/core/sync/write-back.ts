@@ -253,11 +253,12 @@ const resolveEffectiveEpoch = (mapping: EventMapping, now: Date): number => {
   return epoch;
 };
 
+/*
+ * The window is read before the count, exactly as the counter's own SQL assignment does. A
+ * spent budget whose window has since elapsed is a fresh budget, and returning the stale
+ * count instead would make the cap a permanent, silent kill switch for that one event.
+ */
 const resolveEffectiveDailyCount = (mapping: EventMapping, now: Date): number => {
-  const dailyCount = mapping.writeBackDailyCount ?? NO_EPOCHS;
-  if (dailyCount >= TWO_WAY_WRITE_BACK_DAILY_CAP) {
-    return dailyCount;
-  }
   const windowStart = mapping.writeBackDailyWindowStart;
   if (
     windowStart instanceof Date
@@ -265,7 +266,7 @@ const resolveEffectiveDailyCount = (mapping: EventMapping, now: Date): number =>
   ) {
     return NO_EPOCHS;
   }
-  return dailyCount;
+  return mapping.writeBackDailyCount ?? NO_EPOCHS;
 };
 
 const isBudgetSpent = (mapping: EventMapping, now: Date): boolean =>
@@ -371,12 +372,21 @@ const collectExpectedSource = (
   ...("isAllDay" in updates && { isAllDay: resolveLocalIsAllDay(localEvent) }),
 });
 
+/*
+ * A deletion is refused outright when any field of the source moved since the last push, so
+ * the evidence it carries has to cover every one of those fields. Reporting the schedule
+ * alone would let a title or a note edited between the classification and the lock go
+ * unnoticed, and the event would be destroyed on the strength of a stale reading.
+ */
 const collectExpectedSourceForDelete = (
   localEvent: MaterializedSyncableEvent,
 ): ExpectedSourceFields => ({
+  description: localEvent.description ?? "",
   endTime: localEvent.endTime,
   isAllDay: resolveLocalIsAllDay(localEvent),
+  location: localEvent.location ?? "",
   startTime: localEvent.startTime,
+  summary: localEvent.summary,
 });
 
 interface PendingDelete {

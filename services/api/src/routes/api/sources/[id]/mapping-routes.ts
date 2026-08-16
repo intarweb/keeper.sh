@@ -6,6 +6,7 @@ import {
 } from "@/utils/request-body";
 import { idParamSchema } from "@/utils/request-query";
 import { MAPPING_LIMIT_ERROR_MESSAGE } from "@/utils/source-destination-mappings";
+import { DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE } from "@/utils/delete-confirmation-policy";
 
 const TWO_WAY_PRO_ERROR_MESSAGE = "Two-way sync requires a Pro plan.";
 const MAPPING_NOT_FOUND_ERROR_MESSAGE = "Mapping not found";
@@ -308,6 +309,12 @@ const handlePatchDeleteConfirmationRoute = async (
   } catch (error) {
     if (error instanceof Error && error.message === MAPPING_NOT_FOUND_ERROR_MESSAGE) {
       return ErrorResponse.notFound().toResponse();
+    }
+    if (
+      error instanceof Error
+      && error.message === DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE
+    ) {
+      return ErrorResponse.conflict(DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE).toResponse();
     }
     throw error;
   }

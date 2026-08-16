@@ -57,6 +57,8 @@ import {
 } from "@/state/calendar-detail";
 import type { ExcludeField } from "@/state/calendar-detail";
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
+import { resolveDeleteConfirmationAnswers } from "@/lib/write-back-answers";
+import type { DeleteConfirmationAnswer } from "@/lib/write-back-answers";
 import {
   destinationIdsAtom,
   selectSiblingDestinationCount,
@@ -740,7 +742,10 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     + " {destination} is paused.",
 };
 
-const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
+const ANSWER_LABELS: Record<DeleteConfirmationAnswer, (sourceName: string) => string> = {
+  apply: (sourceName) => `Delete the originals on ${sourceName}`,
+  decline: () => "Put the copies back",
+};
 
 function WriteBackStatusLine({
   destinationName,
@@ -758,6 +763,7 @@ function WriteBackStatusLine({
   }
   const template = (status.reason && WRITE_BACK_STATE_COPY[status.reason])
     ?? `Two-way sync to ${destinationName} is paused.`;
+  const answers = resolveDeleteConfirmationAnswers(status);
 
   return (
     <div className="flex flex-col gap-2">
@@ -765,22 +771,18 @@ function WriteBackStatusLine({
         {template.split("{destination}").join(destinationName)
           .split("{source}").join(sourceName)}
       </Text>
-      {status.state === DELETE_CONFIRMATION_STATE && (
+      {answers.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={writeBackOptionStyle(false)}
-            onClick={() => { onResolveDeleteConfirmation("apply"); }}
-          >
-            {`Delete the originals on ${sourceName}`}
-          </button>
-          <button
-            type="button"
-            className={writeBackOptionStyle(false)}
-            onClick={() => { onResolveDeleteConfirmation("decline"); }}
-          >
-            Put the copies back
-          </button>
+          {answers.map((answer) => (
+            <button
+              key={answer}
+              type="button"
+              className={writeBackOptionStyle(false)}
+              onClick={() => { onResolveDeleteConfirmation(answer); }}
+            >
+              {ANSWER_LABELS[answer](sourceName)}
+            </button>
+          ))}
         </div>
       )}
     </div>

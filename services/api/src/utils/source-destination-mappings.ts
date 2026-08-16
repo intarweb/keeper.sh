@@ -13,7 +13,12 @@ import type { database as databaseInstance } from "@/context";
 import { enqueuePushSync } from "./enqueue-push-sync";
 import { spawnBackgroundJob } from "./background-task";
 import { assertAllIdsOwned } from "./owned-ids";
+import {
+  DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
+  isDeleteApprovalApplicable,
+} from "./delete-confirmation-policy";
 const EMPTY_LIST_COUNT = 0;
+const SINGLE_ROW = 1;
 const NO_PENDING_DELETES = 0;
 const USER_MAPPING_LOCK_NAMESPACE = 9001;
 const MAPPING_LIMIT_ERROR_MESSAGE = "Mapping limit reached. Upgrade to Pro for unlimited sync mappings.";
@@ -932,6 +937,24 @@ const resolveDeleteConfirmation = async (
   const approved = decision === "apply";
 
   await database.transaction(async (transactionClient) => {
+    if (approved) {
+      const [pending] = await transactionClient
+        .select({ writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason })
+        .from(sourceDestinationMappingsTable)
+        .where(and(
+          eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+          eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+        ))
+        .limit(SINGLE_ROW);
+
+      if (!pending) {
+        throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
+      }
+      if (!isDeleteApprovalApplicable(pending.writeBackStateReason)) {
+        throw new Error(DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE);
+      }
+    }
+
     const updated = await transactionClient
       .update(sourceDestinationMappingsTable)
       .set({

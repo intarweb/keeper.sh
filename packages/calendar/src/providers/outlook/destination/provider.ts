@@ -385,8 +385,11 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
    * 404 on the recorded id therefore says nothing about the copy, and reading it as an
    * absence would let two-way sync destroy an original whose copy is plainly there.
    */
-  const findEventByUid = async (uid: string): Promise<RemoteEventPresence> => {
-    const url = new URL(`${MICROSOFT_GRAPH_API}/me/events`);
+  const findEventByUidIn = async (
+    collectionUrl: string,
+    uid: string,
+  ): Promise<RemoteEventPresence> => {
+    const url = new URL(collectionUrl);
     url.searchParams.set("$filter", `iCalUId eq '${uid.replaceAll("'", "''")}'`);
     url.searchParams.set("$select", "id");
     url.searchParams.set("$top", SINGLE_PROBE_RESULT);
@@ -406,6 +409,20 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
       return "absent";
     }
     return "present";
+  };
+
+  /*
+   * Graph scopes /me/events to the mailbox's default calendar, which is almost never the
+   * destination calendar, so the destination collection has to be asked first. The mailbox
+   * default is then asked as well: a copy the user dragged into another folder is still a
+   * copy, and any sighting of it has to block the deletion of the original.
+   */
+  const findEventByUid = async (uid: string): Promise<RemoteEventPresence> => {
+    const inDestination = await findEventByUidIn(calendarEventsUrl, uid);
+    if (inDestination === "present") {
+      return inDestination;
+    }
+    return findEventByUidIn(`${MICROSOFT_GRAPH_API}/me/events`, uid);
   };
 
   /*
