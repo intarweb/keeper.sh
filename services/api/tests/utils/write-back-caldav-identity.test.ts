@@ -42,6 +42,7 @@ create table calendars (
   "accountId" uuid,
   "calendarType" text not null default 'caldav',
   "capabilities" text[] not null default '{pull,push}',
+  "disabled" boolean not null default false,
   "userId" text not null
 );
 `;

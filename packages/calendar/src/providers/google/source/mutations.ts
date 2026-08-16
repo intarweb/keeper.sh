@@ -7,7 +7,11 @@ import type { GoogleEventWithAttendees } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
-import { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL } from "../../../core/source/writer";
+import {
+  ATTENDEE_REFUSAL,
+  AUTHORSHIP_REFUSAL,
+  RICH_BODY_REFUSAL,
+} from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -80,6 +84,22 @@ const isAuthoredBySomeoneElse = (
     return false;
   }
   return !isSameAddress(creatorEmail, accountEmail);
+};
+
+const MARKUP_PATTERN = /<[a-z!/][^>]*>/iu;
+const HTML_ENTITY_PATTERN = /&[a-z]+;|&#\d+;/iu;
+
+/*
+ * Google keeps a description as the markup it was written with; every copy Keeper.sh makes
+ * of one is a plain-text projection, so the markup is nowhere but on the real event. A
+ * description read back off a copy therefore cannot carry it, and writing that projection
+ * over the original would drop the formatting and the hrefs — the join link a meeting
+ * provider wrote in among them — with nothing anywhere to restore them from. A description
+ * that carries no markup projects to itself and still travels.
+ */
+const carriesUnreadableMarkup = (event: GoogleEventWithAttendees): boolean => {
+  const description = event.description ?? "";
+  return MARKUP_PATTERN.test(description) || HTML_ENTITY_PATTERN.test(description);
 };
 
 const buildHeaders = (accessToken: string): Record<string, string> => ({
@@ -256,6 +276,7 @@ const createGoogleSourceWriter = (
   const resolveWritableEventId = (
     lookup: { event: GoogleEventWithAttendees | null },
     reference: { sourceEventId: string | null },
+    writesDescription: boolean,
   ): { eventId: string | null } | { refusal: SourceWriteResult } => {
     const { event } = lookup;
     if (!event) {
@@ -266,6 +287,9 @@ const createGoogleSourceWriter = (
     }
     if (isAuthoredBySomeoneElse(event, config.accountEmail)) {
       return { refusal: AUTHORSHIP_REFUSAL };
+    }
+    if (writesDescription && carriesUnreadableMarkup(event)) {
+      return { refusal: RICH_BODY_REFUSAL };
     }
     return { eventId: event.id ?? reference.sourceEventId };
   };
@@ -284,7 +308,7 @@ const createGoogleSourceWriter = (
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const writable = resolveWritableEventId(lookup, reference);
+    const writable = resolveWritableEventId(lookup, reference, "description" in updates);
     if ("refusal" in writable) {
       return writable.refusal;
     }
@@ -326,7 +350,7 @@ const createGoogleSourceWriter = (
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const writable = resolveWritableEventId(lookup, reference);
+    const writable = resolveWritableEventId(lookup, reference, false);
     if ("refusal" in writable) {
       return writable.refusal;
     }

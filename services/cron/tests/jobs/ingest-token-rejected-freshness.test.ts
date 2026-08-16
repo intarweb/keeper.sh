@@ -1,4 +1,3 @@
-import { DrizzleQueryError } from "drizzle-orm/errors";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface WideEvent {
@@ -6,28 +5,16 @@ interface WideEvent {
   values: Record<string, unknown>;
 }
 
-interface IngestionCounts {
-  eventsAdded: number;
-  eventsRemoved: number;
-  snapshotConfirmed: boolean;
-}
-
-interface BackoffRow {
-  failureCount: number;
-  nextAttemptAt: Date | null;
+interface FetchOutcome {
+  events: unknown[];
+  fullSyncRequired?: boolean;
+  nextSyncToken?: string;
 }
 
 const emitted: WideEvent[] = [];
 const updates: Record<string, unknown>[] = [];
 let current: WideEvent = { fields: {}, values: {} };
-let backoffRow: BackoffRow = { failureCount: 0, nextAttemptAt: null };
-
-const SUCCESSFUL_INGEST = (): IngestionCounts => ({
-  eventsAdded: 1,
-  eventsRemoved: 0,
-  snapshotConfirmed: true,
-});
-let ingestOutcome: () => IngestionCounts = SUCCESSFUL_INGEST;
+let fetchOutcome: () => FetchOutcome = () => ({ events: [] });
 
 vi.mock("@/utils/logging", () => ({
   context: (run: () => Promise<unknown>) => run(),
@@ -88,12 +75,15 @@ const resolveSelect = (projection: Record<string, unknown>): unknown[] => {
     return [CALDAV_SOURCE];
   }
   if (keys.has("failureCount") && keys.has("nextAttemptAt")) {
-    return [{ ...backoffRow }];
+    return [{ failureCount: 0, nextAttemptAt: null }];
   }
   if (keys.has("syncFutureRange") && keys.has("syncHistoricRange")) {
     return [];
   }
   if (keys.has("treatFullDayTimedEventsAsAllDay")) {
+    return [];
+  }
+  if (keys.has("sourceEventUid")) {
     return [];
   }
   throw new Error(`unexpected select projection: ${[...keys].join(",")}`);
@@ -104,25 +94,17 @@ const createQuery = (resolve: () => unknown): unknown => {
   return new Proxy(chain, {
     get(_target, property) {
       if (property === "then") {
-        return (onFulfilled: (value: unknown) => unknown, onRejected: (reason: unknown) => unknown) =>
-          Promise.resolve().then(resolve).then(onFulfilled).catch(onRejected);
+        return (
+          onFulfilled: (value: unknown) => unknown,
+          onRejected: (reason: unknown) => unknown,
+        ) => Promise.resolve().then(resolve).then(onFulfilled).catch(onRejected);
       }
       return () => createQuery(resolve);
     },
   });
 };
 
-const applyBackoffWrite = (values: Record<string, unknown>): void => {
-  if (!("ingestFailureCount" in values)) {
-    return;
-  }
-  backoffRow = {
-    failureCount: Number(values.ingestFailureCount),
-    nextAttemptAt: (values.ingestNextAttemptAt as Date | null) ?? null,
-  };
-};
-
-const createUpdateQuery = (): unknown => {
+const createUpdateQuery = (sink: Record<string, unknown>[]): unknown => {
   const chain: Record<string, unknown> = {};
   return new Proxy(chain, {
     get(_target, property) {
@@ -132,22 +114,32 @@ const createUpdateQuery = (): unknown => {
       }
       if (property === "set") {
         return (values: Record<string, unknown>) => {
-          updates.push(values);
-          applyBackoffWrite(values);
-          return createUpdateQuery();
+          sink.push(values);
+          return createUpdateQuery(sink);
         };
       }
-      return () => createUpdateQuery();
+      return () => createUpdateQuery(sink);
     },
   });
+};
+
+const transactionWrites: Record<string, unknown>[] = [];
+
+const transactionHandle = {
+  delete: () => createUpdateQuery(transactionWrites),
+  execute: () => Promise.resolve([]),
+  insert: () => createUpdateQuery(transactionWrites),
+  select: (projection: Record<string, unknown>) =>
+    createQuery(() => resolveSelect(projection)),
+  update: () => createUpdateQuery(transactionWrites),
 };
 
 vi.mock("@/context", () => ({
   database: {
     select: (projection: Record<string, unknown>) =>
       createQuery(() => resolveSelect(projection)),
-    transaction: (work: (transaction: unknown) => Promise<unknown>) => work({}),
-    update: () => createUpdateQuery(),
+    transaction: (work: (transaction: unknown) => Promise<unknown>) => work(transactionHandle),
+    update: () => createUpdateQuery(updates),
   },
   refreshLockRedis: {},
   refreshLockStore: {},
@@ -172,78 +164,54 @@ vi.mock("@keeper.sh/database", async (importOriginal) => ({
   decryptPassword: () => "plaintext",
 }));
 
-vi.mock("@keeper.sh/calendar", async (importOriginal) => ({
+vi.mock("@keeper.sh/calendar/caldav", async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
-  ingestSource: () => Promise.resolve().then(ingestOutcome),
+  createCalDAVSourceFetcher: () => ({
+    fetchEvents: () => Promise.resolve().then(fetchOutcome),
+  }),
 }));
 
 const ingestSourcesModule = await import("../../src/jobs/ingest-sources");
 const ingestSourcesJob = ingestSourcesModule.default;
 
-const postgresError = (
-  message: string,
-  fields: Record<string, unknown>,
-): Error & Record<string, unknown> =>
-  Object.assign(new Error(message), { name: "PostgresError" }, fields);
-
-const wrapQuery = (cause: Error): DrizzleQueryError =>
-  new DrizzleQueryError(
-    "insert into \"event_states\" (\"id\") values ($1) on conflict do nothing",
-    ["event-1"],
-    cause,
-  );
-
-const closedPool = (): IngestionCounts => {
-  throw wrapQuery(postgresError("Connection closed", {
-    code: "ERR_POSTGRES_CONNECTION_CLOSED",
-  }));
-};
-
-const runTick = async (outcome: () => IngestionCounts): Promise<void> => {
-  ingestOutcome = outcome;
+const runTick = async (outcome: () => FetchOutcome): Promise<void> => {
+  fetchOutcome = outcome;
   emitted.length = 0;
   updates.length = 0;
+  transactionWrites.length = 0;
   await Promise.resolve(ingestSourcesJob.callback()).catch(() => null);
 };
 
-const allowImmediateRetry = (): void => {
-  backoffRow = { ...backoffRow, nextAttemptAt: null };
-};
+const recordedFreshness = (): Record<string, unknown>[] =>
+  updates.filter((values) => "ingestLastSucceededAt" in values);
 
 /*
- * Two-way sync refuses to overwrite or delete a real source event whose stored copy has
- * aged past the freshness bound, so the bound is only as good as the record of when the
- * copy was last confirmed. A clean read that changed nothing is still a confirmation, and
- * a tick that does not record it reads afterwards as a source nobody has looked at.
+ * Two-way sync writes to and deletes from a real source calendar on the strength of the
+ * stored copy, and only while that copy is younger than the freshness bound. A tick whose
+ * sync token the provider rejected read nothing at all: it cleared the token and returned.
+ * Stamping it as a confirmation would un-pause write-back against a copy that is exactly
+ * as old as it was before the tick ran.
  */
-describe("a clean ingest records when the stored copy was last confirmed", () => {
+describe("a tick whose sync token the provider rejected", () => {
   beforeEach(() => {
     emitted.length = 0;
     updates.length = 0;
+    transactionWrites.length = 0;
     current = { fields: {}, values: {} };
-    backoffRow = { failureCount: 0, nextAttemptAt: null };
   });
 
-  it("records the read on a tick that had no backoff to clear", async () => {
-    await runTick(SUCCESSFUL_INGEST);
+  it("does not record the stored copy as confirmed", async () => {
+    await runTick(() => ({ events: [], fullSyncRequired: true }));
 
-    const recorded = updates.filter((values) => "ingestLastSucceededAt" in values);
-    expect(recorded.length).toBe(1);
-    expect(recorded[0]?.ingestLastSucceededAt).toBeInstanceOf(Date);
+    expect(emitted.some((event) => event.values["ingest.outcome"] === "full-sync-required"))
+      .toBe(true);
+    expect(recordedFreshness().length).toBe(0);
   });
 
-  it("records nothing for a tick the provider refused", async () => {
-    await runTick(closedPool);
+  it("still records the stored copy as confirmed on a clean read", async () => {
+    await runTick(() => ({ events: [], nextSyncToken: "token-2" }));
 
-    expect(updates.some((values) => "ingestLastSucceededAt" in values)).toBe(false);
-  });
-
-  it("records the read again once a failing source recovers", async () => {
-    await runTick(closedPool);
-    allowImmediateRetry();
-
-    await runTick(SUCCESSFUL_INGEST);
-
-    expect(updates.some((values) => "ingestLastSucceededAt" in values)).toBe(true);
+    expect(recordedFreshness().length).toBe(1);
+    expect(recordedFreshness()[0]?.ingestLastSucceededAt).toBeInstanceOf(Date);
   });
 });

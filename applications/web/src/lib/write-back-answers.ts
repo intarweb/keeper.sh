@@ -48,7 +48,14 @@ const resolveModeSelection = (input: {
     return "ignore";
   }
   const restartable = input.status?.state === QUARANTINED_STATE;
-  if (input.nextMode === input.selectedMode && !restartable) {
+  /*
+   * The selection rendered here is the mode the write-back pass would act on, not the mode
+   * the pair stores: a source that lost write access or one the user paused reports as off
+   * while still storing a two-way mode. Turning it off is the only opt-out there is, so it
+   * always reaches the server — a redundant write of "off" costs nothing, and swallowing
+   * the press leaves the stored mode to come back with the access.
+   */
+  if (input.nextMode === input.selectedMode && !restartable && input.nextMode !== "off") {
     return "ignore";
   }
   if (input.nextMode === "edits_and_deletes") {

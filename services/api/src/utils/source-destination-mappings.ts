@@ -20,7 +20,7 @@ import {
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
   resolveConfirmationDisposition,
 } from "./delete-confirmation-policy";
-import { isWriteBackCapableSource, resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
+import { resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
 const EMPTY_LIST_COUNT = 0;
 const SINGLE_ROW = 1;
 const NO_PENDING_DELETES = 0;
@@ -848,6 +848,7 @@ const sourceSupportsWriteBack = async (
       calendarType: calendarsTable.calendarType,
       capabilities: calendarsTable.capabilities,
       caldavUsername: caldavCredentialsTable.username,
+      disabled: calendarsTable.disabled,
     })
     .from(calendarsTable)
     .leftJoin(
@@ -867,11 +868,17 @@ const sourceSupportsWriteBack = async (
   if (!source) {
     return false;
   }
-  return isWriteBackCapableSource({
+  /*
+   * The same rule the screen is answered with. A paused source is reported as one-way
+   * there, so accepting two-way on it stores a mode the screen denies and that goes live
+   * unannounced the moment the calendar is resumed.
+   */
+  return resolveWritableWriteBackMode("edits", {
     calendarType: source.calendarType,
     capabilities: source.capabilities,
+    disabled: source.disabled,
     writeBackIdentity: source.accountEmail ?? source.caldavUsername,
-  });
+  }) !== "off";
 };
 
 const clearDestinationWitness = async (

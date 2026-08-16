@@ -1,4 +1,4 @@
-import { isWriteBackCapableSource } from "@keeper.sh/data-schemas";
+import { resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
 
 /*
  * A calendar added by link is a read-only subscription, and one shared with the user
@@ -11,9 +11,20 @@ const supportsWriteBack = (
   source: {
     calendarType: string;
     capabilities: readonly string[];
+    paused?: boolean;
     writeBackIdentity?: string | null;
   } | null,
-): boolean => isWriteBackCapableSource(source);
+): boolean => {
+  if (!source) {
+    return false;
+  }
+  return resolveWritableWriteBackMode("edits", {
+    calendarType: source.calendarType,
+    capabilities: source.capabilities,
+    disabled: source.paused ?? false,
+    writeBackIdentity: source.writeBackIdentity,
+  }) !== "off";
+};
 
 const UNWRITABLE_SOURCE_COPY =
   "This calendar is one you subscribed to by link, so Keeper.sh can only read it."
@@ -39,18 +50,32 @@ const LINK_SOURCE_CALENDAR_TYPE = "ical";
 const IDENTIFIED_BY_LOGIN_CALENDAR_TYPE = "caldav";
 
 /*
- * The three ways a source can be unwritable read differently to the person holding it: a
- * subscription they added, a calendar someone else owns, and a server that never told
- * Keeper.sh who they are. Naming the wrong one sends them looking for a setting that is
- * not theirs to change.
+ * Nothing is read from a paused calendar, so the stored copy two-way sync would weigh a
+ * change against stops being refreshed the moment it is paused. The mode is withheld
+ * until it is resumed, and it is the one reason on this list the user can undo themselves.
+ */
+const PAUSED_SOURCE_COPY =
+  "This calendar is paused, so Keeper.sh is not reading it. Two-way sync needs an"
+  + " up-to-date copy of it before it will change anything on it, so it is not offered"
+  + " while the calendar is paused. Resume the calendar to turn it on.";
+
+/*
+ * The four ways a source can be unwritable read differently to the person holding it: a
+ * calendar they paused, a subscription they added, a calendar someone else owns, and a
+ * server that never told Keeper.sh who they are. Naming the wrong one sends them looking
+ * for a setting that is not theirs to change.
  */
 const resolveUnwritableSourceCopy = (
   source: {
     calendarType: string;
     capabilities: readonly string[];
+    paused?: boolean;
     writeBackIdentity?: string | null;
   } | null,
 ): string => {
+  if (source?.paused) {
+    return PAUSED_SOURCE_COPY;
+  }
   if (source?.calendarType === LINK_SOURCE_CALENDAR_TYPE) {
     return UNWRITABLE_SOURCE_COPY;
   }

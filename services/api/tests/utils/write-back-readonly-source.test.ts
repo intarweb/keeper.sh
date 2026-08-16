@@ -42,6 +42,7 @@ create table calendars (
   "accountId" uuid,
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
+  "disabled" boolean not null default false,
   "userId" text not null
 );
 `;

@@ -48,6 +48,13 @@ const GET = withWideEvent(
         syncHistoricRange: calendarsTable.syncHistoricRange,
         treatFullDayTimedEventsAsAllDay: calendarsTable.treatFullDayTimedEventsAsAllDay,
         unavailableSince: calendarsTable.unavailableSince,
+        /*
+         * Nothing is read from or written to a paused calendar, so two-way sync is
+         * withheld on one. The dashboard decides whether to offer the mode against the
+         * same rule the API accepts it by, rather than offering a control whose only
+         * effect is a rejected request and a button that springs back.
+         */
+        paused: calendarsTable.disabled,
         createdAt: calendarsTable.createdAt,
         updatedAt: calendarsTable.updatedAt,
         /*

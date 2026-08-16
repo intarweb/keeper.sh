@@ -146,7 +146,7 @@ const logIngestBackoff = (state: CalendarBackoffState): void => {
   }
 };
 
-const runSourceIngest = async <TResult>(
+const runSourceIngest = async <TResult extends { snapshotConfirmed: boolean }>(
   calendarId: string,
   signal: AbortSignal,
   work: (isCurrent: () => Promise<boolean>) => Promise<TResult>,
@@ -179,7 +179,9 @@ const runSourceIngest = async <TResult>(
         if (attempt.failureCount > 0) {
           await resetIngestBackoff(calendarId);
         }
-        await recordIngestSuccess(calendarId);
+        if (result.snapshotConfirmed) {
+          await recordIngestSuccess(calendarId);
+        }
       }
       return result;
     } catch (error) {
@@ -597,6 +599,7 @@ interface IngestionSourceResult {
   eventsRemoved: number;
   reauthentication: ReauthenticationDemandRecord | null;
   shouldPush: boolean;
+  snapshotConfirmed: boolean;
   userId: string;
 }
 
@@ -748,6 +751,7 @@ const createSkippedIngestionResult = (userId: string): IngestionSourceResult => 
   eventsRemoved: 0,
   reauthentication: null,
   shouldPush: false,
+  snapshotConfirmed: false,
   userId,
 });
 
@@ -997,6 +1001,7 @@ const ingestOAuthSources = async (calendarIds?: string[]): Promise<IngestionBatc
                   shouldPush: ingestionState.authorityChanged
                     || ingestionResult.eventsAdded > 0
                     || ingestionResult.eventsRemoved > 0,
+                  snapshotConfirmed: ingestionResult.snapshotConfirmed,
                   userId: currentSource.userId,
                 };
               }, shouldApplyOAuthIngestBackoff),
@@ -1174,6 +1179,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                   shouldPush: hasSourceAuthorityChanged(currentSource, ranges)
                     || ingestionResult.eventsAdded > 0
                     || ingestionResult.eventsRemoved > 0,
+                  snapshotConfirmed: ingestionResult.snapshotConfirmed,
                   userId: currentSource.userId,
                 };
               }, (error) => !shouldTreatAsProviderAuthFailure(error)),
@@ -1317,6 +1323,7 @@ const ingestIcsSources = async (): Promise<IngestionBatchResult> => {
                   shouldPush: hasSourceAuthorityChanged(currentSource, ranges)
                     || ingestionResult.eventsAdded > 0
                     || ingestionResult.eventsRemoved > 0,
+                  snapshotConfirmed: ingestionResult.snapshotConfirmed,
                   userId: currentSource.userId,
                 };
               }, () => true),
