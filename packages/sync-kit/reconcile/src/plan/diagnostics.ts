@@ -2,7 +2,21 @@ import type { BoundedSample } from "@keeper.sh/sync-protocol";
 import type { PlanLimits } from "../policy";
 
 const boundedSample = (values: readonly string[], limits: PlanLimits): BoundedSample => {
-  throw new Error(`unimplemented: boundedSample(${values.length}, ${limits.sampleCount})`);
+  const encoder = new TextEncoder();
+  const sample: string[] = [];
+  let bytes = 0;
+  for (const value of values) {
+    if (sample.length >= limits.sampleCount) {
+      break;
+    }
+    const size = encoder.encode(value).length;
+    if (bytes + size > limits.sampleBytes) {
+      break;
+    }
+    sample.push(value);
+    bytes += size;
+  }
+  return { sample, total: values.length };
 };
 
 export { boundedSample };

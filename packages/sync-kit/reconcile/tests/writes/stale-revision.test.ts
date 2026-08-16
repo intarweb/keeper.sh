@@ -15,7 +15,7 @@ import {
 const identity = slotIdentity("evt-1", "2026-03-10T09:00:00.000Z", "2026-03-10T10:00:00.000Z");
 
 const knownAtRevisionSeven = () =>
-  knownState([knownEvent({ identity, fingerprint: "fp-rev-7" })]);
+  knownState([knownEvent({ identity, fingerprint: "fp-rev-7", revision: 7 })]);
 
 const latePageAtRevisionThree = () =>
   deltaListing({

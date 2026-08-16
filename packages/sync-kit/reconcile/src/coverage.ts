@@ -1,4 +1,5 @@
 import type { CalendarKey, EventTime, TimeWindow, WindowMembership } from "@keeper.sh/sync-protocol";
+import { assertNever } from "@keeper.sh/sync-protocol";
 
 type ProvenCoverage =
   | { readonly kind: "unproven" }
@@ -14,7 +15,17 @@ const insideProvenCoverage = (
   time: EventTime,
   withinWindow: WindowMembership,
 ): boolean => {
-  throw new Error(`unimplemented: insideProvenCoverage(${coverage.kind}, ${time.kind}, ${withinWindow.name})`);
+  switch (coverage.kind) {
+    case "unproven": {
+      return false;
+    }
+    case "proven": {
+      return withinWindow(coverage.historic, time) || withinWindow(coverage.future, time);
+    }
+    default: {
+      return assertNever(coverage);
+    }
+  }
 };
 
 export { insideProvenCoverage };

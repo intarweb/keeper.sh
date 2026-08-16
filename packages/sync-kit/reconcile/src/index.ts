@@ -19,7 +19,8 @@ export {
 export type { MirrorFingerprint, SourceFingerprint } from "./identity/fingerprints";
 
 export type { ObservedState } from "./state/observed";
-export type { CorruptKnownRow, KnownEvent, KnownState } from "./state/known";
+export { indexKnownEvents } from "./state/known";
+export type { CorruptKnownRow, KnownEvent, KnownIndex, KnownState } from "./state/known";
 export { indexMappings } from "./state/mappings";
 export type { Mapping, MappingIndexes, MappingSet } from "./state/mappings";
 export { compareObservedRevisions, dedupeObservations } from "./state/dedupe";

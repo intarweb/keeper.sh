@@ -3027,3 +3027,102 @@ the same structural reason — `as const` set sizes, source greps, and the demon
 sync-ical's pipe-joined `eventIdentityKey` really does collide. Every one of them sits in a file
 whose behavioural siblings are red. The behavioural count that matters is 238 failing assertions,
 all of them reaching a named `unimplemented` throw.
+
+## Green phase addenda (sync-reconcile)
+
+Recorded while making the 276 failing assertions pass. Each entry either records a decision the
+design left open, or a correction to the red-phase suite where a test asserted something its own
+inputs could not distinguish. The review phase should hold the implementation to these too.
+
+### RECON-I70. The baseline must record the revision it accepted, or a late lower revision is undetectable
+
+RECON-I37 (`staleRevision`) is unprovable against a `KnownEvent` that carries only a fingerprint:
+"revision 3 arrived after revision 7" cannot be derived from two content hashes. `KnownEvent` now
+carries `revision: Revision` and the rule is explicit — an observation whose revision does not
+outrank the baseline **and** whose fingerprint differs from it is withheld as `staleRevision`, and
+the known row is left untouched. The fingerprint clause is load-bearing: without it, a settled
+re-delivery at the same revision would be reported as stale on every poll.
+
+Test correction: `tests/writes/stale-revision.test.ts` now builds its baseline with
+`revision: 7`; `tests/support/fixtures.ts` grows an optional `revision` (default `0`), and
+`tests/support/apply.ts` carries the observed revision into the applied baseline. Without those
+three lines RECON-O23 asserts a behaviour no implementation can have.
+
+### RECON-I71. There is no bucket for "settled", so a closure assertion may not include a settled identity
+
+RECON-I29 partitions every input identity into writes, tombstones, conflicts or unresolved. An
+identity that is present, mapped and unchanged belongs to none of them — that is the definition of
+a fixed point (RECON-O20), and `tests/plan/closure.test.ts` itself asserts a healthy input yields
+four empty arrays. The mixed scenario therefore may not contain a settled identity, and its
+`evt-2` (observed at the fingerprint the baseline already recorded) has been changed to
+`fp-changed-2`. The partition claim is unchanged and still exhaustive over the identities the run
+actually acts on.
+
+### RECON-I72. Occurrence pairing cannot see the mirror, so it pairs within the series and the *shape* decides the write
+
+`pairReassignedOccurrences(observations, orphanedMappings, limits)` receives no destination
+listing, so a "pair only when the mirror fingerprint matches" rule has nothing to compare against —
+the mapping's `mirrorFingerprint` is opaque to every other input. Pairing is therefore: refuse
+above `limits.reassignmentPairingWidth`; otherwise group both sides by uid, order each side by
+identity key, and pair positionally within one series. Nothing crosses a series.
+
+What the mapping's recorded shape decides is the *outcome*, in `deriveWrites`: a pair whose
+observed content already matches the baseline for the new identity plans nothing; a pair whose
+recorded shape (`allDay` / `timed` / `recurring`) differs from the observed one is a single
+`replace` entry (RECON-O16, RECON-I25); anything else is an `update` that keeps the mapping.
+The write carries the *mapping's* identity, not the observation's — that is what lets an applier
+retire the old row and re-point in one step, and it is what makes the re-identification converge
+in one application rather than oscillating (RECON-O20, "a re-identified occurrence").
+
+Test correction: `tests/reassignment/occurrences.test.ts` — the negative case now pairs an
+observation in `series-1` against an orphan in `series-2` and is named for what it proves
+("pairing never crosses from one series into another"); the mapped series is given the
+`fp-shared` baseline its observations carry, so the nine survivors are genuinely settled and the
+suite's own claim ("no writes are planned") is about the planner rather than about a fixture typo.
+
+### RECON-I73. Any observation we could not use shields its uid from the absence axis
+
+RECON-I6 made a withheld item count as present. The same argument covers every observation the
+source handed us but the planner could not use: an unresolvable identity, a construct the
+destination cannot represent (RECON-I28), and our own echo whose identity no longer matches the
+row we recorded. All of them shield their uid, so a known row for that uid is not "absent" and
+cannot be tombstoned. Only a *usable* observation contributes an identity key alone. This is the
+difference between "the source stopped mentioning this event" and "we could not read what the
+source said about it", and only the first may delete.
+
+### RECON-I74. A partial listing feeds presence, never the write basis
+
+RECON-I1 forbids a partial or `cursorLost` listing producing a deletion. It must also not produce
+an overwrite: half a page is not a version of the calendar. `writeBasis` therefore answers `[]`
+for both, while `presenceBasis` still counts their events — the cursor holds
+(`listingIncomplete`), the continuation is walked, and the complete listing does the writing. No
+work is lost, because nothing was checkpointed.
+
+### RECON-I75. The mirror window is judged only when it is not the window that was requested
+
+`outsideMirrorWindow` retires a mirror for an event the source still has (RECON-I5). Judging it
+requires the window predicate, and RECON-I44/RECON-L3 forbid the planner touching the ambient
+clock — the injected predicate reads it for us, so the planner must not consult the predicate when
+the answer is already known. When the listing's own `scope.window` is exactly `policy.mirrorWindow`
+the request has already bounded the answer, and the retirement pass is skipped. The failure mode
+this trades into is a mirror that survives one poll too long (a provider may return events outside
+the window it was asked for); the failure mode it refuses is an unnecessary deletion. Recurring
+identities are exempt from the pass entirely (RECON-I34).
+
+### RECON-I76. The mapping is compared against the baseline, not only against the observation
+
+RECON-O31 has no destination listing: the second writer sees a baseline that already records the
+first writer's content and a mapping that still records the old one. A planner that only compared
+the observation with the mapping would plan a second update over a mirror it no longer understands.
+So the write decision reads three fingerprints — observation, baseline (`KnownState`), mapping — and
+a mapping that disagrees with the baseline is a `sourceChanged` conflict carrying the precondition
+it expected, never a write. Absence of a destination listing is not permission to assume the
+destination agrees with us.
+
+### RECON-I77. Absence outside proven coverage is unresolved, but a recurring identity is judged by the snapshot, not by its anchor
+
+RECON-I34 says a master anchored years before the window is not out of window; the same is true of
+proven coverage, whose axes are compared against the recorded `time` and a master's recorded time is
+its anchor. A recurring row absent from a snapshot is therefore tombstoned on the snapshot's
+authority alone — but still only when coverage is `proven`. Unproven coverage refuses every
+deletion, recurring or not (RECON-I3).

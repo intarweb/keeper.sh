@@ -1,6 +1,8 @@
 import type { CalendarKey, ObservedPrecondition, RemoteRef } from "@keeper.sh/sync-protocol";
+import { ReconcileInternalDataError } from "../errors";
 import type { MirrorFingerprint, SourceFingerprint } from "../identity/fingerprints";
 import type { SourceIdentity } from "../identity/source-identity";
+import { sourceIdentityKey } from "../identity/source-identity";
 
 interface Mapping {
   readonly sourceIdentity: SourceIdentity;
@@ -22,9 +24,27 @@ interface MappingIndexes {
   readonly ambiguousSourceKeys: readonly string[];
 }
 
-const indexMappings = (mappings: MappingSet): MappingIndexes => {
-  throw new Error(`unimplemented: indexMappings(${mappings.entries.length})`);
+const refuseDuplicateClaim = (key: string): never => {
+  throw new ReconcileInternalDataError(`two mappings claim the source identity ${key}`);
 };
+
+const indexBySourceIdentity = (mappings: MappingSet): ReadonlyMap<string, Mapping> => {
+  const claimed = new Map<string, Mapping>();
+  for (const entry of mappings.entries) {
+    const key = sourceIdentityKey(entry.sourceIdentity);
+    if (claimed.has(key)) {
+      return refuseDuplicateClaim(key);
+    }
+    claimed.set(key, entry);
+  }
+  return claimed;
+};
+
+const indexMappings = (mappings: MappingSet): MappingIndexes => ({
+  bySourceIdentity: indexBySourceIdentity(mappings),
+  byDestinationId: new Map(mappings.entries.map((entry) => [entry.destination.id.value, entry])),
+  ambiguousSourceKeys: [],
+});
 
 export { indexMappings };
 export type { Mapping, MappingIndexes, MappingSet };

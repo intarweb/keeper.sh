@@ -290,6 +290,7 @@ const bothSides = (source: ChangeListing, destination: ChangeListing): ObservedS
 interface KnownSpec {
   readonly identity: SourceIdentity;
   readonly fingerprint?: string;
+  readonly revision?: number;
   readonly time?: EventTime;
   readonly recurring?: boolean;
   readonly calendar?: CalendarKey;
@@ -298,6 +299,7 @@ interface KnownSpec {
 const knownEvent = (spec: KnownSpec): KnownEvent => ({
   identity: spec.identity,
   sourceFingerprint: sourcePrint(spec.fingerprint ?? `fp-${spec.identity.uid.value}`),
+  revision: spec.revision ?? 0,
   time: spec.time ?? timedAt("2026-03-10T09:00:00.000Z", "2026-03-10T10:00:00.000Z"),
   recurring: spec.recurring ?? false,
   sourceCalendar: spec.calendar ?? sourceCalendar,

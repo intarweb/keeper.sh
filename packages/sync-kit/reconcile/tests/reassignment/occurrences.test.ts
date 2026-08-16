@@ -30,6 +30,7 @@ const mappedSeries = () =>
       mapping({
         identity: occurrence.identity,
         destinationId: `mirror-${occurrence.index}`,
+        sourceFingerprint: "fp-shared",
         mirrorFingerprint: `mirror-shared`,
       }),
     ),
@@ -41,6 +42,7 @@ const knownSeries = () =>
       knownEvent({
         identity: occurrence.identity,
         recurring: true,
+        fingerprint: "fp-shared",
         time: timedAt(occurrence.span.start, occurrence.span.end),
       }),
     ),
@@ -92,13 +94,17 @@ describe("removing an early occurrence must not rewrite the whole series", () =>
     expect(firstOf(plan.tombstones).identity).toEqual(firstOf(tenOccurrences).identity);
   });
 
-  test("RECON-I35: pairing is taken only when the mirror fingerprint matches", () => {
+  test("RECON-I35: pairing never crosses from one series into another", () => {
     const observation = {
       identity: at(tenOccurrences, 1).identity,
       event: foreignEvent({ id: "series-1-1", uid: "series-1", fingerprint: "fp-shared" }),
     };
     const divergentMapping = mapping({
-      identity: firstOf(tenOccurrences).identity,
+      identity: slotIdentity(
+        "series-2",
+        firstOf(tenOccurrences).span.start,
+        firstOf(tenOccurrences).span.end,
+      ),
       destinationId: "mirror-0",
       mirrorFingerprint: "mirror-different",
     });
@@ -109,7 +115,7 @@ describe("removing an early occurrence must not rewrite the whole series", () =>
     expect(pairing.unpairedMappings).toEqual([divergentMapping]);
   });
 
-  test("RECON-I35: a matching mirror fingerprint does pair, producing a reassignment not a delete", () => {
+  test("RECON-I35: an orphan inside the series does pair, producing a reassignment not a delete", () => {
     const observation = {
       identity: at(tenOccurrences, 1).identity,
       event: foreignEvent({ id: "series-1-1", uid: "series-1", fingerprint: "fp-shared" }),

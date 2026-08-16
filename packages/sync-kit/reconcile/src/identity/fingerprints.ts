@@ -10,21 +10,21 @@ interface MirrorFingerprint {
   readonly value: Fingerprint;
 }
 
-const sourceFingerprintOf = (fingerprint: Fingerprint): SourceFingerprint => {
-  throw new Error(`unimplemented: sourceFingerprintOf(${fingerprint.value})`);
-};
+const sourceFingerprintOf = (fingerprint: Fingerprint): SourceFingerprint => ({
+  kind: "sourceFingerprint",
+  value: fingerprint,
+});
 
-const mirrorFingerprintOf = (fingerprint: Fingerprint): MirrorFingerprint => {
-  throw new Error(`unimplemented: mirrorFingerprintOf(${fingerprint.value})`);
-};
+const mirrorFingerprintOf = (fingerprint: Fingerprint): MirrorFingerprint => ({
+  kind: "mirrorFingerprint",
+  value: fingerprint,
+});
 
-const sameSource = (left: SourceFingerprint, right: SourceFingerprint): boolean => {
-  throw new Error(`unimplemented: sameSource(${left.kind}, ${right.kind})`);
-};
+const sameSource = (left: SourceFingerprint, right: SourceFingerprint): boolean =>
+  left.value.value === right.value.value;
 
-const sameMirror = (left: MirrorFingerprint, right: MirrorFingerprint): boolean => {
-  throw new Error(`unimplemented: sameMirror(${left.kind}, ${right.kind})`);
-};
+const sameMirror = (left: MirrorFingerprint, right: MirrorFingerprint): boolean =>
+  left.value.value === right.value.value;
 
 export { mirrorFingerprintOf, sameMirror, sameSource, sourceFingerprintOf };
 export type { MirrorFingerprint, SourceFingerprint };

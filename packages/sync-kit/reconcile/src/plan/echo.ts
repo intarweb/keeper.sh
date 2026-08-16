@@ -1,19 +1,43 @@
 import type { InstallationId, RemoteEvent } from "@keeper.sh/sync-protocol";
+import { assertNever } from "@keeper.sh/sync-protocol";
 
-const provenanceDispositions = ["ourMirror", "foreignInstallation", "external", "indeterminate"] as const;
+const provenanceDispositions = [
+  "ourMirror",
+  "foreignInstallation",
+  "external",
+  "indeterminate",
+] as const;
 type ProvenanceDisposition = (typeof provenanceDispositions)[number];
 
-const classifyProvenance = (event: RemoteEvent, installation: InstallationId): ProvenanceDisposition => {
-  throw new Error(`unimplemented: classifyProvenance(${event.id.value}, ${installation.value})`);
+const classifyProvenance = (
+  event: RemoteEvent,
+  installation: InstallationId,
+): ProvenanceDisposition => {
+  const { provenance } = event;
+  switch (provenance.kind) {
+    case "foreign": {
+      return "external";
+    }
+    case "indeterminate": {
+      return "indeterminate";
+    }
+    case "ours": {
+      if (provenance.installation.value === installation.value) {
+        return "ourMirror";
+      }
+      return "foreignInstallation";
+    }
+    default: {
+      return assertNever(provenance);
+    }
+  }
 };
 
-const isRetirable = (event: RemoteEvent, installation: InstallationId): boolean => {
-  throw new Error(`unimplemented: isRetirable(${event.id.value}, ${installation.value})`);
-};
+const isRetirable = (event: RemoteEvent, installation: InstallationId): boolean =>
+  classifyProvenance(event, installation) === "ourMirror";
 
-const isEchoOfOurOwnWrite = (event: RemoteEvent, installation: InstallationId): boolean => {
-  throw new Error(`unimplemented: isEchoOfOurOwnWrite(${event.id.value}, ${installation.value})`);
-};
+const isEchoOfOurOwnWrite = (event: RemoteEvent, installation: InstallationId): boolean =>
+  classifyProvenance(event, installation) === "ourMirror";
 
 export { classifyProvenance, isEchoOfOurOwnWrite, isRetirable, provenanceDispositions };
 export type { ProvenanceDisposition };

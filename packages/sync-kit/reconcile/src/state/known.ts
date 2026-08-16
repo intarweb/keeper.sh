@@ -1,10 +1,18 @@
-import type { CalendarKey, EventTime, EventUid, RemoteEventId } from "@keeper.sh/sync-protocol";
+import type {
+  CalendarKey,
+  EventTime,
+  EventUid,
+  RemoteEventId,
+  Revision,
+} from "@keeper.sh/sync-protocol";
 import type { SourceFingerprint } from "../identity/fingerprints";
 import type { SourceIdentity } from "../identity/source-identity";
+import { sourceIdentityKey } from "../identity/source-identity";
 
 interface KnownEvent {
   readonly identity: SourceIdentity;
   readonly sourceFingerprint: SourceFingerprint;
+  readonly revision: Revision;
   readonly time: EventTime;
   readonly recurring: boolean;
   readonly sourceCalendar: CalendarKey;
@@ -21,4 +29,15 @@ interface KnownState {
   readonly corrupt: readonly CorruptKnownRow[];
 }
 
-export type { CorruptKnownRow, KnownEvent, KnownState };
+interface KnownIndex {
+  readonly byIdentity: ReadonlyMap<string, KnownEvent>;
+  readonly byUid: ReadonlyMap<string, readonly KnownEvent[]>;
+}
+
+const indexKnownEvents = (known: KnownState): KnownIndex => ({
+  byIdentity: new Map(known.events.map((event) => [sourceIdentityKey(event.identity), event])),
+  byUid: Map.groupBy(known.events, (event) => event.identity.uid.value),
+});
+
+export { indexKnownEvents };
+export type { CorruptKnownRow, KnownEvent, KnownIndex, KnownState };

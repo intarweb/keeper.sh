@@ -43,7 +43,7 @@ const mixedScenario = () => ({
           id: "evt-2",
           uid: "evt-2",
           time: timedAt(spanFor(2).start, spanFor(2).end),
-          fingerprint: "fp-evt-2",
+          fingerprint: "fp-changed-2",
         }),
         indeterminateEvent({
           id: "evt-3",
