@@ -1862,3 +1862,1091 @@ Review asked for the RFC's combined `P1DT2H` duration to be accepted. It is refu
 nominal unit and one exact unit in a single value, and `OccurrenceDuration` models exactly that distinction
 because flattening it lands an hour off across a DST boundary (ICAL-I23). The event is withheld with a
 reason and counted, which is the outcome this ledger asks for, not a silent wrong time.
+
+
+---
+
+# sync-reconcile learnings ledger
+
+`@keeper.sh/sync-reconcile` at `packages/sync-kit/reconcile`: pure planning. One function,
+`planReconciliation(observed, known, mappings, policy) -> Plan`. No I/O, no clock, no provider, no database,
+no `await`. This is the package that decides whether an event disappears from a real calendar, so the
+overwrite obligations concentrate here and the lockup obligations are almost entirely structural.
+
+Numbering is prefixed `RECON-` so it appends to the protocol (1–71) and sync-ical (`ICAL-I1`–`ICAL-I71`)
+ledgers above without renumbering anyone. `RECON-I1`–`RECON-I44` are adopted. `RECON-I45`–`RECON-I54` are
+not applicable and say why. `RECON-I55`–`RECON-I62` are the dependency and process decisions. The module
+map, the public API and the `RECON-O` / `RECON-L` test indexes are the closing sections.
+
+Every **Proved by** line names a file under `packages/sync-kit/reconcile/tests` and the exact test name
+inside it, so the ledger can be walked against the suite by grep. This document is written **before** the
+implementation: it is the specification the implementation and the review are held to.
+
+## Module map
+
+```
+src/index.ts                        the public surface and nothing else
+src/errors.ts                       ReconcileInternalDataError — our own broken invariants only
+src/policy.ts                       ReconciliationPolicy, PlanLimits, defaultPlanLimits,
+                                    defaultWindowMembership (the ONLY import of sync-ical in src/)
+src/coverage.ts                     ProvenCoverage (unproven | proven), per-axis, per-source-calendar;
+                                    insideProvenCoverage
+src/identity/source-identity.ts     SourceIdentity + sourceIdentityKey — the one key builder, NUL-joined
+src/identity/calendar-key.ts        calendarKeyString — NUL-joined provider/account/calendar
+src/identity/fingerprints.ts        SourceFingerprint and MirrorFingerprint wrappers; sameSource, sameMirror
+src/state/observed.ts               ObservedState = sourceOnly | bothSides
+src/state/known.ts                  KnownState, KnownEvent, CorruptKnownRow
+src/state/mappings.ts               Mapping, MappingSet and its two indexes
+src/state/dedupe.ts                 at most one observed item per identity, chosen by revision order
+src/presence/presence-basis.ts      the PRESENCE basis — withheld items included
+src/presence/write-basis.ts         the WRITE basis — withheld items excluded
+src/presence/removals.ts            the exhaustive switch over listing.kind -> authoritative removals
+src/plan/plan.ts                    Plan, PlannedWrite, Tombstone, Unresolved, Conflict, CursorDecision
+src/plan/plan-reconciliation.ts     the entry point: guard clauses, no nesting, no else-after-return
+src/plan/echo.ts                    the provenance guard, applied before anything else
+src/plan/writes.ts                  create / update / replace derivation, each carrying its precondition
+src/plan/tombstones.ts              the two deletion causes, each gated on its own window
+src/plan/conflicts.ts               precondition divergence -> a typed, classified Conflict
+src/plan/reassignment.ts            occurrence re-identification, bounded pairing
+src/plan/cursor.ts                  advance | hold | reset, decided independently of the writes
+src/plan/order.ts                   the total order over writes: instant, then retire-before-write, then key
+src/plan/diagnostics.ts             BoundedSample builders capped by count AND bytes
+```
+
+## Public API
+
+```ts
+const planReconciliation = (
+  observed: ObservedState,
+  known: KnownState,
+  mappings: MappingSet,
+  policy: ReconciliationPolicy,
+): Plan
+```
+
+Synchronous, total, and pure. Everything else the package exports is a type, an `as const` reason set, or a
+named pure helper (`sourceIdentityKey`, `calendarKeyString`, `insideProvenCoverage`, `comparePlannedWrites`,
+`sourceFingerprintOf`, `mirrorFingerprintOf`, `defaultPlanLimits`, `defaultWindowMembership`).
+
+---
+
+## Adopted
+
+### RECON-I1. An empty or failed listing is not an authoritative empty calendar
+
+**Lesson.** The ICS fetch adapter caught its own failure and returned `{ events: [] }`; ingest read that as
+"the source has zero events" and deleted every stored row for the calendar. "Listed and empty", "unchanged"
+and "failed/unknown" must be three different values, never one empty array.
+**Learned from.** commit `0184ea19` *fix(ics): don't wipe existing events when remote fetch fails (#383)*;
+`packages/calendar/src/ics/utils/fetch-adapter.ts`; tests *"does not delete stored source events when the
+fetch throws"*, *"propagates fetch errors instead of returning empty events"*.
+**Honoured by.** `sync-protocol` already made this a type: `ChangeListing` is
+`snapshot | delta | partial | cursorLost`, and only `snapshot` and `delta` carry a `coverage` field at all —
+`partial` and `cursorLost` declare `coverage?: never`. `src/presence/removals.ts` reaches
+`listing.coverage` on exactly two arms, so a tombstone derived from a `partial` listing does not typecheck.
+A failure never becomes a listing: it is `Result.ok === false`, which never reaches `planReconciliation`.
+**Proved by.**
+`tests/deletion/no-wipe.test.ts :: RECON-O1: a partial listing omitting every known event yields zero tombstones`;
+`tests/deletion/no-wipe.test.ts :: RECON-O1: a partial listing yields zero deletes and zero retires`;
+`tests/deletion/no-wipe.test.ts :: RECON-O2: a cursorLost listing yields zero tombstones and zero writes`;
+`tests/deletion/listing-kind.test-d.ts :: RECON-O1: coverage is not readable on a partial or cursorLost listing`.
+
+### RECON-I2. Absence implies deletion only for a snapshot; a delta deletes only what it names
+
+**Lesson.** For a delta listing, removal is computed only from explicitly reported deleted/cancelled ids; an
+event merely absent from a delta page is untouched. RFC 6578 says the same thing normatively — only a
+resource reported with `404` is a confirmed deletion, and §3.6 lets a server truncate the report while
+returning a still-valid sync token, so absence in that response is indistinguishable from omission.
+**Learned from.** `packages/calendar/src/core/source/event-diff.ts` `buildSourceEventStateIdsToRemove`
+(`isDeltaSync` branch); RFC 6578 §3.6, §3.8; Google's sync guide (`410 GONE` invalidates a token); Graph's
+`event: delta` (`410 resyncRequired`).
+**Honoured by.** `src/presence/removals.ts` is the switch the brief mandates, exhaustive via
+`assertNever`: `delta` -> `listing.removals` narrowed to `AuthoritativeRemoval` (`deleted | cancelled`, never
+`outOfScope`); `snapshot` -> `absentWithinCoverage(listing, known, policy)`; `partial` and `cursorLost` ->
+`[]`. There is no set-difference path anywhere else in the package.
+**Proved by.**
+`tests/deletion/delta-authority.test.ts :: RECON-O3: a delta listing omitting a known event yields zero tombstones`;
+`tests/deletion/delta-authority.test.ts :: RECON-O3: only deleted and cancelled removals become tombstones`;
+`tests/deletion/delta-authority.test.ts :: RECON-O3: an outOfScope removal retires the mirror but never deletes the source row`;
+`tests/deletion/removals-switch.test.ts :: RECON-I2: every ChangeListing kind is handled and a new kind is a compile error`.
+
+### RECON-I3. Deletion is never inferred outside a PROVEN coverage window, and the proof is per source
+
+**Lesson.** Reconciliation carried `authoritativeWindow: SyncWindow | null` plus per-source windows; `null`
+meant "coverage unverified" and suppressed every inferred delete. A mapping inside the requested window but
+outside its own source's verified coverage was skipped entirely — neither deleted nor re-added.
+**Learned from.** `packages/calendar/src/core/sync/operations.ts` `getSourceAuthoritativeWindow`,
+`isInsideSourceAuthoritativeWindow`; tests *"does not reconcile a mapping inside the requested window but
+outside source coverage"*, *"does not re-add an event whose mapping sits between recorded coverage and the
+requested edge"*.
+**Honoured by.** `ProvenCoverage` is a union, not a nullable: `{ kind: "unproven" }` has no window fields to
+read. The policy carries `coverageBySource: ReadonlyMap<string, ProvenCoverage>` keyed by
+`calendarKeyString`, so coverage is per source calendar. A mapping whose source has `unproven` coverage, or
+whose time falls outside proven coverage, becomes `Unresolved{ reason: "outsideProvenCoverage" }` — never a
+tombstone and never a rewrite.
+**Proved by.**
+`tests/coverage/proven-coverage.test.ts :: RECON-O4: identical inputs plan zero tombstones under unproven coverage and one under proven coverage`;
+`tests/coverage/proven-coverage.test.ts :: RECON-O5: a known event inside the mirror window but outside its source coverage is unresolved, not deleted`;
+`tests/coverage/proven-coverage.test.ts :: RECON-O5: it is not re-added either, so the next poll does not churn it`;
+`tests/coverage/proven-coverage.test-d.ts :: RECON-O4: unproven coverage exposes no window to read`.
+
+### RECON-I4. Coverage is per axis — historic and future are separate ranges
+
+**Lesson.** A narrow destination must not prune a shared source baseline, and a wide future range must not
+leak into the historic axis. The engine needed `coverage { historicRange, futureRange, window }` to stop it.
+**Learned from.** `packages/calendar/src/core/sync-engine/ingest.ts` coverage shape; tests *"does not let a
+narrow destination prune the shared source baseline"*, *"does not let a wide future range leak into the
+historic axis"*.
+**Honoured by.** `ProvenCoverage.proven` carries `historic: TimeWindow` and `future: TimeWindow` as two
+fields, not one min/max pair, and `insideProvenCoverage` requires membership of the axis the event's own
+instant falls on. The planner never unions coverage across sources or destinations.
+**Proved by.**
+`tests/coverage/axes.test.ts :: RECON-O6: a historic absence is not a tombstone when only the future axis is proven`;
+`tests/coverage/axes.test.ts :: RECON-O6: a future absence in the same plan is a tombstone, so the assertion is not vacuous`;
+`tests/coverage/axes.test.ts :: RECON-O7: a narrow destination plan never tombstones a source row a wider destination still covers`.
+
+### RECON-I5. The requested window and the proven window are different windows with different powers
+
+**Lesson.** Both edges of the *requested* window legitimately retire a mirror — the source event is retained
+in our own store, so retiring narrows scope rather than losing data. Absence-based deletion is gated on the
+*authoritative* window instead. Confusing the two is how mass deletion happens.
+**Learned from.** `operations.ts` `buildRemoveOperations` (`outsideCleanupWindow` vs
+`insideAuthoritativeWindow`); tests *"does not remove mapped events from before the sync window"*, *"a window
+that moves between runs"*, `degenerate-range-sliding-window-convergence.test.ts`.
+**Honoured by.** `ReconciliationPolicy.mirrorWindow: TimeWindow` and `policy.coverageBySource` are separate
+named fields of different types. The two causes are distinct members of `tombstoneCauses`:
+`outsideMirrorWindow` (requested-window-gated, retires the mirror, keeps our row) and `absentFromSnapshot`
+(coverage-gated). A reviewer can see which rule fired from the plan alone.
+**Proved by.**
+`tests/deletion/two-windows.test.ts :: RECON-O7: an event outside the mirror window retires its mirror and keeps its source row`;
+`tests/deletion/two-windows.test.ts :: RECON-O7: an event absent from a proven snapshot deletes the source row`;
+`tests/deletion/two-windows.test.ts :: RECON-O7: the two causes are never emitted for the same identity in one plan`.
+
+### RECON-I6. Presence and writability are two different sets
+
+**Lesson.** Ingestion filtered withheld uids out of the insert basis but computed removals against the
+*unfiltered* feed. Getting this wrong mass-deletes a stalled series and mass-re-adds it the moment the window
+moves. Every data-loss incident in this codebase had that one shape.
+**Learned from.** `ingest.ts` (*"Removal is computed against the unfiltered fetch"*);
+`ReconciliationScope.withheldSourceEventStateIds`; tests *"never deletes the stored row of the event it
+withholds"*, *"settles: an unsupported uid is never inserted and never deleted"*.
+**Honoured by.** Two modules with two names: `src/presence/presence-basis.ts` builds the identity set that
+counts as present (observed events **plus** `listing.withheld`), and `src/presence/write-basis.ts` builds the
+set eligible for a write (observed events only). Tombstones are computed against the presence basis; writes
+against the write basis. `sync-ical` already separates `present` from `usable` for the same reason
+(ICAL-I3), and the protocol carries `withheld` on the listing itself so this planner does not have to trust
+a field beside it.
+**Proved by.**
+`tests/presence/withheld-is-present.test.ts :: RECON-O8: an event withheld by the source is never tombstoned`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O8: an item withheld on every poll produces an empty plan forever`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O8: it is reported as unresolved rather than silently dropped`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O28: a withheld sibling does not suppress a genuine removal in the same listing`.
+
+### RECON-I7. Only our own provenance may be deleted from a destination
+
+**Lesson.** An unmapped remote event is deleted only if it is ours, and source ingestion applies the mirror
+of the rule so a mirrored calendar never re-ingests its own writes. Keeper reads its own CalDAV writes back;
+a mirror near a DST boundary looked moved and was deleted and re-created on every run, forever.
+**Learned from.** `packages/calendar/src/core/events/identity.ts`; `operations.ts`
+(`if (!remoteEvent.isKeeperEvent) continue`); commit `b057d2e0` (#616); test *"parses external events and
+skips keeper-managed events"*.
+**Honoured by.** Provenance is a typed property of the observed event (`ForeignEvent | OwnEvent |
+IndeterminateEvent`), resolved at the provider boundary, never a string check at the call site.
+`src/plan/echo.ts` is a guard clause at the top of planning: a source event whose provenance is `ours` is
+mirrored nowhere and tombstoned nowhere. Only a destination event that is `ours` **and** carries our own
+`InstallationId` may be retired as an orphan.
+**Proved by.**
+`tests/provenance/echo.test.ts :: RECON-O13: a source event carrying our provenance produces neither a write nor a tombstone`;
+`tests/provenance/echo.test.ts :: RECON-O13: it produces an empty plan even when its content differs from the mapping`;
+`tests/provenance/echo.test.ts :: RECON-O14: an ours event from a different installation is never retired as an orphan`;
+`tests/provenance/echo.test.ts :: RECON-O15: an indeterminate destination event is unresolved, never deleted`.
+
+### RECON-I8. Provenance may be undetectable, and that must be sayable
+
+**Lesson.** A provider with no provenance channel returns events we cannot attribute. Treating unattributable
+as foreign deletes our own mirrors; treating it as ours abandons real user events.
+**Learned from.** protocol ledger entry 43; `Capabilities.provenanceChannel: "extendedProperty" | "uidSuffix"
+| "none"`.
+**Honoured by.** `IndeterminateEvent` is a third arm and reaches `Unresolved{ reason:
+"provenanceIndeterminate" }`. It is never a delete target and never a mirror source.
+**Proved by.** `tests/provenance/echo.test.ts :: RECON-O15: an indeterminate destination event is unresolved, never deleted`;
+`tests/provenance/echo.test.ts :: RECON-I8: an indeterminate source event is not mirrored`.
+
+### RECON-I9. Identity is (UID, recurrence identity) and nothing mutable
+
+**Lesson.** `packages/calendar`'s `eventIdentityKey` folds start, end, timezone, RRULE, EXDATE and
+availability into the key, so every content edit diffs as remove + add. On a read-only mirror that is churn.
+On write-back it is a DELETE of a real calendar event followed by a CREATE, which loses attendee RSVPs,
+conferencing links and provider event ids, and is unrecoverable.
+**Learned from.** `ics/utils/diff-events.ts` `eventIdentityKey`; tests *"detects time change as add + remove
+for same uid"*, *"adds and removes when timezone changes"*, *"adds and removes when recurrence payload
+changes"*.
+**Honoured by.** `SourceIdentity` reuses `sync-ical`'s three-shape `EventIdentity` (`master`, `override`,
+`slot`) — RFC 5545 §3.8.4.7 UID plus §3.8.4.4 RECURRENCE-ID — and carries no content. Content lives in the
+fingerprint. Identity match + fingerprint divergence emits an **update**; a delete is emitted only when an
+identity disappears from a listing with the authority to say so.
+**Proved by.**
+`tests/identity/identity-is-not-content.test.ts :: RECON-O33: changing every content field of a known event plans one update and zero deletes`;
+`tests/identity/identity-is-not-content.test.ts :: RECON-O33: a timezone change is an update, not a delete plus a create`;
+`tests/identity/identity-is-not-content.test.ts :: RECON-O33: a recurrence payload change is an update, not a delete plus a create`.
+
+### RECON-I10. One canonical key builder, joined on a delimiter the data cannot contain
+
+**Lesson.** Identity keys are built by joining fields, so the delimiter must be one that cannot occur in the
+data. `packages/calendar` moved to NUL after event text containing the delimiter merged two identities.
+**Learned from.** `operations.ts` `getSerializedSlotKey`, `getRemoteIdentity` (`${uid}\0${deleteId}`); test
+*"does not confuse field boundaries when event text contains identity delimiters"*.
+**Honoured by.** `sourceIdentityKey` and `calendarKeyString` join on `String.fromCodePoint(0)`. RFC 5545
+§3.1 forbids control characters in a TEXT value, so NUL cannot appear in a UID; `|` and `:` provably can.
+**Open item raised, not silently inherited.** `sync-ical`'s exported `eventIdentityKey`
+(`packages/sync-kit/ical/src/parse/identity.ts`) joins on `|`, and a UID containing `|` can be made to
+collide a `slot` identity with a different `slot` identity. `sync-reconcile` therefore builds its own keys
+and never re-derives identity from that string. This is filed here rather than fixed across a package
+boundary in this branch.
+**Proved by.**
+`tests/identity/delimiter.test.ts :: RECON-O29: two identities whose fields concatenate identically under a pipe join do not collide`;
+`tests/identity/delimiter.test.ts :: RECON-O29: a UID containing a colon, a pipe and a newline keys distinctly`;
+`tests/identity/delimiter.test.ts :: RECON-O29: reconcile never calls sync-ical's pipe-joined key builder`.
+
+### RECON-I11. Source-side and mirror-side fingerprints must not be comparable
+
+**Lesson.** A destination widening a zero-duration mirror made the stored source row look changed, and the
+planner flipped add/remove forever. Window membership and equality must be judged on the representable
+(published) span, and the two sides' hashes must never be compared to each other.
+**Learned from.** `core/events/time-range.ts` `overlapsRepresentableTimeWindow`; commit `b057d2e0` (#616);
+tests *"does not oscillate between adding and retiring a zero-duration event"*, *"does not treat a stored
+source row as changed after a destination widened its mirror"*.
+**Honoured by.** `src/identity/fingerprints.ts` wraps the protocol's `Fingerprint` in two distinct
+interfaces, `SourceFingerprint` and `MirrorFingerprint`, each with its own `kind` discriminant. They are
+structurally incompatible, so comparing them is a compile error — achieved with wrapper objects and named
+constructors, not a type assertion. `sameSource` and `sameMirror` are the only equality functions.
+**Proved by.**
+`tests/fingerprints/two-sided.test-d.ts :: RECON-O21: a source fingerprint is not assignable to a mirror fingerprint`;
+`tests/fingerprints/two-sided.test-d.ts :: RECON-O21: sameSource does not accept a mirror fingerprint`;
+`tests/fingerprints/two-sided.test.ts :: RECON-O21: a destination that widened a degenerate range plans no write`;
+`tests/fingerprints/two-sided.test.ts :: RECON-O21: the mirror fingerprint did move, so the assertion is not vacuous`.
+
+### RECON-I12. Normalisation happens before the fingerprint, never in the serializer
+
+**Lesson.** Shaping must happen before the content hash is taken, so the mapping, the content hash and the
+pushed resource agree on one range. Content hashing must also normalise what providers legitimately rewrite:
+CRLF to LF, trim, default availability, whole-second truncation, sorted exception dates.
+**Learned from.** `core/events/content-hash.ts` `normalizeText`/`normalizeAvailability`; `operations.ts`
+`isSameSerializedSecond`; commit `b057d2e0`; tests *"does not churn when a destination serializes timestamps
+to whole seconds"*, *"does not churn when a provider coerces unsupported OOO availability to busy"*.
+**Honoured by.** `sync-reconcile` computes no hash. `MirrorFingerprint` is produced by
+`CalendarProvider.normalize` -> `NormalizedContent.fingerprint` (the shaped, destination-representable
+content); `SourceFingerprint` is produced by `sync-ical`'s `canonicalEventFingerprint` over the canonical
+source projection. Both arrive as inputs. The planner's only equality operation is comparing two values of
+the same brand, which is exactly the discipline that keeps shaping upstream of comparison.
+**Proved by.**
+`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: a mirror echo differing only by CRLF plans nothing`;
+`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: a mirror echo differing only by sub-second precision plans nothing`;
+`tests/fingerprints/provider-rewrite.test.ts :: RECON-O21: availability coerced to busy by the destination plans nothing`.
+
+### RECON-I13. An update or a delete without a precondition must be unspellable
+
+**Lesson.** A write without a precondition is a silent overwrite. Google Calendar documents `If-Match`
+against the event ETag and answers `412 preconditionFailed`; CalDAV mandates `If-Match` on the resource ETag
+(RFC 4791) with RFC 6638 §8.3 adding `If-Schedule-Tag-Match`; Graph uses `If-Match` with `@odata.etag`.
+**Learned from.** Google *Get specific versions of resources* and *Handle API errors*; RFC 4791; RFC 6638;
+`operations.ts` `identifyStaleMappings`.
+**Honoured by.** The protocol already did it: `WriteIntent.update`, `.delete` and `.retire` carry
+`precondition: ObservedPrecondition` in a required position, and `.create` carries
+`Extract<Precondition, { kind: "absent" }>`. `sync-reconcile` does not redefine the type — every
+`PlannedWrite` wraps a protocol `WriteIntent`, so the guarantee is inherited rather than restated, and a
+planner that wanted to skip a precondition could not construct the value.
+**Proved by.**
+`tests/writes/precondition-required.test-d.ts :: RECON-O9: an update without a precondition is a compile error`;
+`tests/writes/precondition-required.test-d.ts :: RECON-O9: a delete without a precondition is a compile error`;
+`tests/writes/precondition-required.test-d.ts :: RECON-O9: a create cannot carry an observed precondition`;
+`tests/writes/precondition-required.test.ts :: RECON-O9: every write in a generated plan carries a precondition`.
+
+### RECON-I14. A stale precondition is a typed conflict value, never a thrown error and never an overwrite
+
+**Lesson.** Mappings stored the local content hash and the remote's editable-content hash and availability;
+an update was planned only when a precondition actually diverged, and the reason was classified rather than
+collapsed into "changed". That breakdown is what made real incidents diagnosable. A thrown error would tempt
+a catch-and-retry that becomes the overwrite the precondition was preventing.
+**Learned from.** `operations.ts` `StaleReasonCounts`, `getRemoteStateChanges`; test *"restores destination
+content edited without a time change"*.
+**Honoured by.** `Plan.conflicts` is a first-class array. `conflictCauses` is an `as const` object with a
+derived union: `sourceChanged`, `mirrorContentChanged`, `mirrorTimeChanged`, `mirrorAvailabilityChanged`,
+`mirrorMissing`, `mirrorReassigned`. A `Conflict` carries the `expected` and `observed` preconditions.
+`planReconciliation` never throws on provider data.
+**Proved by.**
+`tests/writes/stale-precondition.test.ts :: RECON-O10: a mapping whose recorded version differs from the observed one plans a conflict and zero writes`;
+`tests/writes/stale-precondition.test.ts :: RECON-O10: the conflict carries both the expected and the observed precondition`;
+`tests/writes/stale-precondition.test.ts :: RECON-O11: ${cause} is classified rather than collapsed into changed`;
+`tests/writes/stale-precondition.test.ts :: RECON-O11: destination content edited without a time change is detected`.
+
+### RECON-I15. Two concurrent writers: one of them must see a conflict
+
+**Lesson.** Concurrent runs need a fencing check immediately before the write, and it must fail closed. Two
+plans built from the same base revision must not both apply.
+**Learned from.** `core/sync-engine/generation.ts` `createRedisGenerationCheck`; tests *"does not mutate the
+provider when reconciliation is superseded before comparison"*, *"finishes a replacement before observing
+that the generation is stale"*.
+**Honoured by.** Structurally, by RECON-I13: both plans carry the same `ObservedPrecondition`, so applying
+the first moves the remote version and the second's precondition is stale by construction. The planner is
+pure, so the *fencing* belongs to the applier — which is exactly why `Plan.cursor` is a separate field
+(RECON-I17).
+**Proved by.**
+`tests/writes/concurrent-writers.test.ts :: RECON-O31: two plans built from one base state cannot both apply`;
+`tests/writes/concurrent-writers.test.ts :: RECON-O31: the loser replans as a conflict, not as an overwrite`;
+`tests/writes/concurrent-writers.test.ts :: RECON-O31: the loser's next plan converges once it re-reads the winner's state`.
+
+### RECON-I16. A replayed create is a no-op, and the observed identity outranks the mapping
+
+**Lesson.** Google push failures produced duplicates because no mapping was ever recorded, so the same add
+was recomputed every run — one calendar was failing about fifty times an hour.
+**Learned from.** commit `b057d2e0` (#616), first bullet; `operations.ts`.
+**Honoured by.** Every `create` carries `IdempotencyKey` derived deterministically from
+`(destination calendar, source identity)` via `sourceIdentityKey` — the same derivation the provider writes
+as its native idempotency identity. A create is suppressed when a mapping binds the identity **or** when the
+destination listing already shows an event under that idempotency identity. The observed listing wins,
+because the mapping can be missing precisely when the write succeeded and the record did not.
+**Proved by.**
+`tests/writes/idempotent-create.test.ts :: RECON-O12: replanning after the create landed yields zero creates`;
+`tests/writes/idempotent-create.test.ts :: RECON-O12: a create that landed without a recorded mapping still yields zero creates`;
+`tests/writes/idempotent-create.test.ts :: RECON-O12: the idempotency key is stable across runs for one identity`;
+`tests/writes/idempotent-create.test.ts :: RECON-O12: two distinct identities never share an idempotency key`.
+
+### RECON-I17. The cursor is a field the applier can drop without dropping the writes
+
+**Lesson.** Never write a sync token on the superseded path, and never advance a cursor past work you did not
+durably apply — but a superseded run must still be able to flush the work it already did.
+**Learned from.** `generation.ts`; `ingest.ts`; tests *"never writes a sync token on the superseded path"*,
+*"emits a wide event with outcome superseded but flushed when generation becomes stale"*.
+**Honoured by.** `Plan.cursor: CursorDecision` is a sibling of `writes` and `tombstones`, not a property of
+them. `CursorDecision` is `advance | hold | reset` — three arms, so "we did not advance" is never expressed
+as an absent string. The applier's input type is `Omit<Plan, "cursor">` plus an explicit cursor argument, so
+dropping the advance is the ordinary path rather than a special case.
+**Proved by.**
+`tests/cursor/independence.test.ts :: RECON-O25: a plan with no writes and no tombstones can still advance the cursor`;
+`tests/cursor/independence.test.ts :: RECON-O25: the applier can tell an empty plan from a no-op without inspecting array lengths`;
+`tests/cursor/independence.test-d.ts :: RECON-O27: the write set typechecks without the cursor field`;
+`tests/cursor/independence.test.ts :: RECON-O27: the plan never encodes a rule that partial application licenses an advance`.
+
+### RECON-I18. A cursor is valid only for the request shape that minted it
+
+**Lesson.** Sync tokens were stored as `keeper:sync-token:<windowVersion>:<base64url>`; a newer required
+window version discarded the token and forced a full sync. Widening the window while silently reusing an old
+delta token leaves the newly covered span permanently unpopulated. Both providers agree: Google refuses
+`syncToken` combined with `timeMin`/`timeMax` at all and requires the remaining parameters to match the
+initial sync; Graph encodes `startDateTime`/`endDateTime` into the `deltaLink` and expects the exact link to
+be replayed.
+**Learned from.** `core/oauth/sync-token.ts` `resolveSyncTokenForWindow`; Google *Synchronize resources
+efficiently*; Graph *event: delta*; the protocol's `DeltaSupport.windowBoundToCursor`.
+**Honoured by.** `SyncCursor` already carries `scope: ListingScope`. `src/plan/cursor.ts` refuses to advance
+a cursor whose `scope` is not identical to the scope the policy asked for, emitting
+`reset{ reason: "scopeChanged" }`. A widened window becomes a full resync, never a quietly under-reporting
+delta.
+**Proved by.**
+`tests/cursor/scope-binding.test.ts :: RECON-O26: the same listing under a widened scope resets the cursor rather than advancing it`;
+`tests/cursor/scope-binding.test.ts :: RECON-O26: the widened-scope plan contains zero tombstones`;
+`tests/cursor/scope-binding.test.ts :: RECON-O26: an identical scope advances normally, so the assertion is not vacuous`;
+`tests/cursor/scope-binding.test.ts :: RECON-O26: a changed expandRecurrences flag also resets the cursor`.
+
+### RECON-I19. A cursorLost listing carries no tombstones, and the resync that follows is what deletes
+
+**Lesson.** The obvious reading of Google's guidance — *"a 410 should trigger a full wipe of the client's
+store and a new full sync"* — is exactly the mass-deletion bug. The wipe is unnecessary and destroys the
+baseline that lets the resync be diffed safely.
+**Learned from.** Google *Handle API errors*; Nylas' and Nango's write-ups repeating the wipe advice;
+protocol ledger entry 35.
+**Honoured by.** `cursorLost` has no `events` field at all, so no diff basis exists; `removals.ts` returns
+`[]` for it and `cursor.ts` returns `reset{ reason: "cursorLost" }`. The subsequent full `snapshot` carries
+a proven coverage window and deletes through RECON-I3, which is the only path that can.
+**Proved by.**
+`tests/cursor/cursor-lost.test.ts :: RECON-O2: a cursorLost listing yields zero tombstones and zero writes`;
+`tests/cursor/cursor-lost.test.ts :: RECON-O2: it resets the cursor rather than holding a stale one`;
+`tests/cursor/cursor-lost.test.ts :: RECON-O2: the snapshot that follows deletes exactly the events that really went away`.
+
+### RECON-I20. Corrupt known state forces a resync; it never becomes a tombstone by omission
+
+**Lesson.** When a stored row failed validation during a delta ingest, the engine abandoned the diff, reset
+the token and forced a full sync — a delta diff against a partially unreadable baseline computes bogus
+deletions. On a full ingest the invalid rows were removed only if the fetch did not report them.
+**Learned from.** `ingest.ts` (`isDeltaSync && parseResult.failures.length > 0`);
+`core/source/stored-event-state.ts` `buildInvalidStoredEventIdsToRemove`.
+**Honoured by.** `KnownState` carries `events: readonly KnownEvent[]` and `corrupt: readonly
+CorruptKnownRow[]` as separate fields. Any corrupt row on a `delta` listing forces
+`reset{ reason: "corruptKnownState" }` and suppresses every tombstone in the plan. On a `snapshot` the
+corrupt row is tombstoned only if the snapshot did not name it. Every corrupt row also appears in
+`unresolved`. Parsing is the caller's job, so a corrupt row arrives as a value — the fail-loud rule applies
+to invariants of our own (RECON-I27), not to aged data written by an older schema.
+**Proved by.**
+`tests/known-state/corrupt.test.ts :: RECON-O22: one corrupt known row on a delta listing resets the cursor and suppresses all tombstones`;
+`tests/known-state/corrupt.test.ts :: RECON-O22: a corrupt row named by a snapshot is not tombstoned`;
+`tests/known-state/corrupt.test.ts :: RECON-O22: a corrupt row absent from a proven snapshot is tombstoned`;
+`tests/known-state/corrupt.test.ts :: RECON-O22: every corrupt row is reported as unresolved`.
+
+### RECON-I21. Ambiguity is a first-class outcome, never a guess and never a delete
+
+**Lesson.** Stored rows with a null source uid were skipped by both removal branches; duplicate remote events
+sharing a legacy UID were left alone rather than paired; orphan overrides were kept rather than attached to
+an ambiguous master.
+**Learned from.** `event-diff.ts` (`sourceEventUid === null` -> `return false`); tests *"does not guess
+between duplicate remote events sharing a legacy UID"*, *"keeps orphan overrides and refuses to attach them
+to ambiguous masters"*, *"does not attach same-UID overrides across source calendars"*.
+**Honoured by.** `unresolvedReasons` includes `ambiguousIdentity` and `missingIdentity`. Ambiguity produces
+no write, no tombstone and no mapping change. There is no "best guess" branch anywhere in `src/`.
+**Proved by.**
+`tests/identity/ambiguity.test.ts :: RECON-O24: two remote events sharing one UID with no distinguishing recurrence identity are unresolved`;
+`tests/identity/ambiguity.test.ts :: RECON-O24: neither of them is deleted`;
+`tests/identity/ambiguity.test.ts :: RECON-O24: an orphan override is kept rather than attached to an ambiguous master`;
+`tests/identity/ambiguity.test.ts :: RECON-O24: a same-UID override from a different source calendar is not attached`.
+
+### RECON-I22. Ties break on a content-derived total order, never on feed order
+
+**Lesson.** An unordered publisher would otherwise delete and re-create the stored row on every poll.
+Revision selection orders on SEQUENCE, then LAST-MODIFIED/DTSTAMP/CREATED, then the lowest slot signature.
+**Learned from.** `parse-ics-events.ts` `selectGroupRevision`; tests *"drops the same copy whichever order
+the feed lists the pair in"*, *"does not churn the stored row when the feed reorders the colliding events"*.
+**Honoured by.** `src/state/dedupe.ts` folds observed events into a `Map` keyed by `sourceIdentityKey` and
+resolves collisions with `sync-ical`'s `compareEventRevisions`, falling back to the fingerprint value as the
+final tiebreak so the comparator is total. `src/plan/order.ts` sorts the finished plan by
+`(sort instant, retire-before-write, identity key)`, so two runs over the same input produce byte-identical
+plans and the applier never re-sorts.
+**Proved by.**
+`tests/order/permutation.test.ts :: RECON-O18: all 120 permutations of a five-event listing produce a byte-identical plan`;
+`tests/order/permutation.test.ts :: RECON-O18: reordering the known state does not change the plan`;
+`tests/order/permutation.test.ts :: RECON-O18: reordering the mappings does not change the plan`;
+`tests/order/permutation.test.ts :: RECON-O19: a listing naming one identity three times produces at most one write`;
+`tests/order/permutation.test.ts :: RECON-O19: the surviving version is the highest revision, whichever order it arrived in`.
+
+### RECON-I23. Removes are ordered before writes at the same instant
+
+**Lesson.** Applying an add before removing the copy occupying that slot makes the destination briefly show a
+duplicate and, on providers that key on UID, makes the add fail outright.
+**Learned from.** `operations.ts` `sortOperationsByTime`/`getOperationTypePriority`.
+**Honoured by.** `comparePlannedWrites` is exported and documented as the plan's contract: instant ascending,
+then `retire`/`delete` before `create`/`update`, then identity key. `Plan.writes` arrives already sorted, so
+the applier may chunk it freely (RECON-I24) without re-sorting.
+**Proved by.**
+`tests/order/write-order.test.ts :: RECON-I23: a retire and a create at the same instant order retire first`;
+`tests/order/write-order.test.ts :: RECON-I23: the emitted plan is already sorted by the exported comparator`;
+`tests/order/write-order.test.ts :: RECON-I23: the comparator is a total order with no equal-but-distinct pairs`.
+
+### RECON-I24. The plan holds no accumulator and imposes no cross-entry dependency
+
+**Lesson.** A single large snapshot insert exceeded Postgres's bind-parameter ceiling and failed the whole
+ingest; progress accounting carried across runs and double-counted.
+**Learned from.** tests *"chunks a large snapshot so one statement cannot exceed the bind-parameter
+ceiling"*, *"clears accumulated progress so totals do not carry across runs"*.
+**Honoured by.** `Plan.writes` is an ordered list with no dependency beyond RECON-I23, so the applier may
+chunk at any boundary. The one exception is deliberate and typed: `PlannedWrite.replace` (RECON-I25) is a
+single entry. The plan carries no counters that survive it — `PlanDiagnostics` is built fresh per call, and
+the package holds no module-level state at all.
+**Proved by.**
+`tests/plan/no-state.test.ts :: RECON-I24: planning the same input twice returns deeply equal plans`;
+`tests/plan/no-state.test.ts :: RECON-I24: interleaving two different inputs does not contaminate either plan`;
+`tests/plan/no-state.test.ts :: RECON-I24: the module graph declares no mutable module-level binding`.
+
+### RECON-I25. A replace is one plan entry, because a half-applied replace orphans a real event
+
+**Lesson.** If the delete succeeds and the recreate fails, the stale mapping must be kept so the next run
+retries; the checkpoint must not be written when the operation aborts between the two halves. Dropping the
+mapping early orphans a remote event nothing will ever clean up.
+**Learned from.** `core/sync-engine/index.ts` `executeRemoteOperations`; tests *"keeps the stale mapping when
+recreation fails after a successful delete"*, *"does not checkpoint the stale mapping when recreation aborts
+after deletion"*, *"does not delete a remote UID that was recovered by an earlier add"*.
+**Honoured by.** `PlannedWrite` is `single | replace`. The `replace` arm carries the `delete` intent and the
+`create` intent in one value; there is no representation in which a planner emits the delete alone and the
+applier records it independently. The atomic unit is explicit in the type, so the applier's checkpoint rule
+follows from the shape rather than from a comment.
+**Proved by.**
+`tests/writes/replace-atomicity.test.ts :: RECON-O16: a re-identified occurrence produces one replace entry, not two entries`;
+`tests/writes/replace-atomicity.test-d.ts :: RECON-O16: a replace cannot be destructured into an independently appliable delete`;
+`tests/writes/replace-atomicity.test.ts :: RECON-O16: no plan contains a bare delete for an identity that also has a create`.
+
+### RECON-I26. Retire the delete identifier this listing gave you
+
+**Lesson.** Mappings written before delete-ids existed store the iCalUID, which Google's delete endpoint
+rejects, costing a second batch request per delete — real rate-limit budget. Reconciliation already listed
+the remote copy, so its handle is in hand.
+**Learned from.** `operations.ts` `resolveMappingDeleteId`; test *"uses remoteId as deleteIdentifier fallback
+when pushResult has no deleteId"*.
+**Honoured by.** `src/plan/tombstones.ts` and `src/plan/writes.ts` prefer the `DeleteHandle` from the matched
+observed event and fall back to `mapping.destination.deleteHandle` only when no remote copy was matched.
+**Proved by.**
+`tests/writes/delete-handle.test.ts :: RECON-O17: a matched remote copy supplies the delete handle from this listing`;
+`tests/writes/delete-handle.test.ts :: RECON-O17: an unmatched mapping falls back to its stored handle`;
+`tests/writes/delete-handle.test.ts :: RECON-O17: a legacy handle is never preferred over an observed one`.
+
+### RECON-I27. Internal data fails loud; provider data fails soft
+
+**Lesson.** A malformed part of a feed must not fail the whole feed, and a real deletion arriving in the same
+payload as a malformed item must still be applied. But internally produced data that fails validation must
+throw rather than silently degrade.
+**Learned from.** commits `43292a9f` (#606), `2657805b` (#604); the repo's fail-loud rule; ICAL-I42.
+**Honoured by.** `planReconciliation` never throws on anything reachable from a provider: bad observed items
+become `unresolved` and the rest of the listing still plans. It throws `ReconcileInternalDataError` only when
+one of our own invariants is broken — a `Mapping` whose destination calendar is not the policy's destination,
+a `KnownEvent` with no identity, a `MappingSet` with two mappings for one identity.
+**Proved by.**
+`tests/plan/fail-loud.test.ts :: RECON-I27: a mapping pointing at a foreign destination throws`;
+`tests/plan/fail-loud.test.ts :: RECON-I27: two mappings for one source identity throw`;
+`tests/plan/fail-loud.test.ts :: RECON-I27: no provider-shaped input can make the planner throw`;
+`tests/presence/withheld-is-present.test.ts :: RECON-O28: a withheld sibling does not suppress a genuine removal in the same listing`.
+
+### RECON-I28. Unsupported is reported, never reinterpreted
+
+**Lesson.** THISANDFUTURE is reported rather than converted, because converting silently changes the meaning
+of the whole tail of a series. RDATE series, floating UNTIL and unanchorable floating times are reported
+rather than guessed.
+**Learned from.** `parse-ics-events.ts`, `validate-recurrence-input.ts`; ICAL-I10, ICAL-I11.
+**Honoured by.** `unresolvedReasons` separates `withheldBySource` (the source could not build it),
+`unsupportedByDestination` (`Capabilities.recurrenceWrite`/`representableRange` refuse it),
+`ambiguousIdentity`, `outsideProvenCoverage`, `staleRevision`, `corruptKnownState`,
+`provenanceIndeterminate` and `missingIdentity`. The planner never coerces an unsupported shape into a
+writable one.
+**Proved by.**
+`tests/unresolved/reasons.test.ts :: RECON-I28: a recurring event is unresolved rather than expanded when the destination cannot write recurrence`;
+`tests/unresolved/reasons.test.ts :: RECON-I28: each reason is reachable and none is a synonym for another`;
+`tests/unresolved/reasons.test.ts :: RECON-I28: an unresolved item never appears in writes or tombstones`.
+
+### RECON-I29. Every drop leaves a trace, because a drop reads downstream as a deletion
+
+**Lesson.** Two independent comments in `packages/calendar` say this outright. Discard reasons are separated
+by cause and counters are per-run, never cumulative; a healthy feed reports zero.
+**Learned from.** `ingest.ts` `DiscardedSourceEventCounts`; commit `fdd9ba62` (#634); tests *"keeps discard
+counters per-run, not accumulating across runs"*, *"reports a clean feed as having discarded nothing"*.
+**Honoured by.** Nothing leaves `planReconciliation` unaccounted: every input identity ends in exactly one of
+`writes`, `tombstones`, `unresolved`, `conflicts`, or the explicitly-converged set. A closure test asserts
+that partition exhaustively. Being pure, the package reports; the caller does the `widelog.error`.
+**Proved by.**
+`tests/plan/closure.test.ts :: RECON-I29: every observed identity is accounted for in exactly one bucket`;
+`tests/plan/closure.test.ts :: RECON-I29: every known identity is accounted for in exactly one bucket`;
+`tests/plan/closure.test.ts :: RECON-I29: a healthy input produces empty unresolved and empty conflicts`.
+
+### RECON-I30. Diagnostic samples are capped by count AND by bytes, beside an uncapped count
+
+**Lesson.** An uncapped identifier list pushed the log line past what the pipeline keeps and took the counters
+with it — losing the numbers that prove no mass deletion happened.
+**Learned from.** `ingest.ts` `WIDE_EVENT_LIST_LIMIT`/`WIDE_EVENT_LIST_MAX_LENGTH`;
+`ingest-wide-event-list-bounds.test.ts`.
+**Honoured by.** `src/plan/diagnostics.ts` builds the protocol's `BoundedSample { sample, total }` under
+`PlanLimits.sampleCount` and `PlanLimits.sampleBytes`. `total` is always exact even when `sample` is
+truncated.
+**Proved by.**
+`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: a hundred thousand unresolved items produce a capped sample and an exact total`;
+`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: the byte ceiling caps the sample even when the count ceiling does not`;
+`tests/plan/diagnostics-bounds.test.ts :: RECON-L7: capping the sample never caps the plan itself`.
+
+### RECON-I31. Reconciliation must converge, proved as a fixed point over the applied state
+
+**Lesson.** Several convergence bugs only appeared on the second poll. Idempotence must be proved by
+re-running the planner over the post-apply state, not by comparing two plans.
+**Learned from.** tests *"is idempotent once the plan has been applied"*, *"stays converged when the same
+unrepresentable delta replays"*, `vfy-shaping-fixed-point.test.ts`, `representable-range-idempotence.test.ts`.
+**Honoured by.** The test suite carries one `applyPlan` test helper that mutates `known` and `mappings` the
+way the real applier would, and every reconcile test asserts `plan -> apply -> plan == empty`. This is the
+headline property, run as a table over every degenerate shape.
+**Proved by.**
+`tests/convergence/fixed-point.test.ts :: RECON-O20: ${shape} converges on the second plan`
+(shapes: zero-duration, inverted range, all-day at a non-UTC boundary, recurring master anchored outside the
+window, withheld item, unresolved item, conflicted mapping, re-identified occurrence, replaced mirror);
+`tests/convergence/fixed-point.test.ts :: RECON-O20: the first plan was non-empty, so convergence is not vacuous`;
+`tests/convergence/fixed-point.test.ts :: RECON-O20: a third plan is also empty`.
+
+### RECON-I32. A degenerate range is a legitimate present event
+
+**Lesson.** RFC 5545 §3.6.1 requires DTEND > DTSTART and Google rejects a non-positive span, so degenerate
+ranges are stored as stated and widened only at the destination edge. Every layer that judged a range by its
+end alone dropped them, producing a permanent add/delete cycle.
+**Learned from.** `core/events/time-range.ts` `POINT_IN_TIME_DURATION_MS`; commit `b057d2e0` (#616); the
+degenerate-range test family; test *"admits every degenerate event whose instant lies inside the sync
+window"*.
+**Honoured by.** `sync-reconcile` owns no window predicate. It calls `policy.withinWindow`, whose default is
+`sync-ical`'s `withinTimeWindow` — the one predicate every layer shares (RECON-I33). A destination widening
+is invisible to the source side by RECON-I11.
+**Proved by.**
+`tests/convergence/degenerate.test.ts :: RECON-O20: a zero-duration event inside the window is present and converges`;
+`tests/convergence/degenerate.test.ts :: RECON-O20: an inverted range is present rather than dropped`;
+`tests/convergence/degenerate.test.ts :: RECON-O20: a widened mirror of a zero-duration event plans no write`.
+
+### RECON-I33. One window predicate, injected, never redefined
+
+**Lesson.** `packages/calendar` shipped four diverged private copies of the window predicate in one change,
+and each copy that judged by the end alone dropped degenerate ranges. Every layer applying a sync window must
+use the same predicate or an event survives one stage and not the next.
+**Learned from.** commit `b057d2e0` (#616); `overlapsRepresentableTimeWindow`.
+**Honoured by.** `ReconciliationPolicy.withinWindow: WindowMembership` — the predicate arrives as an
+argument, as the brief requires of every dependency. `src/policy.ts` is the only file in `src/` that imports
+`sync-ical`, and only to offer `defaultWindowMembership = withinTimeWindow`. There is no second membership
+test in `src/`; a hygiene test greps for one.
+**Proved by.**
+`tests/hygiene/one-predicate.test.ts :: RECON-I33: no module under src/plan compares an instant to a window boundary`;
+`tests/hygiene/one-predicate.test.ts :: RECON-I33: only src/policy.ts imports sync-ical`;
+`tests/window/injected-predicate.test.ts :: RECON-I33: a stub predicate that answers false everywhere retires every mirror and deletes nothing`.
+
+### RECON-I34. A recurring item's window membership is judged on its occurrences, never on its anchor
+
+**Lesson.** A master rule whose DTSTART is outside the window still generates occurrences inside it; the
+window-prune path explicitly skips any stored event carrying a recurrence rule.
+**Learned from.** `ingest.ts` (`if (!event.recurrenceRule && !overlapsTimeWindow(...))`); tests *"does not
+flag a series whose occurrences all fall outside the window"*, *"does not truncate an unbounded series two
+years after its original DTSTART"*.
+**Honoured by.** `src/plan/tombstones.ts` exempts any identity whose content carries a `recurrence` payload
+from `outsideMirrorWindow` retirement; the mirror window prunes materialised occurrences only. The planner
+never expands a rule — expansion belongs upstream (ICAL-I51).
+**Proved by.**
+`tests/window/recurrence-exemption.test.ts :: RECON-O30: a master anchored before the window is not retired`;
+`tests/window/recurrence-exemption.test.ts :: RECON-O30: a materialised occurrence outside the window is retired`;
+`tests/window/recurrence-exemption.test.ts :: RECON-O30: the exempt master converges on the second plan`.
+
+### RECON-I35. An occurrence that changes identity within its series is a reassignment, not delete + add
+
+**Lesson.** The engine paired newly-unmapped occurrences against newly-unmatched mappings owned by the same
+event state, ordered by slot, and split the result into database-only reassignments (remote state verifiably
+unchanged) and remote reassignments. Without it, one removed legacy occurrence shifted every later mapping
+and rewrote the whole series.
+**Learned from.** `operations.ts` `pairReidentifiedMaterializedOccurrences`; tests *"does not shift later
+recurring mappings when one legacy occurrence was removed"*, *"keeps recurring siblings while one provider
+occurrence changes and moves"*.
+**Honoured by.** `src/plan/reassignment.ts` produces a distinct outcome from tombstone-plus-write, and takes
+it only when the remote state is verifiably unchanged — both the mirror fingerprint and the availability
+must be present and equal. Pairing is within one owning series id, sorted by slot, and is `O(n log n)`
+(RECON-I42).
+**Proved by.**
+`tests/reassignment/occurrences.test.ts :: RECON-O34: removing one legacy occurrence does not rewrite its siblings`;
+`tests/reassignment/occurrences.test.ts :: RECON-O34: a reassignment with an unverified remote state falls back to a replace, not a bare delete`;
+`tests/reassignment/occurrences.test.ts :: RECON-O34: reassignment never crosses two owning series`;
+`tests/reassignment/occurrences.test.ts :: RECON-O34: the series converges on the second plan`.
+
+### RECON-I36. Within one batch a provider may report the same occurrence several times
+
+**Lesson.** Only the final version may be applied. Deduplication keys on provider id when present and falls
+back to a storage instance key, last-write-wins per key, before any diff runs.
+**Learned from.** `event-diff.ts` `deduplicateIncomingEvents`; tests *"applies only the final version when a
+provider occurrence changes repeatedly in one delta"*, *"deduplicates remote events with same identity key"*.
+**Honoured by.** `src/state/dedupe.ts` runs before anything else and guarantees at most one observed item per
+`sourceIdentityKey`. "Final" is decided by revision order (RECON-I22), not by array position, so a reordered
+page cannot change the answer. The planner asserts the invariant rather than assuming it.
+**Proved by.**
+`tests/order/permutation.test.ts :: RECON-O19: a listing naming one identity three times produces at most one write`;
+`tests/order/permutation.test.ts :: RECON-O19: the surviving version is the highest revision, whichever order it arrived in`;
+`tests/state/dedupe.test.ts :: RECON-I36: the deduplicated set is asserted, not assumed, before planning`.
+
+### RECON-I37. An unusable newest revision withholds the identity; the older one never wins
+
+**Lesson.** Letting the previous revision win syncs the instance at a stale time — a silent revert of a user's
+edit. The stored row is left untouched and the withholding is reported on every subsequent run without
+churning.
+**Learned from.** `parse-ics-events.ts` `collectStaleRevisions`; tests *"never reverts a stored event to the
+time the publisher moved it away from"*, *"keeps reporting the discard on every later run and never churns
+the row"*.
+**Honoured by.** Revision comparison is monotonic: a write is never planned from an observed event whose
+revision is below the known state's. It becomes `Unresolved{ reason: "staleRevision" }` and the known state
+is left exactly as it is. `sync-ical` already withholds the whole UID upstream (ICAL-I7); this is the
+second line of defence, because a delta provider can also deliver an out-of-order page.
+**Proved by.**
+`tests/writes/stale-revision.test.ts :: RECON-O23: an observed event with a lower revision plans zero writes and one unresolved entry`;
+`tests/writes/stale-revision.test.ts :: RECON-O23: the known state is unchanged, so nothing reverts`;
+`tests/writes/stale-revision.test.ts :: RECON-O23: the second plan is identical, so the report does not churn the row`.
+
+### RECON-I38. All-day-ness is resolved by one shared predicate before any comparison
+
+**Lesson.** All-day ranges live on the UTC day grid; all-day-ness must be derived consistently, and a 24-hour
+timed event at a non-midnight boundary is not all-day. Getting this wrong drifts an all-day event a day per
+sync between two providers.
+**Learned from.** `core/events/time-range.ts` `floorToUtcDay`/`ceilToUtcDay`; commit `82799c5b` (#602);
+tests *"does not treat non-midnight 24-hour timed events as all-day"*.
+**Honoured by.** The protocol's `EventTime` is already `timed | allDay` — a discriminant, not an inferred
+flag — and `sync-ical`'s `resolveIsAllDay` decided it upstream. `sync-reconcile` reads the discriminant and
+never re-derives it, so the two sides cannot disagree.
+**Proved by.**
+`tests/window/all-day.test.ts :: RECON-O20: an all-day event at a non-UTC-midnight boundary converges on the second plan`;
+`tests/window/all-day.test.ts :: RECON-I38: a 24-hour timed event is not treated as all-day by the planner`;
+`tests/window/all-day.test.ts :: RECON-I38: reconcile never inspects a boolean all-day flag`.
+
+### RECON-I39. A no-op run may still need to flush
+
+**Lesson.** When the event diff was empty the engine still wrote if there was a new cursor, a new content
+snapshot or new coverage — otherwise a delta source re-fetches the same page forever, or coverage never
+widens. When there was genuinely nothing to record it opened no transaction at all.
+**Learned from.** `ingest.ts` empty-diff branch; tests *"flushes a changed snapshot even when the event set is
+already in sync"*, *"does not flush when there are no changes"*.
+**Honoured by.** `Plan` carries `cursor: CursorDecision` and `coverage: ProvenCoverage` as fields, so
+"nothing to write but something to record" is a distinct, typed state the applier reads directly. An
+"empty" plan is not the same value as a no-op plan, and no array length has to be inspected to tell them
+apart (RECON-I17).
+**Proved by.**
+`tests/cursor/independence.test.ts :: RECON-O25: a plan with no writes and no tombstones can still advance the cursor`;
+`tests/plan/no-op.test.ts :: RECON-I39: a genuinely empty run advances nothing and records nothing`;
+`tests/plan/no-op.test.ts :: RECON-I39: an unchanged listing carrying a new cursor still advances`.
+
+### RECON-I40. Divergence is three-state, and values never leave the process
+
+**Lesson.** A successful push with no echo counts as uncomparable, never as a silent zero; the absence of an
+echo is a distinct third state, not agreement. Only booleans and lengths are logged.
+**Learned from.** `core/events/push-echo.ts`; tests *"counts a successful push with no echo as uncomparable,
+never as a silent zero"*, *"adds no fields at all to a clean push with no divergence"*.
+**Honoured by.** The protocol's `EchoVerdict` is already `matched | diverged | notObserved`.
+`PlanDiagnostics` carries counts and capped identifier samples only — never a title, a description or a
+location. A hygiene test asserts no user-supplied text field reaches `PlanDiagnostics`.
+**Proved by.**
+`tests/plan/diagnostics-bounds.test.ts :: RECON-I40: diagnostics carry identifiers and counts, never event text`;
+`tests/plan/diagnostics-bounds.test.ts :: RECON-I40: an unobserved echo is uncomparable, not agreement`.
+
+### RECON-I41. Reconcile is pure so that it is safe to call from inside a transaction
+
+**Lesson.** The ingest engine had to stop calling `widelog` from inside a pooled-driver callback, because a
+pooled driver invokes the callback in the async context of whoever released the connection and telemetry
+landed on a foreign wide event. Remote I/O stays outside database transactions.
+**Learned from.** `ingest.ts` `measureDiff` and its comment; commit messages *"keep remote I/O outside
+database transactions"*.
+**Honoured by.** Zero I/O, zero telemetry, zero clock. This is not style: a planner that logged would be
+unsafe to call from inside a transaction callback, and a planner that awaited would be a lockup surface.
+Enforced by `RECON-L1` and `RECON-L3` rather than by convention.
+**Proved by.**
+`tests/hygiene/purity.test.ts :: RECON-L1: no export is declared async`;
+`tests/hygiene/purity.test.ts :: RECON-L1: no export returns a thenable`;
+`tests/hygiene/purity.test.ts :: RECON-L3: planning succeeds with Date.now stubbed to throw`.
+
+### RECON-I42. Every iteration is bounded in the input size, and the bound is proved
+
+**Lesson.** The product has repeatedly shipped hangs, and the recurrence budget exists because one
+pathological series could push a whole calendar into permanent backoff. A pure planner cannot deadlock but it
+can wedge: a quadratic pairing loop on adversarial input is this package's form of the missing ceiling.
+**Learned from.** `core/utils/backoff.ts`; `findSourceEventsExceedingRecurrenceBudget`; ICAL-I43; the brief's
+lockup obsession.
+**Honoured by.** Every lookup is a `Map` built once; there is no nested scan over `known` or `mappings`.
+Reassignment pairing sorts within one owning series and walks the two sorted lists once. `PlanLimits` bounds
+the sample sizes and the reassignment pairing width, and exceeding a bound is a typed `unresolved` outcome,
+never a slow success. Nothing recurses.
+**Proved by.**
+`tests/limits/pairing-ceiling.test.ts :: RECON-L4: quadrupling the unmapped occurrence count does not sixteen-fold the comparator calls`;
+`tests/limits/pairing-ceiling.test.ts :: RECON-L4: an adversarial all-ties revision order still terminates deterministically`;
+`tests/limits/pairing-ceiling.test.ts :: RECON-L4: the whole pairing completes inside one scheduler tick`;
+`tests/limits/large-state.test.ts :: RECON-L6: a hundred thousand known events against an empty listing plan in a single pass`;
+`tests/limits/large-state.test.ts :: RECON-L6: lookups are Map-based, so doubling the known state does not quadruple the work`;
+`tests/limits/deep-series.test.ts :: RECON-L8: a ten-thousand-deep master and override chain does not recurse`.
+
+### RECON-I43. Never `Bun.sleep`, and no timer may be armed
+
+**Lesson.** `Bun.sleep` is a native primitive `vi.useFakeTimers` cannot patch; every sleep in this repo is
+`setTimeout` for exactly that reason, and a commit exists to undo the CI cost of getting it wrong.
+**Learned from.** commit `34dc5079` *perf(tests): stop the backoff and tzdata suites burning real wall time
+(#806)*; `core/utils/backoff.ts`; ICAL-I44.
+**Honoured by.** No `Bun.sleep` anywhere in `src/` or `tests/`. The package arms no timer at all — the
+stronger guarantee — asserted under fake timers.
+**Proved by.**
+`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: no file under src references the unfakeable sleep primitive`;
+`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: no file under tests references the unfakeable sleep primitive`;
+`tests/hygiene/no-bun-sleep.test.ts :: RECON-L2: a full plan arms no timer under fake timers`.
+
+### RECON-I44. The ambient clock and the ambient timezone are never read
+
+**Lesson.** Durations must come from a monotonic clock and must never be differenced from a total; wall clock
+steps backwards and forwards in production. Separately, `packages/calendar` pins `TZ=UTC` because otherwise
+wall-time tests pass or fail by machine.
+**Learned from.** `core/sync-engine/index.ts` (`sync.reconcile.duration_ms` comment); tests *"keeps the
+reconcile total and the phases honest when the clock steps backwards"*; ICAL-I45.
+**Honoured by.** The brief forbids a clock here, which is the strongest form of honouring it. Any
+now-dependent decision — is this window in the past? — arrives as a value on the policy. The test script is
+`TZ=UTC bun x --bun vitest run` and one suite re-runs a plan under a non-UTC ambient zone.
+**Proved by.**
+`tests/hygiene/purity.test.ts :: RECON-L3: planning succeeds with Date.now stubbed to throw`;
+`tests/hygiene/purity.test.ts :: RECON-L3: planning succeeds with the Date constructor stubbed to throw`;
+`tests/hygiene/purity.test.ts :: RECON-I44: the plan is identical under UTC and under a zone fourteen hours ahead`.
+
+---
+
+## Not applicable to sync-reconcile
+
+Each of these is a real lesson from `packages/calendar` that this package deliberately does not carry.
+Recorded so their absence reads as a decision, with the condition that would re-open it.
+
+### RECON-I45. Retry ceilings, capped `Retry-After`, abortable sleeps
+
+`withBackoff` caps attempts, caps the delay even when the provider disagrees, and ends with an explicit
+unreachable throw; `abortableSleep` rejects if the signal is already aborted and cleans up on both paths
+(`core/utils/backoff.ts`).
+**Not applicable.** `planReconciliation` awaits nothing, so there is no runtime loop to bound. The applicable
+residue is RECON-I42: internal iteration must be provably finite in the input size. The package exports no
+timer, sleep or signal.
+**Re-open condition.** If any export here ever becomes `async`, it inherits this entry verbatim. `RECON-L1`
+is the tripwire that makes adding one impossible to do quietly.
+
+### RECON-I46. Single-flight coalescing, lock and lease discipline
+
+The in-flight map entry is removed in `.finally` and only if the stored promise is still the same task;
+followers join the leader's promise and receive its rejection rather than hanging. Locks are acquired in a
+deterministic sorted order over a de-duplicated key set, on one connection, inside a transaction carrying
+`statement_timeout` and `idle_in_transaction_session_timeout` (`core/oauth/refresh-coordinator.ts`,
+`core/source/ingest-lock.ts`).
+**Not applicable.** A pure planner holds no lock and coalesces nothing. Inventing an internal cache or a
+memoisation lease to satisfy the lockup brief would import the hazard gratuitously; caching belongs in the
+caller. The transferable rule *is* adopted: every set the planner iterates is sorted deterministically before
+it produces output (RECON-I22), so two callers holding different locks produce identical plans from identical
+inputs.
+
+### RECON-I47. Deadlines and merged abort signals on outbound awaits
+
+Every outbound await needs a deadline and a composed abort signal (`fetch-with-timeout.ts`).
+**Not applicable.** No outbound anything. `OperationContext` carries `signal`, `now`, `deadline` and
+`retryBudget` and belongs to the provider adapters, not to the planner. That the planner cannot see a
+deadline is the point: it cannot spend one.
+
+### RECON-I48. Redirect ceilings, `Authorization` withholding, quota acquisition inside the retry
+
+Transport concerns (`utils/safe-fetch.ts`; protocol ledger entries 21, 23, 48).
+**Not applicable.** Different package. Recorded so the transport package inherits them.
+
+### RECON-I49. Timezone resolution, DST folds, VTIMEZONE synthesis
+
+A wall time in a fall-back fold names two instants and RFC 5545 gives no way to disambiguate; a DATE-valued
+series is floating per §3.3.10 and must expand on the dates it names.
+**Not applicable, and forbidden.** Instant resolution is `sync-ical`'s job. `sync-reconcile` consumes already
+resolved absolute instants, never parses a TZID, never touches tzdata and never re-derives an occurrence
+start. Any timezone logic appearing under `packages/sync-kit/reconcile` is a layering violation and the
+review should reject it. `tests/hygiene/one-predicate.test.ts` greps for it.
+
+### RECON-I50. Comparing serialised text
+
+Comparing a TZID wall time against a UTC instant lexically is meaningless and let a genuinely inverted
+resource pass a guard.
+**Not applicable as a hazard, adopted as a prohibition.** Reconcile compares instants and opaque fingerprint
+and version tokens. It never compares serialised ICS text, and it never re-hashes content — both
+fingerprints arrive as inputs (RECON-I12).
+
+### RECON-I51. Recurrence expansion and occurrence budgets
+
+Materialising a series is expensive and must be bounded.
+**Not applicable.** Reconcile receives either a rule-bearing master or already-materialised occurrences and
+never expands. The budget is enforced upstream and surfaces here as
+`withheld{ reason: "recurrenceBudgetExceeded" }`, which RECON-I6 keeps *present*.
+
+### RECON-I52. Destination representational limits
+
+Google refuses a zero-duration event; Graph refuses end-before-start; CalDAV requires a strictly later DTEND.
+**Not applicable as arithmetic.** The planner does not widen or clamp anything. It reads
+`Capabilities.representableRange` to decide whether an item is writable at all
+(`unresolved{ reason: "unsupportedByDestination" }`); the shaping itself belongs to
+`CalendarProvider.normalize`, which is what produces the `MirrorFingerprint` the planner compares
+(RECON-I12).
+
+### RECON-I53. Batched writes and bind-parameter ceilings
+
+A single large snapshot insert exceeded Postgres's parameter limit and failed the whole ingest.
+**Not applicable as behaviour, adopted as a constraint on the type.** The planner performs no write. Its
+obligation is to emit a list the applier may chunk anywhere, which is RECON-I24.
+
+### RECON-I54. Wide events, monotonic durations, phase attribution
+
+Durations must come from a monotonic clock and must never be differenced from a total.
+**Not applicable.** No telemetry is emitted here (RECON-I41). The plan is a value the caller may log; the
+caller owns the wide event and the clock.
+
+---
+
+## Dependencies taken and rejected
+
+### RECON-I55. Taken: `@keeper.sh/sync-protocol` (workspace)
+
+Every type this package speaks — `ChangeListing`, `WriteIntent`, `ObservedPrecondition`, `RemoteEvent`,
+`Capabilities`, `TimeWindow`, `WindowMembership`, `BoundedSample`, `assertNever` — is already defined there
+and is **not redefined here**. The protocol had already made the two decisions this package most depends on:
+non-snapshot listings carry no `coverage` field, and `update`/`delete`/`retire` carry a required
+`ObservedPrecondition`. Reconcile inherits both guarantees rather than restating them.
+
+### RECON-I56. Taken: `@keeper.sh/sync-ical` (workspace), imported in exactly one file
+
+`src/policy.ts` imports `withinTimeWindow` to offer `defaultWindowMembership`, and
+`compareEventRevisions` for the dedupe tiebreak. Nothing under `src/plan/` imports it: the predicate arrives
+on the policy, per the brief's rule that dependencies arrive as arguments. The dependency exists so the
+package ships the *correct* default (RECON-I33) and so the tests run against the real predicate rather than a
+stub. `canonicalEventFingerprint` is **not** called here — fingerprints are inputs (RECON-I12).
+
+### RECON-I57. Rejected: ical.js, ts-ics, rrule, tsdav, node-ical
+
+All are either already rejected by `sync-ical` (ICAL-I53–I55) or belong to a transport package. Reconcile
+must import none of them. The moment it parses a TZID or expands an RRULE it has duplicated `sync-ical`, and
+two copies will diverge — which is precisely the failure mode of #616, where one window predicate became
+four.
+
+### RECON-I58. Rejected: fast-check
+
+The tempting properties are order-independence and fixed-point convergence, and fast-check integrates with
+vitest cleanly. Rejected for consistency with ICAL-I59 and because the properties here are *finite*: the
+order-independence obligation is all 120 permutations of a five-event listing, enumerated exhaustively, which
+is a stronger statement than a sampled generator makes, and reproducible without a seed in the failure
+message. The fixed-point obligation is a table over nine named degenerate shapes, each of which is a
+regression from a real incident and deserves a name in the output rather than a generated counterexample.
+**Re-open condition.** If the reassignment pairing grows a genuinely combinatorial input space, generated
+input beats enumeration and this should be revisited.
+
+### RECON-I59. Rejected: `fast-json-stable-stringify`, RFC 8785 (JCS), and any hashing here
+
+`packages/calendar` hand-rolls a canonical subset *and* depends on `fast-json-stable-stringify` — two
+implementations of one idea. `sync-ical` replaced both with a closed field-order tuple (ICAL-I33, ICAL-I57).
+`sync-reconcile` hashes nothing at all: both fingerprints are inputs. A third canonicalisation here would be
+a third thing to keep in agreement.
+
+### RECON-I60. Rejected: `temporal-polyfill`
+
+Temporal reached Stage 4 in March 2026 and ships natively in Node 26 and Deno, but
+`bun -e 'typeof Temporal'` prints `undefined` on this repo's Bun 1.3.14 — verified in this worktree, not
+taken on trust. Even if it shipped, this package does no calendar arithmetic: it compares absolute instants
+and opaque tokens. Epoch comparison is sufficient and Temporal would buy nothing.
+
+### RECON-I61. Taken from the platform, not from a dependency: `Map.groupBy`, `Array.prototype.toSorted`
+
+Both are present on Bun 1.3.14 (verified). `Map.groupBy` replaces the hand-rolled accumulate-into-a-Map loop
+that `packages/calendar` and `sync-ical` both wrote by hand, and `toSorted` keeps the sorting paths
+non-mutating, which matches the repo's functional-construction preference. No lodash, no immer, no
+immutable.js. Rejected from Bun: `Bun.sql` and `bun:sqlite` (no database here), `Bun.hash` and
+`Bun.CryptoHasher` (nothing is hashed here), and Bun's own test runner — the repo convention is
+`bun x --bun vitest run`, because bare `bun test` is the wrong runner and produces bogus
+*"vi.hoisted is not a function"* errors. Bun's real contribution to this package is running TypeScript
+sources with no build step, which is what makes the source-consumed package idiom work.
+
+### RECON-I62. Process
+
+`bun install` in the worktree first. Tests run as `TZ=UTC bun x --bun vitest run`. turbo caches, so the only
+real verdict is `bunx turbo run test lint types --force`. oxlint runs with the restriction category on: no
+console, **no ternaries anywhere**, `eqeqeq`. No comments except an external constraint with a citation. No
+type assertions, no `any`, no non-null `!`, no `@ts-ignore`; `as const` and `satisfies` only. Switches over
+discriminated unions end in `assertNever`. Guard clauses, no `else` after a return. No defect claim without a
+test that fails first.
+
+---
+
+## The test id scheme
+
+Every test is named `RECON-<series><n>: <what it proves>`, and the **Proved by** lines above cite that exact
+string so the ledger can be walked against the suite by grep.
+
+- `RECON-I<n>` — the ledger entry the test honours, one for one.
+- `RECON-O<n>` — an **overwrite** obligation: a write, a deletion or a fingerprint that must not move. Each
+  must fail before its guard exists.
+- `RECON-L<n>` — a **lockup** obligation: a bound, a ceiling, or the absence of a timer, a clock or a promise.
+
+### RECON-O index — the overwrite family
+
+Each line names the failure it prevents and how the test forces it.
+
+- `RECON-O1` — tests/deletion/no-wipe.test.ts — *a partial listing deletes the calendar.* Forced by a
+  `partial` listing whose `events` omit every known event; a set-difference implementation tombstones all of
+  them.
+- `RECON-O2` — tests/cursor/cursor-lost.test.ts — *a 410 wipes the store.* Forced by a `cursorLost` listing
+  with a fully populated `known`; the naive "410 means full wipe" advice tombstones everything.
+- `RECON-O3` — tests/deletion/delta-authority.test.ts — *a delta page's omissions read as deletions.* Forced
+  by a delta listing that reports one removal and omits four known events.
+- `RECON-O4` — tests/coverage/proven-coverage.test.ts — *absence outside proven coverage deletes.* Forced by
+  running identical inputs twice, once under `unproven` and once under `proven`, asserting zero then one.
+- `RECON-O5` — tests/coverage/proven-coverage.test.ts — *a mapping between recorded coverage and the
+  requested edge is deleted or re-added.* Forced by placing a known event in exactly that gap.
+- `RECON-O6` — tests/coverage/axes.test.ts — *a wide future range licenses a historic deletion.* Forced by
+  proving only the future axis and placing one absence on each axis.
+- `RECON-O7` — tests/deletion/two-windows.test.ts — *the requested window is mistaken for the authoritative
+  one and a narrow destination prunes a shared baseline.* Forced by an event outside the mirror window but
+  inside proven coverage: it must retire the mirror and keep the source row.
+- `RECON-O8` — tests/presence/withheld-is-present.test.ts — *a stalled series is mass-deleted then
+  mass-re-added.* Forced by withholding the same item on ten consecutive polls and asserting every plan is
+  empty.
+- `RECON-O9` — tests/writes/precondition-required.test-d.ts — *an unconditional overwrite.* Forced with
+  `@ts-expect-error` on an update and a delete constructed without a precondition.
+- `RECON-O10` — tests/writes/stale-precondition.test.ts — *a silent clobber of a newer remote version.*
+  Forced by a mapping recording version `v1` against an observed `v2`.
+- `RECON-O11` — tests/writes/stale-precondition.test.ts — *every conflict collapses to "changed" and becomes
+  undiagnosable.* Forced by a table over all six causes asserting distinct classifications.
+- `RECON-O12` — tests/writes/idempotent-create.test.ts — *a duplicate real calendar event.* Forced by
+  replanning after the create landed, and again with the mapping deliberately missing.
+- `RECON-O13` — tests/provenance/echo.test.ts — *our own write is mirrored back into the source.* Forced by
+  an observed source event stamped `ours` whose content differs from the mapping.
+- `RECON-O14` — tests/provenance/echo.test.ts — *another installation's mirror is deleted as an orphan.*
+  Forced by an `ours` event carrying a foreign `InstallationId`.
+- `RECON-O15` — tests/provenance/echo.test.ts — *an unattributable event is deleted.* Forced by an
+  `indeterminate` destination event with no mapping.
+- `RECON-O16` — tests/writes/replace-atomicity.test.ts, .test-d.ts — *a delete lands, the recreate fails, and
+  the mapping is already gone.* Forced by asserting no plan expresses the delete independently.
+- `RECON-O17` — tests/writes/delete-handle.test.ts — *a legacy iCalUID is sent to a delete endpoint that
+  rejects it.* Forced by a mapping whose stored handle differs from the observed one.
+- `RECON-O18` — tests/order/permutation.test.ts — *an unordered publisher churns a row every poll.* Forced by
+  all 120 permutations of a five-event listing, compared byte-for-byte.
+- `RECON-O19` — tests/order/permutation.test.ts — *a repeated occurrence in one delta applies a stale
+  version.* Forced by three revisions of one identity in ascending and descending order.
+- `RECON-O20` — tests/convergence/fixed-point.test.ts — *a forever-loop that writes to a real calendar every
+  run.* Forced for nine named degenerate shapes by `plan -> apply -> plan`, asserting the first plan is
+  non-empty and the second and third are empty.
+- `RECON-O21` — tests/fingerprints/*.test.ts, .test-d.ts — *a destination's own rewrite is read as a user
+  edit.* Forced by CRLF, trailing-space, sub-second and availability-coercion echoes, and by a type test that
+  the two fingerprint brands are not comparable.
+- `RECON-O22` — tests/known-state/corrupt.test.ts — *a delta diff against an unreadable baseline computes
+  bogus deletions.* Forced by one corrupt row alongside four healthy ones.
+- `RECON-O23` — tests/writes/stale-revision.test.ts — *a user's edit is silently reverted.* Forced by an
+  out-of-order page delivering a lower revision than the known state.
+- `RECON-O24` — tests/identity/ambiguity.test.ts — *the planner guesses between two events sharing one UID.*
+  Forced by a duplicate-UID pair with no distinguishing recurrence identity.
+- `RECON-O25` — tests/cursor/independence.test.ts — *a delta source re-fetches the same page forever.* Forced
+  by an unchanged listing carrying a new cursor.
+- `RECON-O26` — tests/cursor/scope-binding.test.ts — *a widened window reuses a narrower cursor and leaves the
+  new span permanently unpopulated.* Forced by advancing the same listing under a widened `ListingScope`.
+- `RECON-O27` — tests/cursor/independence.test.ts, .test-d.ts — *a superseded run writes a sync token.*
+  Forced by asserting the write set typechecks and applies without the cursor field.
+- `RECON-O28` — tests/presence/withheld-is-present.test.ts — *one malformed item suppresses a real deletion in
+  the same payload.* Forced by a listing carrying both.
+- `RECON-O29` — tests/identity/delimiter.test.ts — *event text containing the delimiter merges two
+  identities.* Forced by two identities whose fields concatenate identically under a `|` join.
+- `RECON-O30` — tests/window/recurrence-exemption.test.ts — *a master anchored before the window is retired
+  and its in-window occurrences vanish.* Forced by a master with DTSTART two years before the window.
+- `RECON-O31` — tests/writes/concurrent-writers.test.ts — *two writers clobber each other.* Forced by
+  building two plans from one base state and applying both in sequence.
+- `RECON-O32` — tests/state/observed.test-d.ts — *an orphan mirror is retired on the strength of a
+  destination we never listed.* Forced by a type test that `sourceOnly` exposes no destination listing.
+- `RECON-O33` — tests/identity/identity-is-not-content.test.ts — *a content edit becomes delete + create and
+  loses RSVPs, conferencing links and provider ids.* Forced by mutating every content field of a known event.
+- `RECON-O34` — tests/reassignment/occurrences.test.ts — *one removed legacy occurrence rewrites the whole
+  series.* Forced by removing an early occurrence from a ten-occurrence mapped series.
+
+### RECON-L index — the lockup family
+
+- `RECON-L1` — tests/hygiene/purity.test.ts — *an I/O or telemetry seam appears inside a planner called from
+  within a database transaction.* Forced by reflecting over every export and asserting none is an
+  `AsyncFunction` and no return value is a thenable.
+- `RECON-L2` — tests/hygiene/no-bun-sleep.test.ts — *a sleep `vi.useFakeTimers` cannot patch burns real CI
+  wall time, or a timer is left armed.* Forced by a source grep plus `vi.getTimerCount() === 0` after a full
+  plan under fake timers.
+- `RECON-L3` — tests/hygiene/purity.test.ts — *a hidden clock read makes the plan untestable and drifts in
+  production.* Forced by stubbing `Date.now` and the `Date` constructor to throw and planning anyway.
+- `RECON-L4` — tests/limits/pairing-ceiling.test.ts — *a quadratic or unbounded pairing loop wedges on
+  adversarial input.* Forced by instrumenting the comparator, quadrupling the input and asserting the call
+  count does not sixteen-fold; and by an all-ties comparator that must still terminate deterministically.
+- `RECON-L5` — tests/limits/pairing-ceiling.test.ts — *a collision resolver loops on a degenerate total
+  order.* Forced by a revision set in which every pair compares equal.
+- `RECON-L6` — tests/limits/large-state.test.ts — *a nested scan over `known` × `mappings` turns a large
+  calendar into a hang.* Forced by 100k known events with an empty listing, asserting single-pass Map lookups
+  and sub-quadratic growth when the state doubles.
+- `RECON-L7` — tests/plan/diagnostics-bounds.test.ts — *an uncapped identifier list pushes the log line past
+  what the pipeline keeps and takes the counters with it.* Forced by 100k unresolved items, asserting the
+  sample is capped by count and by bytes while `total` stays exact.
+- `RECON-L8` — tests/limits/deep-series.test.ts — *a recursive walk over a master/override chain blows the
+  stack.* Forced by a ten-thousand-deep chain that must return a value.
+
+### Test suite layout
+
+```
+tests/deletion/        no-wipe, delta-authority, two-windows, removals-switch, listing-kind.test-d
+tests/coverage/        proven-coverage (+ .test-d), axes
+tests/presence/        withheld-is-present
+tests/provenance/      echo
+tests/identity/        identity-is-not-content, ambiguity, delimiter
+tests/fingerprints/    two-sided (+ .test-d), provider-rewrite
+tests/writes/          precondition-required (+ .test-d), stale-precondition, stale-revision,
+                       idempotent-create, replace-atomicity (+ .test-d), delete-handle, concurrent-writers
+tests/cursor/          independence (+ .test-d), scope-binding, cursor-lost
+tests/known-state/     corrupt
+tests/order/           permutation, write-order
+tests/reassignment/    occurrences
+tests/window/          injected-predicate, recurrence-exemption, all-day
+tests/convergence/     fixed-point, degenerate
+tests/unresolved/      reasons
+tests/plan/            closure, no-state, no-op, diagnostics-bounds, fail-loud
+tests/state/           dedupe, observed.test-d
+tests/limits/          pairing-ceiling, large-state, deep-series
+tests/hygiene/         purity, no-bun-sleep, one-predicate
+```
