@@ -4454,8 +4454,10 @@ verbatim in its generated case title and in `src/case-id.ts` beside the ledger e
 `CONF-O1`–`CONF-O46` and `CONF-L1`–`CONF-L13`. A case this adapter cannot pass is a defect in this
 adapter until proven otherwise.
 
-Entries are numbered `GOOG-I1`–`GOOG-I67`. `GOOG-I1`–`GOOG-I50` are adopted, `GOOG-I51`–`GOOG-I58` are
-the explicit not-applicable set, `GOOG-I59`–`GOOG-I67` are dependencies taken and rejected. Every
+Entries are numbered `GOOG-I1`–`GOOG-I71`. `GOOG-I1`–`GOOG-I50` and `GOOG-I68`–`GOOG-I71` are adopted
+(the last four were added in the red phase, when the push and hygiene lessons turned out to have modules
+and tests but no numbered entry), `GOOG-I51`–`GOOG-I58` are the explicit not-applicable set, and
+`GOOG-I59`–`GOOG-I67` are dependencies taken and rejected. Every
 **Proved by** citation names a file under `packages/sync-kit/google/tests` and the exact test name inside
 it, or a `CONF-` case id that the conformance run enforces, so the ledger can be walked against the suite
 mechanically.
@@ -5159,6 +5161,65 @@ with no upside.
 samples exclusively from `EventUid` and `RemoteEventId` values.
 **Proved by.** conformance `CONF-O19`, `CONF-O23`.
 
+### GOOG-I68. A watch channel is recreated with a fresh id, and the server's expiration is authoritative
+
+**Lesson.** Google caps a channel at seven days and offers no renew verb, so "renewal" is
+register-new-then-stop-old. Extending an existing channel is not expressible, and trusting our own
+requested TTL rather than the `expiration` the server returned leaves a channel we believe is live and is
+not. Expiries must be staggered so a fleet does not re-register in one minute.
+**Learned from.** `packages/calendar/src/providers/google/push/watch-channel.ts`; commit `6b50aa27`;
+`https://developers.google.com/workspace/calendar/api/guides/push`.
+**Honoured by.** `src/push/profile.ts` is an `as const` record naming the seven-day maximum, the renewal
+lead and the stagger window, with `renewal: "recreate"`. `src/push/watch.ts` registers the replacement
+before stopping the old channel, and `stopWatchChannel` treats 404 and 410 as `alreadyGone` (GOOG-I26).
+**Proved by.** `google/tests/push/watch-lifecycle.test.ts :: GOOG-P3: a renewal registers a new channel
+before it stops the old one`; `google/tests/push/watch-lifecycle.test.ts :: GOOG-P3: the server's
+expiration is the one that is stored`; `google/tests/errors/per-verb-gone.test.ts :: GOOG-O26: a 410 on
+channels.stop leaves the channel already gone, never a failure`.
+
+### GOOG-I69. A push notification is a claim, not a fact, and the first one is a handshake
+
+**Lesson.** Google's push delivery is header-only, lossy and unordered, and the very first delivery on a
+new channel is a `sync` handshake that carries no change at all. Treating it as a change triggers an
+ingest per registration; treating any notification as coverage lets a lost delivery become a permanent
+hole. The decoder is internet-facing, so it must be total over arbitrary headers.
+**Learned from.** `packages/calendar/src/providers/google/destination/provider.ts` (`buildPushRequest`);
+`https://developers.google.com/workspace/calendar/api/guides/push`.
+**Honoured by.** `src/push/receiver.ts` exports `decodePushSignal(headers) -> PushSignal`, a total function
+whose `handshake` arm is a no-op and whose `changed` arm carries identifiers only — never events, so a
+notification can never be mistaken for coverage. A polling floor exists regardless of push.
+**Proved by.** `google/tests/push/receiver.test.ts :: GOOG-P1: the first delivery is a handshake and never
+triggers an ingest`; `google/tests/push/receiver.test.ts :: GOOG-P1: headers from the open internet decode
+rather than throw`; `google/tests/push/receiver.test.ts :: GOOG-P1: a notification carries no events, so it
+can never be coverage`.
+
+### GOOG-I70. The channel token is verified in constant time against a stored hash
+
+**Lesson.** The callback URL is public. The channel token is the only thing distinguishing a real Google
+delivery from anyone else's POST, and a token compared with `===` against a stored plaintext copy leaks
+both by timing and by database read.
+**Learned from.** `https://developers.google.com/workspace/calendar/api/guides/push` (channel token);
+user memory *fail loud on internal data*.
+**Honoured by.** `src/push/secret.ts` stores only a SHA-256 hash and compares in constant time.
+**Proved by.** `google/tests/push/secret.test.ts :: GOOG-P2: the presented token is compared against the
+stored hash, never stored in the clear`; `google/tests/push/secret.test.ts :: GOOG-P2: a token that is
+wrong in its first byte is refused`.
+
+### GOOG-I71. The adapter owns no storage and expresses no type assertion
+
+**Lesson.** Two of this repo's recurring failure modes are remote I/O inside a database transaction and a
+`as SomeType` that quietly turned an absent field into a present one. An adapter that cannot reach a
+database cannot hold a transaction open across a Google call, and a package with no assertions cannot lie
+about what the SDK returned.
+**Learned from.** `packages/calendar/src/core/sync-engine/ingest.ts` (remote I/O inside the transaction);
+`fetch-events.ts` (the `start`/`end` guard that assumed a usable instant); commit `fdd9ba62`.
+**Honoured by.** No module imports `@keeper.sh/database` and no module contains `as X`, `any` or
+`@ts-ignore`; the narrowing happens once, in `src/decode/decode-event.ts`, through a discriminated union.
+**Proved by.** `google/tests/hygiene/no-database.test.ts :: GOOG-H1: no module imports the database
+package`; `google/tests/hygiene/no-database.test.ts :: GOOG-H1: no module reaches for a type assertion`;
+`google/tests/hygiene/no-database.test.ts :: GOOG-H1: the contract is assembled from injected dependencies
+alone`.
+
 ---
 
 ## Not applicable to sync-google
@@ -5493,3 +5554,32 @@ Adapter-local `GOOG-` tests cover only what the suite cannot see from outside th
 base32hex id encoding, push header decoding, error classification against real gaxios error shapes, the SDK
 default-hardening assertion, the pagination ceiling, the series-assembly order independence, and the
 hygiene rules (one window predicate, no `Bun.sleep`, no database import, no type assertions).
+
+The families are `GOOG-O*` (overwrite), `GOOG-L*` (lockup), `GOOG-P*` (push, `tests/push/`), `GOOG-H*`
+(hygiene, `tests/hygiene/`) and `GOOG-C1` (the conformance gate's own selection check).
+
+## Red phase addendum (sync-google)
+
+The suite was written before the implementation. Every module named in the module map exists with its real
+signature and a body that calls `unimplemented(...)`, so a failing test fails on behaviour rather than on a
+missing module. The sentinel takes the enclosing function's arguments purely so the red phase lints clean;
+it disappears when each body is written.
+
+Eleven of the two hundred tests are green in the red phase, and each is green for a stated reason rather
+than by accident:
+
+- **Four type-level assertions** in `google/tests/writes/precondition-required.test-d.ts`. The guarantee is
+  structural and was delivered by `@keeper.sh/sync-protocol`: an unconditional update is unrepresentable.
+  The adapter's obligation is only never to widen it, which is what the file asserts against
+  `WriteIntent<"google">`. A test of an already-true structural fact cannot be made red honestly.
+- **Three ledger-walk assertions** in `google/tests/hygiene/ledger-citations.test.ts`. They compare this
+  document against the file names and test names in the suite. They were red until the ledger and the suite
+  agreed, which is exactly their job; they stay green from then on.
+- **Three static source scans** (`no-database` ×2, `no-bun-sleep` ×1). Each shares a file with a behavioural
+  anchor that is red, so a scan cannot pass on an empty or absent package.
+- **One `as const` declaration check** on `googleWatchProfile`. Like `googleCapabilities` and
+  `googleListingLimits`, the profile is a declaration the conformance run needs at planning time, so it is
+  real from the start.
+
+The one remaining non-`unimplemented` failure is `GOOG-L1: every delay in the package goes through the
+injected clock`, which fails because no module yet calls `clock.sleep`. It names its own reason.
