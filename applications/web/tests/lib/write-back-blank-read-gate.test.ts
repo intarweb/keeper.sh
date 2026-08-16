@@ -13,12 +13,27 @@ const WAITING = "delete_confirmation_required";
  * which reconnecting on its own does not.
  */
 describe("what a pair paused on a blank read can be answered with", () => {
-  it("offers no way to delete originals on the strength of a blank read alone", () => {
+  it("never offers the plain deletion on the strength of a blank read alone", () => {
     expect(resolveDeleteConfirmationAnswers({
       deletesUnlocked: false,
       reason: "all_copies_missing",
       state: WAITING,
-    })).toEqual(["decline"]);
+    })).not.toContain("apply");
+  });
+
+  /*
+   * A destination calendar holding nothing but the copies can never produce a read that
+   * comes back with one, so the reading-based route is shut to it for good. The answer it
+   * gets instead asserts what Keeper.sh could not see — that the user emptied it — in its
+   * own words, and the server refuses it while the destination is one it already knows it
+   * cannot read.
+   */
+  it("offers the user's own word as a separate answer instead", () => {
+    expect(resolveDeleteConfirmationAnswers({
+      deletesUnlocked: false,
+      reason: "all_copies_missing",
+      state: WAITING,
+    })).toEqual(["decline", "apply_empty_destination"]);
   });
 
   it("offers the deletion once a read has come back with something since", () => {
@@ -30,10 +45,9 @@ describe("what a pair paused on a blank read can be answered with", () => {
   });
 
   /*
-   * The escape hatch for a destination the user really did empty runs through this reason:
-   * put the copies back, let one pass re-create and read them, then remove them again. That
-   * removal is observed against a read that returned items, so it lands here rather than on
-   * the blank-read path — which is exactly why this reason must not be gated too.
+   * A breaker trip is observed against a read that returned items, so the evidence the
+   * blank-read gate asks for is already in hand and gating this reason would withhold the
+   * answer for no gain.
    */
   it("still offers the deletion for a breaker trip, gated or not", () => {
     expect(resolveDeleteConfirmationAnswers({

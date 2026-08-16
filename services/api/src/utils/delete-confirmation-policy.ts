@@ -36,9 +36,42 @@ const isBlockedByBlankRead = (
 ): boolean =>
   pending.writeBackStateReason === COPIES_MISSING_REASON && !pending.deletesUnlocked;
 
+/*
+ * The way out for a destination calendar that holds nothing but Keeper.sh's copies. Putting
+ * the copies back and deleting them again cannot work there: the second removal is another
+ * reading that comes back with nothing at all, so it re-arms the same hold, and the loop
+ * has no end. Nothing Keeper.sh can observe separates that calendar from an unreachable
+ * one, so the user states it — as its own answer, in its own words, never as the plain
+ * "Delete the originals" button offered on evidence that does not exist.
+ *
+ * It is refused while the destination's connection is one Keeper.sh already knows is
+ * broken. That is the other cause of an empty reading, and where it is on record the
+ * assertion is being made about a calendar nobody has actually looked at.
+ */
+const EMPTY_DESTINATION_DECISION = "apply_empty_destination";
+
+const EMPTY_DESTINATION_NOT_APPLICABLE_MESSAGE =
+  "Keeper.sh is not holding this pair on a reading of the destination calendar that came"
+  + " back empty, so there is nothing to say the destination is empty about";
+
+const DISCONNECTED_DESTINATION_MESSAGE =
+  "The destination calendar's connection is broken, which is the other thing an empty"
+  + " reading means, so the originals cannot be deleted on that answer. Reconnect it first";
+
 const describeNotApplicable = (
-  pending: { deletesUnlocked: boolean; writeBackStateReason: string | null },
+  pending: {
+    decision: string;
+    deletesUnlocked: boolean;
+    destinationReachable: boolean;
+    writeBackStateReason: string | null;
+  },
 ): string => {
+  if (pending.decision === EMPTY_DESTINATION_DECISION) {
+    if (!pending.destinationReachable) {
+      return DISCONNECTED_DESTINATION_MESSAGE;
+    }
+    return EMPTY_DESTINATION_NOT_APPLICABLE_MESSAGE;
+  }
   if (isBlockedByBlankRead(pending)) {
     return BLANK_READ_NOT_APPLICABLE_MESSAGE;
   }
@@ -65,11 +98,13 @@ const resolveConfirmationDisposition = (
   decision: string,
   pending: {
     deletesUnlocked: boolean;
+    destinationReachable: boolean;
     writeBackState: string;
     writeBackStateReason: string | null;
   },
 ): ConfirmationDisposition => {
-  const approving = decision === "apply";
+  const claimingEmpty = decision === EMPTY_DESTINATION_DECISION;
+  const approving = decision === "apply" || claimingEmpty;
   if (pending.writeBackState !== DELETE_CONFIRMATION_STATE) {
     if (approving) {
       return "not_pending";
@@ -81,6 +116,15 @@ const resolveConfirmationDisposition = (
   }
   if (!isDeleteApprovalApplicable(pending.writeBackStateReason)) {
     return "not_applicable";
+  }
+  if (claimingEmpty) {
+    if (pending.writeBackStateReason !== COPIES_MISSING_REASON) {
+      return "not_applicable";
+    }
+    if (!pending.destinationReachable) {
+      return "not_applicable";
+    }
+    return "approve";
   }
   if (isBlockedByBlankRead(pending)) {
     return "not_applicable";
@@ -95,6 +139,9 @@ export {
   DELETE_CONFIRMATION_STATE,
   DELETE_PROBE_BLOCKED_REASON,
   describeNotApplicable,
+  DISCONNECTED_DESTINATION_MESSAGE,
+  EMPTY_DESTINATION_DECISION,
+  EMPTY_DESTINATION_NOT_APPLICABLE_MESSAGE,
   isDeleteApprovalApplicable,
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
   resolveConfirmationDisposition,

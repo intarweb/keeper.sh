@@ -87,6 +87,23 @@ const ATTENDEE_REFUSAL: SourceWriteResult = {
   success: false,
 };
 
+const UNREADABLE_ATTENDEE_REFUSAL: SourceWriteResult = {
+  error:
+    "Keeper.sh could not read the guest list on the source event, so it did not write to it.",
+  refused: "event_has_attendees",
+  success: false,
+};
+
+/*
+ * Who a write would reach besides the user. "Nobody else" is the only answer that lets it
+ * through, and it is an answer about the event, never about the account: an entry that
+ * names the organizer names the person already holding the event, so an event whose only
+ * ATTENDEE is its own ORGANIZER notifies no one. Reading it that way needs no address for
+ * the account, which is what lets a CalDAV server that signs the user in by a bare username
+ * answer the same as the other two.
+ */
+type SourceEventAudience = "no_one_else" | "others" | "unreadable";
+
 /*
  * The one refusal on this path that is irreversible for somebody other than the user:
  * moving or cancelling a meeting mails everyone invited, and no answer afterwards recalls
@@ -94,21 +111,60 @@ const ATTENDEE_REFUSAL: SourceWriteResult = {
  * it — the server already answered whether this account may write here, and every native
  * client acts on that answer.
  *
- * It is decided on the attendees the writer can see, and it deliberately does not ask who
- * organizes the event. A CalDAV server that signs the user in by a bare username gives no
- * address to weigh an ORGANIZER against, so that question has no answer there — and a
- * question that cannot be answered must never itself become a refusal, which is what
- * withheld two-way sync from those servers entirely. Which entries count as "other" is
- * read from what each provider reports; this rule is stated once so the three cannot
- * drift apart under it again.
+ * It is decided on the guest list the writer can see, and it deliberately does not ask who
+ * the account is. A CalDAV server that signs the user in by a bare username gives no
+ * address to weigh anything against, so that question has no answer there — and a question
+ * that cannot be answered must never itself become a refusal, which is what withheld
+ * two-way sync from those servers entirely.
+ *
+ * "Unreadable" is a different thing from an unidentifiable account and is refused: an event
+ * whose guest list the writer could not follow — an ICS whose sub-component never closes, a
+ * representation the provider itself marks as partial — may carry guests, and destroying it
+ * mails them. The rule is stated once so the three providers cannot drift apart under it.
  */
 const refuseWhenOthersAreInvited = (
-  event: { hasOtherAttendees: boolean },
+  event: { audience: SourceEventAudience },
 ): SourceWriteResult | null => {
-  if (event.hasOtherAttendees) {
-    return ATTENDEE_REFUSAL;
+  switch (event.audience) {
+    case "no_one_else": {
+      return null;
+    }
+    case "others": {
+      return ATTENDEE_REFUSAL;
+    }
+    default: {
+      return UNREADABLE_ATTENDEE_REFUSAL;
+    }
   }
-  return null;
+};
+
+/*
+ * Every provider reports its guest list differently and none of them reports it as an
+ * address the account can be recognised by, so each writer normalises to plain addresses
+ * and the decision itself is made here, once.
+ */
+const MAILTO_PREFIX = /^mailto:/u;
+const NO_OTHER_GUESTS = 0;
+
+const normalizeAttendeeAddress = (address: string | null | undefined): string =>
+  (address ?? "").trim().toLowerCase().replace(MAILTO_PREFIX, "");
+
+const resolveAudience = (input: {
+  attendees: readonly { address?: string | null; isAccount?: boolean }[];
+  organizer: string | null | undefined;
+}): SourceEventAudience => {
+  const organizer = normalizeAttendeeAddress(input.organizer);
+  const others = input.attendees.filter((attendee) => {
+    if (attendee.isAccount === true) {
+      return false;
+    }
+    const address = normalizeAttendeeAddress(attendee.address);
+    return address === "" || address !== organizer;
+  });
+  if (others.length > NO_OTHER_GUESTS) {
+    return "others";
+  }
+  return "no_one_else";
 };
 
 /*
@@ -125,12 +181,15 @@ const RICH_BODY_REFUSAL: SourceWriteResult = {
 
 export {
   isRetryableWriteStatus,
+  normalizeAttendeeAddress,
   refuseWhenOthersAreInvited,
+  resolveAudience,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 };
 export type {
   CalendarSourceWriter,
+  SourceEventAudience,
   SourceEventUpdate,
   SourceWriteRefusal,
   SourceWriteResult,

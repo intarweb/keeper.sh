@@ -13,6 +13,7 @@ describe("approving deletions after a read that returned nothing at all", () => 
   it("refuses the approval while a blank read is the only evidence", () => {
     expect(resolveConfirmationDisposition("apply", {
       deletesUnlocked: false,
+      destinationReachable: true,
       writeBackState: WAITING,
       writeBackStateReason: "all_copies_missing",
     })).toBe("not_applicable");
@@ -21,6 +22,7 @@ describe("approving deletions after a read that returned nothing at all", () => 
   it("records the approval once a read has come back with something since", () => {
     expect(resolveConfirmationDisposition("apply", {
       deletesUnlocked: true,
+      destinationReachable: true,
       writeBackState: WAITING,
       writeBackStateReason: "all_copies_missing",
     })).toBe("approve");
@@ -34,6 +36,7 @@ describe("approving deletions after a read that returned nothing at all", () => 
   it("still records the approval for a breaker trip", () => {
     expect(resolveConfirmationDisposition("apply", {
       deletesUnlocked: false,
+      destinationReachable: true,
       writeBackState: WAITING,
       writeBackStateReason: "delete_breaker_tripped",
     })).toBe("approve");
@@ -47,6 +50,7 @@ describe("the answers the gate must leave exactly as they were", () => {
   it("still refuses the approval while the destination reports the copies present", () => {
     expect(resolveConfirmationDisposition("apply", {
       deletesUnlocked: true,
+      destinationReachable: true,
       writeBackState: WAITING,
       writeBackStateReason: "delete_probe_blocked",
     })).toBe("not_applicable");
@@ -55,6 +59,7 @@ describe("the answers the gate must leave exactly as they were", () => {
   it("still takes the answer that puts the copies back, gated or not", () => {
     expect(resolveConfirmationDisposition("decline", {
       deletesUnlocked: false,
+      destinationReachable: true,
       writeBackState: WAITING,
       writeBackStateReason: "all_copies_missing",
     })).toBe("decline");
@@ -63,6 +68,7 @@ describe("the answers the gate must leave exactly as they were", () => {
   it("still refuses an approval for a pair that is not asking", () => {
     expect(resolveConfirmationDisposition("apply", {
       deletesUnlocked: true,
+      destinationReachable: true,
       writeBackState: "quarantined",
       writeBackStateReason: "runaway_write_back",
     })).toBe("not_pending");
@@ -71,6 +77,7 @@ describe("the answers the gate must leave exactly as they were", () => {
   it("still ignores a decline for a pair that is not asking", () => {
     expect(resolveConfirmationDisposition("decline", {
       deletesUnlocked: true,
+      destinationReachable: true,
       writeBackState: "quarantined",
       writeBackStateReason: "runaway_write_back",
     })).toBe("ignore");

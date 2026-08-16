@@ -646,9 +646,9 @@ function WriteBackModeControl({
    * the only way through: re-picking the mode the pair already carries is a no-op, so the
    * held deletions would otherwise be unreachable.
    */
-  const resolveDeleteConfirmation = (decision: "apply" | "decline") => {
+  const resolveDeleteConfirmation = (decision: DeleteConfirmationAnswer) => {
     track(ANALYTICS_EVENTS.write_back_mode_changed, {
-      deletions: decision === "apply",
+      deletions: decision !== "decline",
       mode,
     });
     const swrKey = `/api/sources/${calendarId}/destinations`;
@@ -739,6 +739,8 @@ function WriteBackModeControl({
 
 const ANSWER_LABELS: Record<DeleteConfirmationAnswer, (sourceName: string) => string> = {
   apply: (sourceName) => `Delete the originals on ${sourceName}`,
+  apply_empty_destination: (sourceName) =>
+    `I emptied it myself — delete the originals on ${sourceName}`,
   decline: () => "Put the copies back",
 };
 
@@ -749,7 +751,7 @@ function WriteBackStatusLine({
   status,
 }: {
   destinationName: string;
-  onResolveDeleteConfirmation: (decision: "apply" | "decline") => void;
+  onResolveDeleteConfirmation: (decision: DeleteConfirmationAnswer) => void;
   sourceName: string;
   status: WriteBackStatus | null;
 }) {

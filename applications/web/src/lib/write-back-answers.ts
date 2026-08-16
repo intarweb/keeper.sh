@@ -1,6 +1,6 @@
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 
-type DeleteConfirmationAnswer = "apply" | "decline";
+type DeleteConfirmationAnswer = "apply" | "apply_empty_destination" | "decline";
 
 const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
 
@@ -20,8 +20,13 @@ const PROBE_BLOCKED_REASON = "delete_probe_blocked";
  * real calendar, so it is not offered while a blank read is the only evidence. What clears
  * the bar is a read that came back with at least one copy since they went missing, which
  * the server decides and reports here. A breaker trip is deliberately not gated: it is
- * observed against a read that returned items, and it is the route out for a destination
- * the user really did empty.
+ * observed against a read that returned items.
+ *
+ * A destination calendar that holds nothing but the copies can never clear that bar on its
+ * own, so it is offered the one answer that does not rest on a reading: the user's own
+ * word that they emptied it. It is a separate answer with its own words, not the plain
+ * "Delete the originals" button wearing a different label, because it asserts something
+ * Keeper.sh could not see for itself.
  */
 const COPIES_MISSING_REASON = "all_copies_missing";
 
@@ -35,7 +40,7 @@ const resolveDeleteConfirmationAnswers = (
     return ["decline"];
   }
   if (status.reason === COPIES_MISSING_REASON && !status.deletesUnlocked) {
-    return ["decline"];
+    return ["decline", "apply_empty_destination"];
   }
   return ["apply", "decline"];
 };

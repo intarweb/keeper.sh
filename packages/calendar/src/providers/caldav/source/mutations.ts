@@ -4,8 +4,8 @@ import { buildZonedIcsDate } from "../../../ics/utils/build-zoned-date";
 import {
   collectDefinedTimezoneIds,
   extractProperties,
-  hasEventAttendees,
   patchIcsEvent,
+  readEventAudience,
 } from "./patch-ics";
 import {
   isRetryableWriteStatus,
@@ -292,7 +292,7 @@ const createCalDAVSourceWriter = (
       return { error: "Event not found on the CalDAV server.", success: false };
     }
     const refusal = refuseWhenOthersAreInvited({
-      hasOtherAttendees: hasEventAttendees(object.data),
+      audience: readEventAudience(object.data),
     });
     if (refusal) {
       return refusal;
@@ -351,7 +351,7 @@ const createCalDAVSourceWriter = (
       return { success: true };
     }
     const refusal = refuseWhenOthersAreInvited({
-      hasOtherAttendees: hasEventAttendees(object.data ?? ""),
+      audience: readEventAudience(object.data ?? ""),
     });
     if (refusal) {
       return refusal;

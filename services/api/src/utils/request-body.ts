@@ -14,7 +14,7 @@ const writeBackModeBodySchema = type({
 type WriteBackModeBody = typeof writeBackModeBodySchema.infer;
 
 const deleteConfirmationBodySchema = type({
-  decision: "'apply' | 'decline'",
+  decision: "'apply' | 'apply_empty_destination' | 'decline'",
   "+": "reject",
 });
 type DeleteConfirmationBody = typeof deleteConfirmationBodySchema.infer;

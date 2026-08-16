@@ -101,6 +101,7 @@ type GoogleAttendee = typeof googleAttendeeSchema.infer;
 
 const googleEventWithAttendeesSchema = googleEventSchema.and({
   "attendees?": googleAttendeeSchema.array(),
+  "attendeesOmitted?": "boolean",
   "creator?": { "email?": "string", "displayName?": "string", "self?": "boolean" },
   "organizer?": {
     "displayName?": "string",

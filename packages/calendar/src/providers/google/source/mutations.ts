@@ -10,11 +10,13 @@ import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
 import {
   isRetryableWriteStatus,
   refuseWhenOthersAreInvited,
+  resolveAudience,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
+  SourceEventAudience,
   SourceEventUpdate,
   SourceWriteResult,
 } from "../../../core/source/writer";
@@ -77,10 +79,24 @@ const describeLookupFailure = (error: unknown): { error: string; retryable: bool
  * A source event with other people on it is a meeting, and Google notifies every one of
  * them when the organizer moves or deletes it. That notice cannot be recalled and the
  * attendee list cannot be rebuilt, so a mirrored copy is never allowed to reach it. The
- * user's own entry is the one attendee that names nobody else.
+ * account's own entry and the organizer's name nobody else.
+ *
+ * attendeesOmitted is Google saying the list in this representation is not the whole one.
+ * A partial guest list read as a complete one is how an event with real guests on it comes
+ * back looking like a solo appointment, so it is not weighed at all.
  */
-const hasOtherAttendees = (event: GoogleEventWithAttendees): boolean =>
-  (event.attendees ?? []).some((attendee) => attendee.self !== true);
+const readEventAudience = (event: GoogleEventWithAttendees): SourceEventAudience => {
+  if (event.attendeesOmitted === true) {
+    return "unreadable";
+  }
+  return resolveAudience({
+    attendees: (event.attendees ?? []).map((attendee) => ({
+      address: attendee.email,
+      isAccount: attendee.self,
+    })),
+    organizer: event.organizer?.email,
+  });
+};
 
 const MARKUP_PATTERN = /<[a-z!/][^>]*>/iu;
 const HTML_ENTITY_PATTERN = /&[a-z]+;|&#\d+;/iu;
@@ -287,7 +303,7 @@ const createGoogleSourceWriter = (
       return { eventId: null };
     }
     const refusal = refuseWhenOthersAreInvited({
-      hasOtherAttendees: hasOtherAttendees(event),
+      audience: readEventAudience(event),
     });
     if (refusal) {
       return { refusal };

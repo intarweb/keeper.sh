@@ -9,6 +9,8 @@ import { MAPPING_LIMIT_ERROR_MESSAGE } from "@/utils/source-destination-mappings
 import {
   BLANK_READ_NOT_APPLICABLE_MESSAGE,
   DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
+  DISCONNECTED_DESTINATION_MESSAGE,
+  EMPTY_DESTINATION_NOT_APPLICABLE_MESSAGE,
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
 } from "@/utils/delete-confirmation-policy";
 
@@ -20,6 +22,8 @@ import {
 const NOT_APPLICABLE_MESSAGES: ReadonlySet<string> = new Set([
   BLANK_READ_NOT_APPLICABLE_MESSAGE,
   DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
+  DISCONNECTED_DESTINATION_MESSAGE,
+  EMPTY_DESTINATION_NOT_APPLICABLE_MESSAGE,
 ]);
 
 const TWO_WAY_PRO_ERROR_MESSAGE = "Two-way sync requires a Pro plan.";
@@ -305,11 +309,13 @@ const handlePatchDeleteConfirmationRoute = async (
   }
 
   if (!deleteConfirmationBodySchema.allows(context.body)) {
-    return ErrorResponse.badRequest("decision must be apply or decline").toResponse();
+    return ErrorResponse.badRequest(
+      "decision must be apply, apply_empty_destination or decline",
+    ).toResponse();
   }
   const { decision } = deleteConfirmationBodySchema.assert(context.body);
 
-  if (decision === "apply" && !await dependencies.canUseTwoWaySync(context.userId)) {
+  if (decision !== "decline" && !await dependencies.canUseTwoWaySync(context.userId)) {
     return ErrorResponse.forbidden(TWO_WAY_PRO_ERROR_MESSAGE).toResponse();
   }
 

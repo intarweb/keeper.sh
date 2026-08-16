@@ -1,4 +1,8 @@
+import { resolveAudience } from "../../../core/source/writer";
+import type { SourceEventAudience } from "../../../core/source/writer";
+
 const NOT_FOUND_INDEX = -1;
+const NO_BLOCKS = 0;
 const NEXT_LINE = 1;
 const SINGLE_MATCH = 1;
 const NESTED_LEVEL = 1;
@@ -51,7 +55,18 @@ const readComponentName = (line: string): string | null => {
   return readPropertyValue(line).trim().toUpperCase();
 };
 
-const collectSpans = (lines: string[], block: VEventBlock): Map<string, PropertySpan[]> => {
+interface CollectedSpans {
+  balanced: boolean;
+  spans: Map<string, PropertySpan[]>;
+}
+
+/*
+ * `balanced` is how a reader that lost the thread says so. A VEVENT that opens a
+ * sub-component and reaches END:VEVENT without closing it leaves every property after the
+ * BEGIN unread, including the event's own ATTENDEE lines, and an unread guest list reads
+ * as an empty one unless the walk reports that it could not be followed.
+ */
+const collectSpans = (lines: string[], block: VEventBlock): CollectedSpans => {
   const spans = new Map<string, PropertySpan[]>();
   let index = block.start + NEXT_LINE;
   let depth = TOP_LEVEL;
@@ -85,7 +100,7 @@ const collectSpans = (lines: string[], block: VEventBlock): Map<string, Property
     index = end;
   }
 
-  return spans;
+  return { balanced: depth === TOP_LEVEL, spans };
 };
 
 const collectVEventBlocks = (lines: string[]): VEventBlock[] => {
@@ -106,6 +121,16 @@ const collectVEventBlocks = (lines: string[]): VEventBlock[] => {
   return blocks;
 };
 
+const readOptionalSpanValue = (
+  lines: string[],
+  span: PropertySpan | undefined,
+): string | null => {
+  if (!span) {
+    return null;
+  }
+  return readPropertyValue(lines.slice(span.start, span.end).join(""));
+};
+
 const readSpanValue = (lines: string[], span: PropertySpan): string =>
   lines.slice(span.start, span.end).join("");
 
@@ -121,7 +146,7 @@ const findTargetBlock = (
   uid: string,
 ): VEventBlock | null => {
   const matches = blocks.filter((block) => {
-    const spans = collectSpans(lines, block);
+    const { spans } = collectSpans(lines, block);
     const [uidSpan] = spans.get("UID") ?? [];
     if (!uidSpan) {
       return false;
@@ -149,7 +174,7 @@ const extractProperties = (
     return extracted;
   }
 
-  const spans = collectSpans(lines, block);
+  const { spans } = collectSpans(lines, block);
   for (const name of names) {
     const [span] = spans.get(name) ?? [];
     if (span) {
@@ -173,7 +198,7 @@ const patchIcsEvent = (input: PatchIcsEventInput): string | null => {
     return null;
   }
 
-  const spans = collectSpans(lines, block);
+  const { spans } = collectSpans(lines, block);
   const removed = new Set<number>();
   let insertAt = block.end;
 
@@ -217,16 +242,40 @@ const collectDefinedTimezoneIds = (ics: string): Set<string> => {
  * it is deleted, and a REQUEST when it is edited. An email VALARM carries an ATTENDEE of
  * its own that names nobody the write would notify, and collectSpans already refuses to
  * walk into a sub-component, so only the event's own attendees are read here.
+ *
+ * An object with no VEVENT in it at all, and one whose blocks could not be walked, are the
+ * same answer: the guest list was not read, so nothing here may report it as empty.
  */
-const hasEventAttendees = (ics: string): boolean => {
+const readEventAudience = (ics: string): SourceEventAudience => {
   const lines = splitLines(ics);
-  return collectVEventBlocks(lines)
-    .some((block) => collectSpans(lines, block).has("ATTENDEE"));
+  const blocks = collectVEventBlocks(lines);
+  if (blocks.length === NO_BLOCKS) {
+    return "unreadable";
+  }
+
+  let audience: SourceEventAudience = "no_one_else";
+  for (const block of blocks) {
+    const { balanced, spans } = collectSpans(lines, block);
+    if (!balanced) {
+      return "unreadable";
+    }
+    const [organizerSpan] = spans.get("ORGANIZER") ?? [];
+    const blockAudience = resolveAudience({
+      attendees: (spans.get("ATTENDEE") ?? []).map((span) => ({
+        address: readPropertyValue(readSpanValue(lines, span)),
+      })),
+      organizer: readOptionalSpanValue(lines, organizerSpan),
+    });
+    if (blockAudience === "others") {
+      audience = "others";
+    }
+  }
+  return audience;
 };
 
 export {
   collectDefinedTimezoneIds,
   extractProperties,
-  hasEventAttendees,
   patchIcsEvent,
+  readEventAudience,
 };

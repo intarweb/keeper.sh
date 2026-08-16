@@ -10,11 +10,13 @@ import { instantToWallTime } from "../../../ics/utils/timezone-instant";
 import {
   isRetryableWriteStatus,
   refuseWhenOthersAreInvited,
+  resolveAudience,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
+  SourceEventAudience,
   SourceEventUpdate,
   SourceWriteResult,
 } from "../../../core/source/writer";
@@ -75,10 +77,18 @@ const describeLookupFailure = (error: unknown): { error: string; retryable: bool
 /*
  * Graph sends a meeting update to every attendee when the organizer changes an event, and
  * a cancellation to every one of them when the organizer deletes it. Neither notice can be
- * recalled, so a mirrored copy is never allowed to reach an event that carries attendees.
+ * recalled, so a mirrored copy is never allowed to reach an event that carries guests. The
+ * organizer's own entry is not one: Outlook writes the organizer into the attendee list of
+ * anything that was ever a meeting, and a write to an event whose only entry is that one
+ * notifies nobody.
  */
-const hasAttendees = (event: OutlookEventWithAttendees): boolean =>
-  (event.attendees ?? []).length > 0;
+const readEventAudience = (event: OutlookEventWithAttendees): SourceEventAudience =>
+  resolveAudience({
+    attendees: (event.attendees ?? []).map((attendee) => ({
+      address: attendee.emailAddress?.address,
+    })),
+    organizer: event.organizer?.emailAddress?.address,
+  });
 
 const HTML_BODY_CONTENT_TYPE = "html";
 const MARKUP_PATTERN = /<[^>]*>/gu;
@@ -282,7 +292,7 @@ const createOutlookSourceWriter = (
     if (!event) {
       return { eventId: null };
     }
-    const refusal = refuseWhenOthersAreInvited({ hasOtherAttendees: hasAttendees(event) });
+    const refusal = refuseWhenOthersAreInvited({ audience: readEventAudience(event) });
     if (refusal) {
       return { refusal };
     }

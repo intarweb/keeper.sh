@@ -1,4 +1,5 @@
 import {
+  calendarAccountsTable,
   calendarsTable,
   eventMappingsTable,
   sourceDestinationMappingsTable,
@@ -15,6 +16,7 @@ import { spawnBackgroundJob } from "./background-task";
 import { assertAllIdsOwned } from "./owned-ids";
 import {
   describeNotApplicable,
+  EMPTY_DESTINATION_DECISION,
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
   resolveConfirmationDisposition,
 } from "./delete-confirmation-policy";
@@ -613,23 +615,34 @@ interface BlankReadGateObservations {
  * What "Delete the originals" is offered on after a read that returned nothing at all: a
  * read that came back with at least one copy AFTER the copies were first found missing.
  * That proves the credential still works and that the calendar id still points at the
- * calendar the copies were in — reconnecting on its own proves only the first. An approval
- * still inside its half-hour lifetime carries the tail of a batch through, matching what
- * the sync pass already exempts under the same window.
+ * calendar the copies were in — reconnecting on its own proves only the first.
+ *
+ * An approval still inside its half-hour lifetime carries the tail of the batch it was
+ * given for through, matching what the sync pass exempts under the same window — and only
+ * that batch. An answer given before these copies were found missing was an answer to a
+ * different question: a breaker trip minutes earlier, or an earlier disappearance that was
+ * settled. Carrying it forward would unlock every blank read for the next half hour,
+ * including the one an outage caused, which is the single reading this gate exists to
+ * refuse. So the approval must postdate the disappearance it is being read against.
  */
 const resolveDeletesUnlocked = (
   observations: BlankReadGateObservations,
   now: Date,
 ): boolean => {
-  const approvedAt = observations.deleteConfirmationApprovedAt;
-  if (approvedAt && now.getTime() - approvedAt.getTime() < TWO_WAY_DELETE_APPROVAL_TTL_MS) {
-    return true;
-  }
-  const { copiesMissingObservedAt, lastHealthyReadAt } = observations;
-  if (!copiesMissingObservedAt || !lastHealthyReadAt) {
+  const { copiesMissingObservedAt, deleteConfirmationApprovedAt, lastHealthyReadAt } =
+    observations;
+  if (!copiesMissingObservedAt) {
     return false;
   }
-  return lastHealthyReadAt.getTime() > copiesMissingObservedAt.getTime();
+  if (lastHealthyReadAt && lastHealthyReadAt.getTime() > copiesMissingObservedAt.getTime()) {
+    return true;
+  }
+  if (!deleteConfirmationApprovedAt) {
+    return false;
+  }
+  return deleteConfirmationApprovedAt.getTime() > copiesMissingObservedAt.getTime()
+    && now.getTime() - deleteConfirmationApprovedAt.getTime()
+      < TWO_WAY_DELETE_APPROVAL_TTL_MS;
 };
 
 const getWriteBackStatesForSource = async (
@@ -986,6 +999,40 @@ const resolveDeleteApprovedAt = (approved: boolean): Date | null => {
   return new Date();
 };
 
+/*
+ * The only half of "the copies were deleted, or the connection is broken" that Keeper.sh
+ * holds an answer to: a destination whose account is waiting to be signed in again, or a
+ * calendar the user paused, is one it already knows it cannot read. The user's word that
+ * the destination is empty is not accepted against a calendar in that state, and it is the
+ * only answer that weighs this, so no other answer pays for the read.
+ */
+const resolveDestinationReachable = async (
+  transactionClient: DatabaseTransactionClient,
+  decision: string,
+  destinationCalendarId: string,
+): Promise<boolean> => {
+  if (decision !== EMPTY_DESTINATION_DECISION) {
+    return false;
+  }
+  const [destination] = await transactionClient
+    .select({
+      disabled: calendarsTable.disabled,
+      needsReauthentication: calendarAccountsTable.needsReauthentication,
+    })
+    .from(calendarsTable)
+    .innerJoin(
+      calendarAccountsTable,
+      eq(calendarsTable.accountId, calendarAccountsTable.id),
+    )
+    .where(eq(calendarsTable.id, destinationCalendarId))
+    .limit(SINGLE_ROW);
+
+  if (!destination) {
+    return false;
+  }
+  return !destination.disabled && !destination.needsReauthentication;
+};
+
 const resolveDeleteConfirmation = async (
   userId: string,
   sourceCalendarId: string,
@@ -1028,7 +1075,13 @@ const resolveDeleteConfirmation = async (
 
     const pending = {
       ...observed,
+      decision,
       deletesUnlocked: resolveDeletesUnlocked(observed, new Date()),
+      destinationReachable: await resolveDestinationReachable(
+        transactionClient,
+        decision,
+        destinationCalendarId,
+      ),
     };
     const disposition = resolveConfirmationDisposition(decision, pending);
     if (disposition === "not_pending") {

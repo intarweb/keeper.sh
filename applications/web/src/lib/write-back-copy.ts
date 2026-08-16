@@ -152,12 +152,16 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
  * Why the deletion is not among the answers. Without it the user is left with one button
  * and no account of where the other went, which reads as a fault rather than as the
  * product declining to act on a reading it cannot trust.
+ *
+ * A destination that holds nothing but the copies cannot clear that bar by emptying itself
+ * again — the next reading comes back with nothing at all too — so the way through it is
+ * the user saying so, and it is named here rather than left to be discovered.
  */
 const BLANK_READ_LOCKED_COPY =
   " Deleting the originals is not offered until a reading of {destination} comes back with"
-  + " at least one copy on it. If you emptied {destination} yourself, put the copies back,"
-  + " let Keeper.sh re-create them, then delete them again and answer the question that"
-  + " follows.";
+  + " at least one copy on it. Check that {destination} is still connected and still the"
+  + " calendar you picked. If it is connected and you emptied it yourself, say so and the"
+  + " originals on {source} are deleted on your word.";
 
 const resolveWriteBackStateCopy = (
   status: { deletesUnlocked?: boolean; reason: string | null },
