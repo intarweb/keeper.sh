@@ -104,7 +104,8 @@ describe("the record of originals write-back deleted", () => {
       userId: OWNER_ID,
     });
 
-    const [deletion] = await listWriteBackDeletions(database, OWNER_ID, NOW);
+    const { deletions } = await listWriteBackDeletions(database, OWNER_ID, NOW);
+    const [deletion] = deletions;
 
     expect(deletion).toMatchObject({
       confirmed: true,
@@ -128,7 +129,9 @@ describe("the record of originals write-back deleted", () => {
       userId: STRANGER_ID,
     });
 
-    expect(await listWriteBackDeletions(database, OWNER_ID, NOW)).toEqual([]);
+    const { deletions } = await listWriteBackDeletions(database, OWNER_ID, NOW);
+
+    expect(deletions).toEqual([]);
   });
 
   it("leaves out a deletion that was abandoned, because that original is still there", async () => {
@@ -141,7 +144,9 @@ describe("the record of originals write-back deleted", () => {
       userId: OWNER_ID,
     });
 
-    expect(await listWriteBackDeletions(database, OWNER_ID, NOW)).toEqual([]);
+    const { deletions } = await listWriteBackDeletions(database, OWNER_ID, NOW);
+
+    expect(deletions).toEqual([]);
   });
 
   it("lists a deletion nothing has confirmed, marked as unconfirmed", async () => {
@@ -154,7 +159,7 @@ describe("the record of originals write-back deleted", () => {
       userId: OWNER_ID,
     });
 
-    const deletions = await listWriteBackDeletions(database, OWNER_ID, NOW);
+    const { deletions } = await listWriteBackDeletions(database, OWNER_ID, NOW);
 
     expect(deletions).toHaveLength(1);
     expect(deletions[0]?.confirmed).toBe(false);
@@ -171,7 +176,9 @@ describe("the record of originals write-back deleted", () => {
       userId: OWNER_ID,
     });
 
-    expect(await listWriteBackDeletions(database, OWNER_ID, NOW)).toEqual([]);
+    const { deletions } = await listWriteBackDeletions(database, OWNER_ID, NOW);
+
+    expect(deletions).toEqual([]);
   });
 
   it("still names the deletion after the calendar it came from is gone", async () => {
@@ -185,7 +192,8 @@ describe("the record of originals write-back deleted", () => {
     });
     await client.query(`delete from calendars where "id" = $1`, [source]);
 
-    const [deletion] = await listWriteBackDeletions(database, OWNER_ID, NOW);
+    const { deletions } = await listWriteBackDeletions(database, OWNER_ID, NOW);
+    const [deletion] = deletions;
 
     expect(deletion).toMatchObject({ sourceCalendarName: null, title: "Standup" });
   });
@@ -210,7 +218,7 @@ describe("the record of originals write-back deleted", () => {
       userId: OWNER_ID,
     });
 
-    const deletions = await listWriteBackDeletions(database, OWNER_ID, NOW);
+    const { deletions } = await listWriteBackDeletions(database, OWNER_ID, NOW);
 
     expect(deletions.map((deletion) => deletion.title)).toEqual(["Newer", "Older"]);
   });

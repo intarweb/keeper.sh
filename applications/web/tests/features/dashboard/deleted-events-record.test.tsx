@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   DeletedEventsRecord,
   EMPTY_RECORD_COPY,
+  TRUNCATED_RECORD_COPY,
 } from "@/features/dashboard/components/deleted-events-record";
 import type { WriteBackDeletion } from "@/features/dashboard/components/deleted-events-record";
 
@@ -23,9 +24,11 @@ const deletion: WriteBackDeletion = {
   title: "Standup",
 };
 
-const renderRecord = (deletions: WriteBackDeletion[]): string => {
+const renderRecord = (deletions: WriteBackDeletion[], truncated = false): string => {
   const { document } = parseHTML(
-    `<body>${renderToStaticMarkup(<DeletedEventsRecord deletions={deletions} />)}</body>`,
+    `<body>${renderToStaticMarkup(
+      <DeletedEventsRecord deletions={deletions} truncated={truncated} />,
+    )}</body>`,
   );
   return document.documentElement.textContent ?? "";
 };
@@ -75,5 +78,18 @@ describe("the record of originals Keeper.sh deleted", () => {
 
     expect(text).toContain("Untitled event");
     expect(text).toMatch(/could not read the details/i);
+  });
+
+  /*
+   * A deletion that fell off the end of the list reads as a deletion that never happened,
+   * which is the exact misreading this record exists to prevent. If the answer was cut, the
+   * page says so.
+   */
+  it("says so when the record it was given had to stop short", () => {
+    expect(renderRecord([deletion], true)).toContain(TRUNCATED_RECORD_COPY);
+  });
+
+  it("says nothing about older deletions when the whole record fit", () => {
+    expect(renderRecord([deletion])).not.toContain(TRUNCATED_RECORD_COPY);
   });
 });

@@ -90,6 +90,10 @@ function DeletedEventRow({ deletion }: { deletion: WriteBackDeletion }) {
   );
 }
 
+const TRUNCATED_RECORD_COPY =
+  "This is only the most recent part of the record. There are older deletions from the last"
+  + " 30 days that are not shown here — contact support to see them.";
+
 const EMPTY_RECORD_COPY =
   "Keeper.sh has not deleted any original events on your calendars in the last 30 days.";
 
@@ -99,19 +103,30 @@ const EMPTY_RECORD_COPY =
  * putting an event back on a source calendar would re-invite everyone it named, so the
  * product hands the user what was there and lets them decide.
  */
-function DeletedEventsRecord({ deletions }: { deletions: WriteBackDeletion[] }) {
+function DeletedEventsRecord(
+  { deletions, truncated }: { deletions: WriteBackDeletion[]; truncated?: boolean },
+) {
   if (deletions.length === 0) {
     return <Text size="sm" tone="muted">{EMPTY_RECORD_COPY}</Text>;
   }
 
   return (
-    <ul className="flex flex-col gap-2">
-      {deletions.map((deletion) => (
-        <DeletedEventRow deletion={deletion} key={deletion.id} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-2">
+        {deletions.map((deletion) => (
+          <DeletedEventRow deletion={deletion} key={deletion.id} />
+        ))}
+      </ul>
+      {truncated && <Text size="xs" tone="muted">{TRUNCATED_RECORD_COPY}</Text>}
+    </div>
   );
 }
 
-export { DeletedEventsRecord, EMPTY_RECORD_COPY, UNCONFIRMED_DELETION_LABEL, UNTITLED_EVENT_LABEL };
+export {
+  DeletedEventsRecord,
+  EMPTY_RECORD_COPY,
+  TRUNCATED_RECORD_COPY,
+  UNCONFIRMED_DELETION_LABEL,
+  UNTITLED_EVENT_LABEL,
+};
 export type { WriteBackDeletion };

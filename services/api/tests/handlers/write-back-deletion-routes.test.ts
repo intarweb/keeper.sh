@@ -29,24 +29,39 @@ describe("the endpoint behind the record of deleted events", () => {
       {
         listWriteBackDeletions: (userId, now) => {
           asked.push({ now, userId });
-          return Promise.resolve([record]);
+          return Promise.resolve({ deletions: [record], truncated: false });
         },
         now: () => NOW,
       },
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ deletions: [record] });
+    expect(await response.json()).toEqual({ deletions: [record], truncated: false });
     expect(asked).toEqual([{ now: NOW, userId: "user-1" }]);
   });
 
   it("answers with an empty record rather than an error when nothing was deleted", async () => {
     const response = await handleGetWriteBackDeletionsRoute(
       { userId: "user-1" },
-      { listWriteBackDeletions: () => Promise.resolve([]), now: () => NOW },
+      {
+        listWriteBackDeletions: () => Promise.resolve({ deletions: [], truncated: false }),
+        now: () => NOW,
+      },
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ deletions: [] });
+    expect(await response.json()).toEqual({ deletions: [], truncated: false });
+  });
+
+  it("tells the page when the record it answered with had to stop short", async () => {
+    const response = await handleGetWriteBackDeletionsRoute(
+      { userId: "user-1" },
+      {
+        listWriteBackDeletions: () => Promise.resolve({ deletions: [record], truncated: true }),
+        now: () => NOW,
+      },
+    );
+
+    expect(await response.json()).toEqual({ deletions: [record], truncated: true });
   });
 });

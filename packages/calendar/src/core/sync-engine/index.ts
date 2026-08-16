@@ -1089,8 +1089,15 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
       scope: reconciliationScope,
     });
     appendTwoWayFields(wideEvent, inbound.counters, inbound.readHealth);
-    await reportDeleteConfirmation(inbound.deleteConfirmation, requestDeleteConfirmation);
+    /*
+     * A pass can raise both at once for the same pair, and both are recorded on the one
+     * write-back state the pair has. The question about the copies that vanished is written
+     * last so it is the state that stands: a quarantine reverts the pair to one-way, which
+     * re-creates the copies the question is about and strands their pending state, while the
+     * question keeps the mode and writes nothing anywhere until a human answers.
+     */
     await reportWriteBackHold(inbound.writeBackHold, holdWriteBack);
+    await reportDeleteConfirmation(inbound.deleteConfirmation, requestDeleteConfirmation);
     const inboundMappingUpdates = collectInboundMappingUpdates(inbound.classifications);
     const actionableInboundChanges = inbound.classifications.filter(isApplierActionable);
 

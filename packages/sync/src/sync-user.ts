@@ -678,6 +678,18 @@ const createWriteBackApplier = (
  * the values the destination replaced are only on the source now, so the safe answer is
  * to write nothing and let the user decide whether two-way sync goes back on.
  */
+const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
+
+/*
+ * A pass can trip both breakers on the same pair: copies vanished in bulk and other copies
+ * moved in bulk. The quarantine must not overwrite the question, because the two states are
+ * not equivalent. Quarantine reverts the pair to one-way, which lets the very copies the
+ * question is about be re-created on the destination and leaves the pending delete state on
+ * the mappings with nothing pointing at it; the question keeps the mode, pauses the pair and
+ * writes nothing anywhere until a human answers. Neither state writes to a source, so
+ * holding the question loses nothing: the edits stay held while it stands, and the edit
+ * breaker trips again on the first pass after it is answered.
+ */
 const createWriteBackHoldRecorder = (
   database: BunSQLDatabase,
   destinationCalendarId: string,
@@ -694,6 +706,7 @@ const createWriteBackHoldRecorder = (
     .where(and(
       eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
       inArray(sourceDestinationMappingsTable.sourceCalendarId, request.sourceCalendarIds),
+      ne(sourceDestinationMappingsTable.writeBackState, DELETE_CONFIRMATION_STATE),
     ));
 };
 
@@ -1138,9 +1151,11 @@ const syncDestinationsForUser = async (
 
 export {
   createAggregateAuthorityWindow,
+  createDeleteConfirmationRecorder,
   createDestinationAttemptWideEventFields,
   createDestinationReconciliationScope,
   createDestinationReconciliationWideEventFields,
+  createWriteBackHoldRecorder,
   OVER_BUDGET_SERIES_UID_SAMPLE_SIZE,
   readDestinationReconciliationState,
   resolveSourceAuthority,

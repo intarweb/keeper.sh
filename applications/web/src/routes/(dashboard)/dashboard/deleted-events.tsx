@@ -14,9 +14,10 @@ export const Route = createFileRoute("/(dashboard)/dashboard/deleted-events")({
 });
 
 function DeletedEventsPage() {
-  const { data, error, isLoading, mutate } = useSWR<{ deletions: WriteBackDeletion[] }>(
-    DELETED_EVENTS_ENDPOINT,
-  );
+  const { data, error, isLoading, mutate } = useSWR<{
+    deletions: WriteBackDeletion[];
+    truncated?: boolean;
+  }>(DELETED_EVENTS_ENDPOINT);
 
   return (
     <div className="flex flex-col gap-3">
@@ -30,7 +31,9 @@ function DeletedEventsPage() {
         <ErrorState message="Failed to load deleted events." onRetry={() => mutate()} />
       )}
       {isLoading && <Text size="sm" tone="muted">Loading...</Text>}
-      {data && <DeletedEventsRecord deletions={data.deletions} />}
+      {data && (
+        <DeletedEventsRecord deletions={data.deletions} truncated={data.truncated === true} />
+      )}
     </div>
   );
 }

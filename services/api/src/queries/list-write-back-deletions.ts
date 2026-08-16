@@ -2,7 +2,14 @@ import { calendarsTable, eventWriteBackTombstonesTable } from "@keeper.sh/databa
 import { aliasedTable, and, desc, eq, gt, ne } from "drizzle-orm";
 import type { KeeperDatabase } from "@/types";
 
-const DELETION_RECORD_LIMIT = 500;
+/*
+ * The record is promised for 30 days, and the daily deletion cap lets a single two-way pair
+ * write 50 tombstones a day, so a handful of pairs clears several thousand rows inside the
+ * window with nothing wrong. The ceiling is only a guard against an unbounded read, and when
+ * it is reached the caller is told, because a deletion silently missing from this list reads
+ * as a deletion that never happened.
+ */
+const DELETION_RECORD_LIMIT = 5000;
 const ABANDONED_TOMBSTONE_STATE = "abandoned";
 const APPLIED_TOMBSTONE_STATE = "applied";
 
@@ -30,6 +37,11 @@ interface WriteBackDeletionRecord {
   startTime: string | null;
   startTimeZone: string | null;
   title: string | null;
+}
+
+interface WriteBackDeletionListing {
+  deletions: WriteBackDeletionRecord[];
+  truncated: boolean;
 }
 
 const readText = (snapshot: Record<string, unknown>, key: string): string | null => {
@@ -98,7 +110,7 @@ const listWriteBackDeletions = async (
   database: KeeperDatabase,
   userId: string,
   now: Date,
-): Promise<WriteBackDeletionRecord[]> => {
+): Promise<WriteBackDeletionListing> => {
   const sourceCalendars = aliasedTable(calendarsTable, "source_calendars");
   const destinationCalendars = aliasedTable(calendarsTable, "destination_calendars");
 
@@ -129,10 +141,15 @@ const listWriteBackDeletions = async (
       ),
     )
     .orderBy(desc(eventWriteBackTombstonesTable.appliedAt))
-    .limit(DELETION_RECORD_LIMIT);
+    .limit(DELETION_RECORD_LIMIT + 1);
 
-  return rows.map((row) => toWriteBackDeletionRecord(row));
+  const listed = rows.slice(0, DELETION_RECORD_LIMIT);
+
+  return {
+    deletions: listed.map((row) => toWriteBackDeletionRecord(row)),
+    truncated: rows.length > DELETION_RECORD_LIMIT,
+  };
 };
 
-export { listWriteBackDeletions, toWriteBackDeletionRecord };
-export type { WriteBackDeletionRecord, WriteBackDeletionRow };
+export { DELETION_RECORD_LIMIT, listWriteBackDeletions, toWriteBackDeletionRecord };
+export type { WriteBackDeletionListing, WriteBackDeletionRecord, WriteBackDeletionRow };
