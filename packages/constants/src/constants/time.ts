@@ -70,6 +70,18 @@ const TWO_WAY_EDIT_ABSOLUTE_FLOOR = 10;
  */
 const TWO_WAY_EDIT_ABSOLUTE_CEILING = TWO_WAY_EDIT_ABSOLUTE_FLOOR;
 /*
+ * The delete breaker's ratio has the same blind spot the edit ceiling was added to close,
+ * against the one operation nothing can undo: fifty copies vanishing out of three hundred
+ * mappings is a sixth of the calendar, below any ratio worth setting, and destroys fifty
+ * real events. Whatever removed them — a retention policy ageing out a folder, a client
+ * rebuilding the calendar, a bulk action — is not a person deleting meetings one at a time,
+ * and the only honest response is to ask. This sits at the breaker's own floor rather than
+ * at the edit ceiling because a deletion cannot be repaired by the one-way path the way an
+ * overwritten edit can, and because answering the question once carries the rest of the
+ * batch through inside the approval window.
+ */
+const TWO_WAY_DELETE_ABSOLUTE_CEILING = 5;
+/*
  * How old the stored copy of a source calendar may be before two-way sync stops writing to
  * it. Every guard that refuses a write-back because the original moved compares the copy on
  * the destination against that stored copy, so once it stops being refreshed those guards
@@ -110,6 +122,7 @@ export {
   RATE_LIMIT_DELAY_MS,
   SYNC_TTL_SECONDS,
   PROVIDER_PUSH_REQUEST_TIMEOUT_MS,
+  TWO_WAY_DELETE_ABSOLUTE_CEILING,
   TWO_WAY_DELETE_APPROVAL_TTL_MS,
   TWO_WAY_DELETE_DAILY_CAP,
   TWO_WAY_DELETE_DAILY_WINDOW_MS,

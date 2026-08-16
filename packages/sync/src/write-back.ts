@@ -393,6 +393,33 @@ const buildEpochAssignment = (): Record<string, unknown> => {
   };
 };
 
+/*
+ * A failed attempt spends the same counter but cannot be measured the same way. The gap
+ * rule above exists to tell a person editing their copy apart from a machine oscillating,
+ * and a rejection is neither: nobody chose it, nothing reached the calendar, and how far
+ * apart the passes happened to land says nothing about whether whatever refused the write
+ * has stopped refusing it. Spending it through the gap rule is what made the budget
+ * bottomless on any destination whose passes land further apart than the gap, and the
+ * budget is the only stop on all three escalations — including the one whose whole purpose
+ * is to stop guessing about a deletion and ask a human. So the window slides with the
+ * failures instead: consecutive failures keep counting however far apart they are, and an
+ * hour with none at all is what starts the budget over. Nothing here touches
+ * writeBackLastAppliedAt, because nothing was applied.
+ */
+const buildFailureEpochAssignment = (): Record<string, unknown> => {
+  const staleWindow = sql`(
+    ${eventMappingsTable.writeBackEpochWindowStart} is null
+    or ${eventMappingsTable.writeBackEpochWindowStart}
+      < now() - (interval '1 millisecond' * ${TWO_WAY_EPOCH_WINDOW_MS})
+  )`;
+
+  return {
+    writeBackEpoch: sql`case when ${staleWindow} then ${FIRST_EPOCH}
+      else ${eventMappingsTable.writeBackEpoch} + ${EPOCH_INCREMENT} end`,
+    writeBackEpochWindowStart: sql`now()`,
+  };
+};
+
 const buildDailyAssignment = (): Record<string, unknown> => {
   const staleWindow = sql`(
     ${eventMappingsTable.writeBackDailyWindowStart} is null
@@ -704,7 +731,7 @@ const createDatabaseWriteBackStore = (
   recordFailure: async (mappingId) => {
     const [row] = await config.database
       .update(eventMappingsTable)
-      .set(buildEpochAssignment())
+      .set(buildFailureEpochAssignment())
       .where(eq(eventMappingsTable.id, mappingId))
       .returning({ writeBackEpoch: eventMappingsTable.writeBackEpoch });
     return row?.writeBackEpoch ?? NO_EPOCHS;
@@ -830,6 +857,7 @@ const createInboundWriteBackApplier = (config: WriteBackApplierConfig) => {
 
 export {
   buildEpochAssignment,
+  buildFailureEpochAssignment,
   clearDestinationWitnesses,
   countsTowardDeleteCap,
   isUnresolvedAttempt,

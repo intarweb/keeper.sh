@@ -59,11 +59,34 @@ class SourceWriteRefusedError extends Error {
  * not be recorded as a source event Keeper.sh deleted today.
  */
 class SourceWriteRejectedError extends Error {
-  constructor(message: string) {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
     super(message);
     this.name = "SourceWriteRejectedError";
+    this.retryable = retryable;
   }
 }
+
+/*
+ * A throttle, a gateway failure or a connection that never opened is the provider saying
+ * "not right now", and pausing the pair over one is not a safe default: it reverts to
+ * one-way, rebuilds the edited copy from the original and discards the edit the user made
+ * — permanently, over an outage that would have cleared by the next pass, and with nothing
+ * retried once the pair is off. So a retryable answer is retried. It is still counted, on
+ * a budget long enough to outlast an ordinary throttle and short enough that a provider
+ * which never recovers ends in a paused pair the user is told about rather than in a
+ * silent loop: at the one-minute cadence a Pro mapping runs, this is about half an hour of
+ * sustained rejection.
+ */
+const TWO_WAY_RETRYABLE_QUARANTINE_LIMIT = 30;
+
+const resolveQuarantineLimit = (error: unknown): number => {
+  if (error instanceof SourceWriteRejectedError && error.retryable) {
+    return TWO_WAY_RETRYABLE_QUARANTINE_LIMIT;
+  }
+  return TWO_WAY_EPOCH_QUARANTINE_LIMIT;
+};
 
 const QUARANTINE_REASONS_BY_REFUSAL: Record<string, string> = {
   event_authored_by_someone_else: "source_event_authored_by_someone_else",
@@ -77,13 +100,17 @@ const resolveQuarantineReason = (refusal: string): string =>
 const assertWriteAccepted = (written: {
   error?: string;
   refused?: string;
+  retryable?: boolean;
   success: boolean;
 }, fallback: string): void => {
   if (written.refused) {
     throw new SourceWriteRefusedError(written.refused);
   }
   if (!written.success) {
-    throw new SourceWriteRejectedError(written.error ?? fallback);
+    throw new SourceWriteRejectedError(
+      written.error ?? fallback,
+      written.retryable === true,
+    );
   }
 };
 
@@ -735,7 +762,7 @@ const runWriteBackPass = async (
        * can be reverted to one-way.
        */
       const spent = await input.store.recordFailure(classification.mappingId);
-      if (failedTarget && spent >= TWO_WAY_EPOCH_QUARANTINE_LIMIT) {
+      if (failedTarget && spent >= resolveQuarantineLimit(error)) {
         await input.store.quarantineMapping(
           failedTarget.sourceCalendarId,
           failedTarget.destinationCalendarId,

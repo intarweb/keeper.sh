@@ -148,9 +148,17 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     "A copy on {destination} was changed, but {source} refused the change to the original."
     + " Nothing on {source} was touched and two-way sync to {destination} is paused. The"
     + " change on the copy is not kept: the copies go back to matching {source}.",
+  /*
+   * The same pause is reached two ways: a destination rewriting a copy on every pass, and
+   * a person nudging the same meeting a few times in a row. Copy that only describes the
+   * first sends the second user looking at their destination calendar for a fault that is
+   * not there, so both are named and the one they can act on is named first.
+   */
   runaway_write_back:
-    "Two-way sync to {destination} is paused: the copies kept changing on their own, so"
-    + " Keeper.sh stopped writing to {source}. The copies go back to matching {source}.",
+    "Two-way sync to {destination} is paused: the same copy was written back over and over"
+    + " — because it was edited repeatedly, or because {destination} kept rewriting it — so"
+    + " Keeper.sh stopped writing to {source}. The copies go back to matching {source}."
+    + " Pick Two-way again to switch it back on.",
   write_back_failing:
     "Keeper.sh could not write recent changes back to {source}, so two-way sync to"
     + " {destination} is paused. The changes made on the copies are not kept: the copies go"

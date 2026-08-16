@@ -11,6 +11,7 @@ import {
 import { resolveIsAllDayEvent } from "../events/all-day";
 import { DEFAULT_EVENT_NAME } from "../events/default-event-name";
 import {
+  TWO_WAY_DELETE_ABSOLUTE_CEILING,
   TWO_WAY_EDIT_ABSOLUTE_CEILING,
   TWO_WAY_EDIT_ABSOLUTE_FLOOR,
   TWO_WAY_WRITE_BACK_DAILY_CAP,
@@ -608,7 +609,10 @@ const countBySourceCalendar = (
  * the destination: a sibling source calendar large enough to dilute the ratio would
  * otherwise wave a whole calendar's worth of deletions through unasked. The destination
  * wide ratio is kept beside it, because a fleet of one-mapping calendars all vanishing
- * together trips that one and no per-calendar one.
+ * together trips that one and no per-calendar one. The ceiling is checked at both scopes
+ * for the same reason a ratio needs one at all: a batch can be diluted by the mappings it
+ * left alone within a calendar, and spread thin across calendars so that neither ratio
+ * sees it, and the count is the only bound that survives both.
  */
 const resolveTrippedSourceCalendarIds = (
   eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
@@ -618,7 +622,9 @@ const resolveTrippedSourceCalendarIds = (
   ceiling: number = Number.POSITIVE_INFINITY,
 ): Set<string> => {
   const candidateCounts = countBySourceCalendar(candidates);
-  if (candidates.length > floor && candidates.length / eligible.length > ratio) {
+  const dilutedByCalendars = candidates.length > ceiling;
+  if (dilutedByCalendars
+    || (candidates.length > floor && candidates.length / eligible.length > ratio)) {
     return new Set(candidateCounts.keys());
   }
 
@@ -1543,6 +1549,7 @@ const classifyInboundChanges = (
     unapprovedDeletes,
     TWO_WAY_DELETE_ABSOLUTE_FLOOR,
     TWO_WAY_DELETE_RATIO,
+    TWO_WAY_DELETE_ABSOLUTE_CEILING,
   );
   const deleteBreakerTripped = trippedSourceCalendarIds.size > NO_OBSERVATIONS;
 

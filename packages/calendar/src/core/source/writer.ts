@@ -20,8 +20,55 @@ type SourceWriteRefusal =
 interface SourceWriteResult {
   error?: string;
   refused?: SourceWriteRefusal;
+  retryable?: boolean;
   success: boolean;
 }
+
+/*
+ * A throttle, a gateway failure and a request that timed out are the provider saying "not
+ * right now". They are indistinguishable from a permanent refusal once the status is
+ * discarded, and the pass that cannot tell them apart spends its failure budget on a few
+ * throttled minutes, reverts the pair to one-way and discards the edit the user made on
+ * the copy — over an outage that would have cleared on its own. The write is retried
+ * instead; it is still counted, on a longer budget, so a provider that never recovers
+ * still ends in a paused pair the user is told about rather than in a silent forever loop.
+ */
+const REQUEST_TIMEOUT = 408;
+const TOO_EARLY = 425;
+const TOO_MANY_REQUESTS = 429;
+const PRECONDITION_FAILED = 412;
+const INTERNAL_SERVER_ERROR = 500;
+const BAD_GATEWAY = 502;
+const SERVICE_UNAVAILABLE = 503;
+const GATEWAY_TIMEOUT = 504;
+
+/*
+ * A CalDAV etag no longer matching is the same kind of answer: the object moved under the
+ * write, and the next pass reads it again and writes against what is there now.
+ */
+const RETRYABLE_WRITE_STATUSES: ReadonlySet<number> = new Set([
+  REQUEST_TIMEOUT,
+  PRECONDITION_FAILED,
+  TOO_EARLY,
+  TOO_MANY_REQUESTS,
+  INTERNAL_SERVER_ERROR,
+  BAD_GATEWAY,
+  SERVICE_UNAVAILABLE,
+  GATEWAY_TIMEOUT,
+]);
+
+const isRetryableWriteStatus = (status: number): boolean =>
+  RETRYABLE_WRITE_STATUSES.has(status);
+
+/*
+ * The flag is carried only when it is true, so a failure nothing can retry keeps the exact
+ * shape it has always had and reads as the plain answer it is.
+ */
+const toWriteFailure = (error: string, retryable: boolean): SourceWriteResult => ({
+  error,
+  ...(retryable && { retryable: true }),
+  success: false,
+});
 
 interface CalendarSourceWriter {
   deleteEvent: (
@@ -64,7 +111,13 @@ const RICH_BODY_REFUSAL: SourceWriteResult = {
   success: false,
 };
 
-export { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL, RICH_BODY_REFUSAL };
+export {
+  ATTENDEE_REFUSAL,
+  AUTHORSHIP_REFUSAL,
+  isRetryableWriteStatus,
+  RICH_BODY_REFUSAL,
+  toWriteFailure,
+};
 export type {
   CalendarSourceWriter,
   SourceEventUpdate,

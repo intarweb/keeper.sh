@@ -61,6 +61,7 @@ class GoogleCalendarApiError extends Error {
 }
 
 const EMPTY_PROBE_RESULT = 0;
+const NO_UNREADABLE_ENTRIES = 0;
 
 const isDirectEventId = (identifier: string): boolean => !identifier.includes("@");
 
@@ -588,7 +589,11 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
       return "present";
     }
 
+    let unreadableEntries = NO_UNREADABLE_ENTRIES;
     const calendars = await listUserCalendars(tokenState.accessToken, {
+      onInvalidEntries: (count) => {
+        unreadableEntries = count;
+      },
       ...(config.signal && { signal: config.signal }),
     });
     for (const calendar of calendars) {
@@ -599,6 +604,19 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
       if (elsewhere === "present") {
         return "present";
       }
+    }
+    /*
+     * An entry the schema could not parse is a calendar this sweep never asked, and the
+     * copy could be sitting in it. A whole list that fails to load is already refused
+     * rather than read as an empty account; one calendar missing from the list is the same
+     * ignorance arriving in a smaller piece, and it is checked after the sweep so that a
+     * copy found in a calendar that did parse still answers straight away.
+     */
+    if (unreadableEntries > NO_UNREADABLE_ENTRIES) {
+      throw new Error(
+        `${unreadableEntries} of the account's calendars could not be read, so Keeper.sh`
+        + " cannot tell whether the copy still exists",
+      );
     }
     return "absent";
   };

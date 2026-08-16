@@ -1,4 +1,7 @@
-import { TWO_WAY_EDIT_ABSOLUTE_CEILING } from "@keeper.sh/constants";
+import {
+  TWO_WAY_EDIT_ABSOLUTE_CEILING,
+  TWO_WAY_WRITE_BACK_DAILY_CAP,
+} from "@keeper.sh/constants";
 import { describeWriteBackFields } from "@keeper.sh/data-schemas";
 import type { WriteBackFieldExclusions } from "@keeper.sh/data-schemas";
 
@@ -74,6 +77,21 @@ const resolveBatchSentence = (sourceName: string): string =>
   + ` those edits reach ${sourceName}, those copies are rebuilt from it, and two-way sync`
   + " pauses until you switch it on again.";
 
+/*
+ * The other half of the same defence, and the half a person is far more likely to walk
+ * into: a run of write-backs to one event reads as a destination generating changes by
+ * itself, so nudging one meeting five times in close succession — or twenty times across
+ * a day — pauses the whole connection and rebuilds every copy on it from the original.
+ * Stated in the terms the user acts in, a count of edits to one copy, rather than in the
+ * counter's terms.
+ */
+const resolveRepeatedSentence = (sourceName: string): string =>
+  `Editing the same copy over and over — several times within a few minutes, or more than`
+  + ` ${TWO_WAY_WRITE_BACK_DAILY_CAP} times in a day — reads as that copy changing by`
+  + " itself rather than as edits you made. Two-way sync pauses until you switch it on"
+  + ` again, and the copies on the connection are rebuilt from ${sourceName}, so any edit`
+  + " that had not reached it yet is replaced.";
+
 const buildWriteBackFieldSummary = (
   exclusions: WriteBackFieldExclusions,
   sourceName: string,
@@ -82,11 +100,13 @@ const buildWriteBackFieldSummary = (
   batch: string;
   conflict: string;
   hidden: string | null;
+  repeated: string;
   written: string;
 } => ({
   adopted: resolveAdoptedSentence(sourceName),
   batch: resolveBatchSentence(sourceName),
   conflict: resolveConflictSentence(sourceName),
+  repeated: resolveRepeatedSentence(sourceName),
   hidden: resolveHiddenSentence(resolveHiddenFields(exclusions)),
   written: `Editing a copy changes the original event on ${sourceName}: its `
     + `${formatFieldList(describeWriteBackFields(exclusions))}.`,

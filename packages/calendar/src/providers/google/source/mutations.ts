@@ -10,7 +10,9 @@ import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
 import {
   ATTENDEE_REFUSAL,
   AUTHORSHIP_REFUSAL,
+  isRetryableWriteStatus,
   RICH_BODY_REFUSAL,
+  toWriteFailure,
 } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
@@ -28,14 +30,17 @@ interface GoogleSourceWriterConfig {
 }
 
 class GoogleSourceLookupError extends Error {
-  constructor(message: string) {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
     super(message);
     this.name = "GoogleSourceLookupError";
+    this.retryable = retryable;
   }
 }
 
 type EventLookup =
-  | { error: string }
+  | { error: string; retryable: boolean }
   | { event: GoogleEventWithAttendees | null };
 
 /*
@@ -46,11 +51,20 @@ type EventLookup =
  * is indistinguishable from one raised after the write, and the write-back pass can only
  * release the record of a deletion it knows did not happen.
  */
-const describeLookupFailure = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
+const describeLookupFailure = (error: unknown): { error: string; retryable: boolean } => {
+  if (error instanceof GoogleSourceLookupError) {
+    return { error: error.message, retryable: error.retryable };
   }
-  return "The Google Calendar lookup failed.";
+  /*
+   * A socket that never connected, a request that timed out, a body that arrived truncated:
+   * the read did not happen and asking again is what settles whether it can. Nothing was
+   * written either way, so retrying costs the user nothing and pausing the pair costs them
+   * the edit they made.
+   */
+  if (error instanceof Error) {
+    return { error: error.message, retryable: true };
+  }
+  return { error: "The Google Calendar lookup failed.", retryable: true };
 };
 
 /*
@@ -203,7 +217,10 @@ const createGoogleSourceWriter = (
       signal,
     );
     if (!response.ok) {
-      throw new GoogleSourceLookupError(await readErrorMessage(response));
+      throw new GoogleSourceLookupError(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     const body = googleEventWithAttendeesListSchema.assert(await response.json());
     const [item] = body.items ?? [];
@@ -237,7 +254,10 @@ const createGoogleSourceWriter = (
       return null;
     }
     if (!response.ok) {
-      throw new GoogleSourceLookupError(await readErrorMessage(response));
+      throw new GoogleSourceLookupError(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     return googleEventWithAttendeesSchema.assert(await response.json());
   };
@@ -250,11 +270,13 @@ const createGoogleSourceWriter = (
    * indistinguishable from one raised after the write, and the write-back pass can only
    * release the record of a deletion it knows did not happen.
    */
-  const resolveAccessToken = async (): Promise<{ accessToken: string } | { error: string }> => {
+  const resolveAccessToken = async (): Promise<
+    { accessToken: string } | { error: string; retryable: boolean }
+  > => {
     try {
       return { accessToken: await config.accessToken() };
     } catch (error) {
-      return { error: describeLookupFailure(error) };
+      return describeLookupFailure(error);
     }
   };
 
@@ -269,7 +291,7 @@ const createGoogleSourceWriter = (
       }
       return { event: await findEventByUid(accessToken, reference.sourceEventUid, signal) };
     } catch (error) {
-      return { error: describeLookupFailure(error) };
+      return describeLookupFailure(error);
     }
   };
 
@@ -301,12 +323,12 @@ const createGoogleSourceWriter = (
   ): Promise<SourceWriteResult> => {
     const token = await resolveAccessToken();
     if ("error" in token) {
-      return { error: token.error, success: false };
+      return toWriteFailure(token.error, token.retryable);
     }
     const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
-      return { error: lookup.error, success: false };
+      return toWriteFailure(lookup.error, lookup.retryable);
     }
     const writable = resolveWritableEventId(lookup, reference, "description" in updates);
     if ("refusal" in writable) {
@@ -331,7 +353,10 @@ const createGoogleSourceWriter = (
       signal,
     );
     if (!response.ok) {
-      return { error: await readErrorMessage(response), success: false };
+      return toWriteFailure(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     await response.body?.cancel?.();
     return { success: true };
@@ -343,12 +368,12 @@ const createGoogleSourceWriter = (
   ): Promise<SourceWriteResult> => {
     const token = await resolveAccessToken();
     if ("error" in token) {
-      return { error: token.error, success: false };
+      return toWriteFailure(token.error, token.retryable);
     }
     const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
-      return { error: lookup.error, success: false };
+      return toWriteFailure(lookup.error, lookup.retryable);
     }
     const writable = resolveWritableEventId(lookup, reference, false);
     if ("refusal" in writable) {
@@ -366,7 +391,10 @@ const createGoogleSourceWriter = (
       signal,
     );
     if (!response.ok && !isAlreadyGone(response.status)) {
-      return { error: await readErrorMessage(response), success: false };
+      return toWriteFailure(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     await response.body?.cancel?.();
     return { success: true };

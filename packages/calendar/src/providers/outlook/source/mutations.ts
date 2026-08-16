@@ -10,7 +10,9 @@ import { instantToWallTime } from "../../../ics/utils/timezone-instant";
 import {
   ATTENDEE_REFUSAL,
   AUTHORSHIP_REFUSAL,
+  isRetryableWriteStatus,
   RICH_BODY_REFUSAL,
+  toWriteFailure,
 } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
@@ -27,14 +29,17 @@ interface OutlookSourceWriterConfig {
 }
 
 class OutlookSourceLookupError extends Error {
-  constructor(message: string) {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
     super(message);
     this.name = "OutlookSourceLookupError";
+    this.retryable = retryable;
   }
 }
 
 type EventLookup =
-  | { error: string }
+  | { error: string; retryable: boolean }
   | { event: OutlookEventWithAttendees | null };
 
 /*
@@ -45,11 +50,20 @@ type EventLookup =
  * is indistinguishable from one raised after the write, and the write-back pass can only
  * release the record of a deletion it knows did not happen.
  */
-const describeLookupFailure = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
+const describeLookupFailure = (error: unknown): { error: string; retryable: boolean } => {
+  if (error instanceof OutlookSourceLookupError) {
+    return { error: error.message, retryable: error.retryable };
   }
-  return "The Outlook lookup failed.";
+  /*
+   * A socket that never connected, a request that timed out, a body that arrived truncated:
+   * the read did not happen and asking again is what settles whether it can. Nothing was
+   * written either way, so retrying costs the user nothing and pausing the pair costs them
+   * the edit they made.
+   */
+  if (error instanceof Error) {
+    return { error: error.message, retryable: true };
+  }
+  return { error: "The Outlook lookup failed.", retryable: true };
 };
 
 /*
@@ -206,7 +220,10 @@ const createOutlookSourceWriter = (
       signal,
     );
     if (!response.ok) {
-      throw new OutlookSourceLookupError(await readErrorMessage(response));
+      throw new OutlookSourceLookupError(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     const body = outlookEventWithAttendeesListSchema.assert(await response.json());
     const [item] = body.value ?? [];
@@ -233,7 +250,10 @@ const createOutlookSourceWriter = (
       return null;
     }
     if (!response.ok) {
-      throw new OutlookSourceLookupError(await readErrorMessage(response));
+      throw new OutlookSourceLookupError(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     return outlookEventWithAttendeesSchema.assert(await response.json());
   };
@@ -244,11 +264,13 @@ const createOutlookSourceWriter = (
    * and every one of them happens before Graph is asked to change anything. It has to
    * reach the caller as an answer for the same reason the lookup does.
    */
-  const resolveAccessToken = async (): Promise<{ accessToken: string } | { error: string }> => {
+  const resolveAccessToken = async (): Promise<
+    { accessToken: string } | { error: string; retryable: boolean }
+  > => {
     try {
       return { accessToken: await config.accessToken() };
     } catch (error) {
-      return { error: describeLookupFailure(error) };
+      return describeLookupFailure(error);
     }
   };
 
@@ -263,7 +285,7 @@ const createOutlookSourceWriter = (
       }
       return { event: await findEventByUid(accessToken, reference.sourceEventUid, signal) };
     } catch (error) {
-      return { error: describeLookupFailure(error) };
+      return describeLookupFailure(error);
     }
   };
 
@@ -295,12 +317,12 @@ const createOutlookSourceWriter = (
   ): Promise<SourceWriteResult> => {
     const token = await resolveAccessToken();
     if ("error" in token) {
-      return { error: token.error, success: false };
+      return toWriteFailure(token.error, token.retryable);
     }
     const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
-      return { error: lookup.error, success: false };
+      return toWriteFailure(lookup.error, lookup.retryable);
     }
     const writable = resolveWritableEventId(lookup, reference, "description" in updates);
     if ("refusal" in writable) {
@@ -327,7 +349,10 @@ const createOutlookSourceWriter = (
       signal,
     );
     if (!response.ok) {
-      return { error: await readErrorMessage(response), success: false };
+      return toWriteFailure(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     await response.body?.cancel?.();
     return { success: true };
@@ -339,12 +364,12 @@ const createOutlookSourceWriter = (
   ): Promise<SourceWriteResult> => {
     const token = await resolveAccessToken();
     if ("error" in token) {
-      return { error: token.error, success: false };
+      return toWriteFailure(token.error, token.retryable);
     }
     const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
-      return { error: lookup.error, success: false };
+      return toWriteFailure(lookup.error, lookup.retryable);
     }
     const writable = resolveWritableEventId(lookup, reference, false);
     if ("refusal" in writable) {
@@ -362,7 +387,10 @@ const createOutlookSourceWriter = (
       signal,
     );
     if (!response.ok && response.status !== HTTP_STATUS.NOT_FOUND) {
-      return { error: await readErrorMessage(response), success: false };
+      return toWriteFailure(
+        await readErrorMessage(response),
+        isRetryableWriteStatus(response.status),
+      );
     }
     await response.body?.cancel?.();
     return { success: true };

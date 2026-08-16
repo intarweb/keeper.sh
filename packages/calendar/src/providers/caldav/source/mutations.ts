@@ -8,7 +8,12 @@ import {
   patchIcsEvent,
   readEventOrganizers,
 } from "./patch-ics";
-import { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL } from "../../../core/source/writer";
+import {
+  ATTENDEE_REFUSAL,
+  AUTHORSHIP_REFUSAL,
+  isRetryableWriteStatus,
+  toWriteFailure,
+} from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -229,6 +234,11 @@ const isNotFoundError = (error: unknown): boolean =>
  * precondition, an expired password — arrives here as a resolved value. Reading that as a
  * success would report an edit or a deletion of the user's real event that never happened.
  */
+interface LookupFailure {
+  error: string;
+  retryable: boolean;
+}
+
 const readWriteStatus = (result: unknown): number => {
   if (typeof result !== "object" || result === null) {
     throw new Error("The CalDAV server returned no response to the write.");
@@ -243,16 +253,34 @@ const readWriteStatus = (result: unknown): number => {
 const isSuccessfulStatus = (status: number): boolean =>
   status >= OK_STATUS && status < REDIRECT_STATUS;
 
-const describeLookupFailure = (error: unknown): string => {
+const readErrorText = (error: unknown): string | null => {
   if (error instanceof Error) {
     return error.message;
   }
-  return "The CalDAV lookup failed.";
+  return null;
+};
+
+/*
+ * Tsdav raises a plain error for a server that is down, a connection that never opened and
+ * a discovery step that failed, and none of them carry a status this can read. Every one of
+ * them happened before the server was asked to change anything, and every one of them can
+ * clear on its own, so they are retried rather than spent as a refusal. A rejection that
+ * does name a status is judged on it: a password the server has answered 401 to will not
+ * be accepted by asking again, and pausing the pair over it tells the user something they
+ * can act on.
+ */
+const describeLookupFailure = (error: unknown): LookupFailure => {
+  const { status } = (error ?? {}) as { status?: unknown };
+  const message = readErrorText(error);
+  if (typeof status === "number") {
+    return { error: message ?? String(status), retryable: isRetryableWriteStatus(status) };
+  }
+  return { error: message ?? "The CalDAV lookup failed.", retryable: true };
 };
 
 const isLookupFailure = (
-  located: CalDAVObject | CalDAVWriterClient | null | { lookupError: string },
-): located is { lookupError: string } =>
+  located: CalDAVObject | CalDAVWriterClient | null | { lookupError: LookupFailure },
+): located is { lookupError: LookupFailure } =>
   located !== null && "lookupError" in located;
 
 const createCalDAVSourceWriter = (
@@ -310,7 +338,7 @@ const createCalDAVSourceWriter = (
   const findObject = (
     client: CalDAVWriterClient,
     sourceEventUid: string,
-  ): Promise<CalDAVObject | null | { lookupError: string }> =>
+  ): Promise<CalDAVObject | null | { lookupError: LookupFailure }> =>
     locateObject(client, sourceEventUid).catch((error: unknown) => ({
       lookupError: describeLookupFailure(error),
     }));
@@ -321,7 +349,7 @@ const createCalDAVSourceWriter = (
    * that is down or a password that no longer works rejects here, having touched nothing.
    * That has to reach the caller as an answer for the same reason the lookup does.
    */
-  const openClient = (): Promise<CalDAVWriterClient | { lookupError: string }> =>
+  const openClient = (): Promise<CalDAVWriterClient | { lookupError: LookupFailure }> =>
     config.client().catch((error: unknown) => ({
       lookupError: describeLookupFailure(error),
     }));
@@ -332,11 +360,11 @@ const createCalDAVSourceWriter = (
   ): Promise<SourceWriteResult> => {
     const client = await openClient();
     if (isLookupFailure(client)) {
-      return { error: client.lookupError, success: false };
+      return toWriteFailure(client.lookupError.error, client.lookupError.retryable);
     }
     const located = await findObject(client, reference.sourceEventUid);
     if (isLookupFailure(located)) {
-      return { error: located.lookupError, success: false };
+      return toWriteFailure(located.lookupError.error, located.lookupError.retryable);
     }
     const object = located;
     if (!object?.data) {
@@ -378,10 +406,10 @@ const createCalDAVSourceWriter = (
       calendarObject: { data, url: object.url },
     }));
     if (!isSuccessfulStatus(status)) {
-      return {
-        error: `The CalDAV server refused the edit with status ${status}.`,
-        success: false,
-      };
+      return toWriteFailure(
+        `The CalDAV server refused the edit with status ${status}.`,
+        isRetryableWriteStatus(status),
+      );
     }
     return { success: true };
   };
@@ -391,11 +419,11 @@ const createCalDAVSourceWriter = (
   ): Promise<SourceWriteResult> => {
     const client = await openClient();
     if (isLookupFailure(client)) {
-      return { error: client.lookupError, success: false };
+      return toWriteFailure(client.lookupError.error, client.lookupError.retryable);
     }
     const located = await findObject(client, reference.sourceEventUid);
     if (isLookupFailure(located)) {
-      return { error: located.lookupError, success: false };
+      return toWriteFailure(located.lookupError.error, located.lookupError.retryable);
     }
     const object = located;
     if (!object) {
@@ -418,10 +446,10 @@ const createCalDAVSourceWriter = (
         throw error;
       });
     if (!isSuccessfulStatus(status) && status !== NOT_FOUND_STATUS) {
-      return {
-        error: `The CalDAV server refused the deletion with status ${status}.`,
-        success: false,
-      };
+      return toWriteFailure(
+        `The CalDAV server refused the deletion with status ${status}.`,
+        isRetryableWriteStatus(status),
+      );
     }
     return { success: true };
   };

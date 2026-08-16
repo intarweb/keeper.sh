@@ -591,6 +591,7 @@ function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
       Only the fields you actually change are written back. Repeating events stay one-way.
       {` ${summary.adopted}`}
       {` ${summary.batch}`}
+      {` ${summary.repeated}`}
     </Text>
   );
 }
