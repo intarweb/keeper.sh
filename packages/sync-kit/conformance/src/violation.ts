@@ -1,4 +1,5 @@
 import type { ConformanceCaseId, LedgerEntryId } from "./case-id";
+import { ledgerEntryOf } from "./case-id";
 
 interface ViolationDetail {
   readonly case: ConformanceCaseId;
@@ -18,5 +19,8 @@ class ConformanceViolation extends Error {
   }
 }
 
-export { ConformanceViolation };
+const violated = (id: ConformanceCaseId, message: string): ConformanceViolation =>
+  new ConformanceViolation({ case: id, ledger: ledgerEntryOf(id), message });
+
+export { ConformanceViolation, violated };
 export type { ViolationDetail };

@@ -1,5 +1,10 @@
-import type { CalendarKey, RemoteEvent } from "@keeper.sh/sync-protocol";
+import type { CalendarKey, EventUid, RemoteEvent, RemoteEventId } from "@keeper.sh/sync-protocol";
 import type { ProviderSeed, WriteLogEntry } from "../options";
+
+interface ReportedIdentity {
+  readonly uid: EventUid;
+  readonly id: RemoteEventId;
+}
 
 interface ReferenceStore {
   readonly seed: (seed: ProviderSeed) => void;
@@ -7,11 +12,69 @@ interface ReferenceStore {
   readonly writeLog: () => readonly WriteLogEntry[];
   readonly corruptKnownRows: () => readonly string[];
   readonly calendar: () => CalendarKey;
+  readonly replaceObjects: (events: readonly RemoteEvent[]) => void;
+  readonly record: (entry: WriteLogEntry) => void;
+  readonly reported: () => readonly ReportedIdentity[];
+  readonly setReported: (identities: readonly ReportedIdentity[]) => void;
+  readonly sequenceOf: (uid: string) => number;
+  readonly touch: (uid: string) => void;
+  readonly currentSequence: () => number;
+  readonly clearCorruption: () => void;
 }
 
+const signatureOf = (event: RemoteEvent): string =>
+  `${event.revision}|${event.version.value}|${event.fingerprint.value}`;
+
 const createReferenceStore = (calendar: CalendarKey): ReferenceStore => {
-  throw new Error(`unimplemented: createReferenceStore(${calendar.calendar.value})`);
+  let stored: readonly RemoteEvent[] = [];
+  let corrupt: readonly string[] = [];
+  let reported: readonly ReportedIdentity[] = [];
+  const log: WriteLogEntry[] = [];
+  const sequences = new Map<string, number>();
+  const signatures = new Map<string, string>();
+  let sequence = 0;
+
+  const touch = (uid: string): void => {
+    sequence += 1;
+    sequences.set(uid, sequence);
+  };
+
+  const replaceObjects = (events: readonly RemoteEvent[]): void => {
+    for (const event of events) {
+      const signature = signatureOf(event);
+      if (signatures.get(event.uid.value) !== signature) {
+        signatures.set(event.uid.value, signature);
+        touch(event.uid.value);
+      }
+    }
+    stored = events;
+  };
+
+  return {
+    seed: (next: ProviderSeed) => {
+      corrupt = next.corruptKnownRows;
+      replaceObjects(next.events);
+    },
+    objects: () => stored,
+    writeLog: () => log,
+    corruptKnownRows: () => corrupt,
+    calendar: () => calendar,
+    replaceObjects,
+    record: (entry: WriteLogEntry) => {
+      log.push(entry);
+    },
+    reported: () => reported,
+    setReported: (identities: readonly ReportedIdentity[]) => {
+      reported = identities;
+    },
+    sequenceOf: (uid: string) => sequences.get(uid) ?? 0,
+    touch,
+    currentSequence: () => sequence,
+    clearCorruption: () => {
+      corrupt = [];
+    },
+  };
 };
 
 export { createReferenceStore };
-export type { ReferenceStore };
+export type { ReferenceStore, ReportedIdentity };

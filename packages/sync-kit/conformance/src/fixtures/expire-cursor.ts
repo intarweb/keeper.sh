@@ -1,7 +1,24 @@
+import type { ProviderId } from "@keeper.sh/sync-protocol";
+import type { ProviderUnderTest } from "../options";
+import { cursorLostListing } from "../reference/listing";
 import type { ProviderDecorator } from "./decorate";
+import { withListChanges } from "./decorate";
 
 const expiringCursorAfter = (pages: number): ProviderDecorator => {
-  throw new Error(`unimplemented: expiringCursorAfter(${pages})`);
+  const decorate = <Provider extends ProviderId>(
+    provider: ProviderUnderTest<Provider>,
+  ): ProviderUnderTest<Provider> => {
+    let drained = 0;
+    return withListChanges(provider, async (request, context, inner) => {
+      drained += 1;
+      const answered = await inner();
+      if (drained <= pages || request.resume === null) {
+        return answered;
+      }
+      return { ok: true, value: cursorLostListing(request.scope) };
+    });
+  };
+  return decorate;
 };
 
 export { expiringCursorAfter };

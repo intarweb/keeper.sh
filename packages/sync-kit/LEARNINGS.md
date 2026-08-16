@@ -3729,8 +3729,11 @@ delete and create does not orphan a real event.
 **Learned from.** commit `1c5171d2`; `index.test.ts :: "keeps the stale mapping when recreation fails after
 a successful delete"`, *"does not checkpoint the stale mapping when recreation aborts after deletion"*.
 **Honoured by.** The `conflictingOn(predicate)` fixture is pointed at the create half of a replace. The
-case asserts the delete outcome is reported separately from the create failure — the adapter must not
-report a replace atomically when it was not — so the caller retains enough to recreate on the next run.
+case asserts the outcome of the half that already succeeded survives the half that did not — the object it
+created is still on the calendar and its entry is still in the write log — so the caller retains enough to
+recreate on the next run. A refused create is a `WriteOutcome` of kind `conflict` carrying the `RemoteRef`
+of the copy that blocked it (CONF-I14), not a `ProviderFailure`; only a write whose target could not be
+named at all fails outright.
 **Planned case.** `CONF-O25` in `conformance/tests/writes.test.ts`.
 
 ### CONF-I34. Storage bounds and mirror bounds are different windows
@@ -3922,7 +3925,8 @@ modifications for insert"*) and the `events.import` reference.
 which mechanism the case exercises, and there is **no** value that removes the replayed-create case: an
 adapter that cannot express a conditional insert must instead prove that the caller-supplied
 `IdempotencyKey` deduplicates.
-**Planned case.** `CONF-O14` in `conformance/tests/writes.test.ts`.
+**Planned case.** shared with CONF-I14, which owns the replayed-create case in
+`conformance/tests/writes.test.ts`; this entry adds no case of its own.
 
 ### CONF-I49. A cursor is opaque, and a cursor the adapter cannot read is `cursorLost`, never an empty delta
 

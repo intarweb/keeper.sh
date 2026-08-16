@@ -6,13 +6,57 @@ type CanonicalValue =
   | readonly CanonicalValue[]
   | { readonly [key: string]: CanonicalValue };
 
-const canonicalise = (value: CanonicalValue): string => {
-  throw new Error(`unimplemented: canonicalise(${typeof value})`);
+type KeyOrder = (keys: readonly string[]) => readonly string[];
+
+const compareCodeUnits = (left: string, right: string): number => {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
 };
 
-const sortedKeys = (keys: readonly string[]): readonly string[] => {
-  throw new Error(`unimplemented: sortedKeys(${keys.length})`);
+const sortedKeys = (keys: readonly string[]): readonly string[] =>
+  keys.toSorted(compareCodeUnits);
+
+const insertionOrderKeys = (keys: readonly string[]): readonly string[] => keys;
+
+const isCanonicalArray = (value: CanonicalValue): value is readonly CanonicalValue[] =>
+  Array.isArray(value);
+
+const presentMembers = (value: Record<string, CanonicalValue>): readonly string[] =>
+  Object.keys(value).filter((key) => (value[key] ?? null) !== null);
+
+const canonicaliseWith = (order: KeyOrder, value: CanonicalValue): string => {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  if (typeof value === "boolean") {
+    return String(value);
+  }
+  if (isCanonicalArray(value)) {
+    return `[${value.map((member) => canonicaliseWith(order, member)).join(",")}]`;
+  }
+  return `{${order(presentMembers(value))
+    .map((key) => `${JSON.stringify(key)}:${canonicaliseWith(order, value[key] ?? null)}`)
+    .join(",")}}`;
 };
 
-export { canonicalise, sortedKeys };
-export type { CanonicalValue };
+const canonicalise = (value: CanonicalValue): string => canonicaliseWith(sortedKeys, value);
+
+export {
+  canonicalise,
+  canonicaliseWith,
+  compareCodeUnits,
+  insertionOrderKeys,
+  sortedKeys,
+};
+export type { CanonicalValue, KeyOrder };

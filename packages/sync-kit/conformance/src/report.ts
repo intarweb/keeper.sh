@@ -1,5 +1,6 @@
 import type { Capabilities } from "@keeper.sh/sync-protocol";
 import type { ConformanceCaseId, LedgerEntryId } from "./case-id";
+import { ungatedCaseIdsOf } from "./registry/gates";
 
 interface SelectedCase {
   readonly id: ConformanceCaseId;
@@ -22,7 +23,7 @@ interface ConformanceReport {
   readonly notAttempted: readonly ConformanceCaseId[];
 }
 
-const ungatedCaseIds: readonly ConformanceCaseId[] = [];
+const ungatedCaseIds: readonly ConformanceCaseId[] = ungatedCaseIdsOf();
 
 export { ungatedCaseIds };
 export type { ConformanceReport, SelectedCase, SkippedCase };

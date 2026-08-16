@@ -123,7 +123,8 @@ describe("a write can never silently overwrite", () => {
     const inspection = await harness.provider.inspect();
 
     expect(outcomeKindOf(created)).toBe("created");
-    expect(failureOf(replacement).kind).toBe("conflict");
+    expect(outcomeKindOf(okValue(replacement))).toBe("conflict");
+    expect(inspection.objects.map((event) => event.uid.value)).toContain("replaced");
     expect(() => assertNoDeleteThenCreate(inspection.writeLog)).not.toThrow();
     await harness.dispose();
   });

@@ -1,5 +1,17 @@
 import type { Capabilities, ProviderId } from "@keeper.sh/sync-protocol";
 import type { ConformanceCaseId } from "../case-id";
+import { capabilityCases } from "../cases/capabilities";
+import { convergenceCases } from "../cases/convergence";
+import { cursorCases } from "../cases/cursor";
+import { deletionSafetyCases } from "../cases/deletion-safety";
+import { diagnosticsCases } from "../cases/diagnostics";
+import { hostileContentCases } from "../cases/hostile-content";
+import { injectionCases } from "../cases/injection";
+import { isolationCases } from "../cases/isolation";
+import { lockupCases } from "../cases/lockups";
+import { provenanceCases } from "../cases/provenance";
+import { windowCases } from "../cases/window";
+import { writeCases } from "../cases/writes";
 import type { SkippedCase } from "../report";
 import type { ConformanceCase } from "./case";
 
@@ -8,18 +20,53 @@ interface CaseSelection<Provider extends ProviderId = ProviderId> {
   readonly skipped: readonly SkippedCase[];
 }
 
+const allCases = <Provider extends ProviderId>(
+  supports: Capabilities<Provider>,
+): readonly ConformanceCase<Provider>[] => [
+  ...deletionSafetyCases(supports),
+  ...isolationCases(supports),
+  ...cursorCases(supports),
+  ...writeCases(supports),
+  ...provenanceCases(supports),
+  ...windowCases(supports),
+  ...capabilityCases(supports),
+  ...diagnosticsCases(supports),
+  ...convergenceCases(supports),
+  ...hostileContentCases(supports),
+  ...injectionCases(supports),
+  ...lockupCases(supports),
+];
+
+const skippedFrom = <Provider extends ProviderId>(
+  records: readonly ConformanceCase<Provider>[],
+): readonly SkippedCase[] =>
+  records.flatMap((record) => {
+    if (record.gate.kind !== "skip") {
+      return [];
+    }
+    return [{ id: record.id, capability: record.gate.capability, reason: record.gate.reason }];
+  });
+
 const selectConformanceCases = <Provider extends ProviderId>(
   supports: Capabilities<Provider>,
 ): CaseSelection<Provider> => {
-  throw new Error(`unimplemented: selectConformanceCases(${supports.provider})`);
+  const records = allCases(supports);
+  return {
+    selected: records.filter((record) => record.gate.kind !== "skip"),
+    skipped: skippedFrom(records),
+  };
 };
 
 const conformanceCaseOf = <Provider extends ProviderId>(
   id: ConformanceCaseId,
   supports: Capabilities<Provider>,
 ): ConformanceCase<Provider> => {
-  throw new Error(`unimplemented: conformanceCaseOf(${id}, ${supports.provider})`);
+  const found = allCases(supports).find((record) => record.id === id);
+  if (!found) {
+    throw new Error(`the conformance suite generates no case named "${id}"`);
+  }
+  return found;
 };
 
-export { conformanceCaseOf, selectConformanceCases };
+export { allCases, conformanceCaseOf, selectConformanceCases };
 export type { CaseSelection };
