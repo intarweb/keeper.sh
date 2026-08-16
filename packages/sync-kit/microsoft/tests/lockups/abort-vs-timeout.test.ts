@@ -1,9 +1,17 @@
 import { describe, expect, test } from "vitest";
+import type { ChangeListing, Result } from "@keeper.sh/sync-protocol";
 import { failureKindOf } from "../support/expect";
 import { createHarness, marchWindow, operationContext, scopeOver } from "../support/harness";
 
+const notAttemptedReasonOf = (answered: Result<ChangeListing>): string => {
+  if (answered.ok || answered.failure.kind !== "notAttempted") {
+    return "attempted";
+  }
+  return answered.failure.reason;
+};
+
 describe("a caller's cancel is not a provider timeout", () => {
-  test("MS-L8: an aborted request is notAttempted and a timed out request is transport", async () => {
+  test("MS-L8: an aborted request is aborted and a timed out request is budgetExhausted", async () => {
     const aborted = createHarness();
     aborted.environment.transport.stall();
     const caller = new AbortController();
@@ -24,7 +32,8 @@ describe("a caller's cancel is not a provider timeout", () => {
 
     expect(cancelled.ok).toBe(false);
     expect(failureKindOf(cancelled)).toBe("notAttempted");
-    expect(failureKindOf(expired)).not.toBe("notAttempted");
+    expect(notAttemptedReasonOf(cancelled)).toBe("aborted");
+    expect(notAttemptedReasonOf(expired)).toBe("budgetExhausted");
   }, 5000);
 
   test("MS-L8: an abort mid-flight leaves no timer armed", async () => {

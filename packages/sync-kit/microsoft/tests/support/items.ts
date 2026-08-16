@@ -22,11 +22,25 @@ interface TimedDraft {
   readonly bodyContentType?: BodyType;
 }
 
+const subjectOf = (draft: TimedDraft): string | null => {
+  if (!Object.hasOwn(draft, "subject")) {
+    return draft.id;
+  }
+  return draft.subject ?? null;
+};
+
+const uidOf = (draft: TimedDraft): string | null => {
+  if (!Object.hasOwn(draft, "uid")) {
+    return `${draft.id}-uid`;
+  }
+  return draft.uid ?? null;
+};
+
 const timedItem = (draft: TimedDraft): GraphEvent => ({
   id: draft.id,
-  iCalUId: draft.uid ?? `${draft.id}-uid`,
+  iCalUId: uidOf(draft),
   changeKey: draft.changeKey ?? `ck-1-${draft.id}`,
-  subject: draft.subject ?? draft.id,
+  subject: subjectOf(draft),
   body: { contentType: draft.bodyContentType ?? "text", content: draft.description ?? "" },
   location: { displayName: draft.location ?? "" },
   showAs: "busy",

@@ -1,5 +1,4 @@
 import type { Instant } from "@keeper.sh/sync-protocol";
-import { unimplemented } from "../unimplemented";
 import type { GraphSubscription } from "./subscription";
 
 interface ReconcileInputs {
@@ -15,10 +14,36 @@ interface ReconcilePlan {
   readonly protectedByTick: readonly string[];
 }
 
-const ownsNotificationUrl = (ourUrl: string, presented: string): boolean =>
-  unimplemented(ourUrl, presented);
+const ownsNotificationUrl = (ourUrl: string, presented: string): boolean => {
+  if (presented === ourUrl) {
+    return true;
+  }
+  return presented.startsWith(`${ourUrl}/`);
+};
 
-const reconcileSubscriptions = (inputs: ReconcileInputs): ReconcilePlan => unimplemented(inputs);
+const startedAfter = (subscription: GraphSubscription, tickStartedAt: Instant): boolean =>
+  Date.parse(subscription.createdAt.value) >= Date.parse(tickStartedAt.value);
+
+const reconcileSubscriptions = (inputs: ReconcileInputs): ReconcilePlan => {
+  const deletable: string[] = [];
+  const foreign: string[] = [];
+  const protectedByTick: string[] = [];
+  for (const subscription of inputs.listed) {
+    if (!ownsNotificationUrl(inputs.ourNotificationUrl, subscription.notificationUrl)) {
+      foreign.push(subscription.id);
+      continue;
+    }
+    if (startedAfter(subscription, inputs.tickStartedAt)) {
+      protectedByTick.push(subscription.id);
+      continue;
+    }
+    if (inputs.keep.includes(subscription.id)) {
+      continue;
+    }
+    deletable.push(subscription.id);
+  }
+  return { deletable, foreign, protectedByTick };
+};
 
 export { ownsNotificationUrl, reconcileSubscriptions };
 export type { ReconcileInputs, ReconcilePlan };

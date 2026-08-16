@@ -1,6 +1,5 @@
 import type { OperationContext, RemoteEventId } from "@keeper.sh/sync-protocol";
 import type { MicrosoftFailure } from "../errors/classify";
-import { unimplemented } from "../unimplemented";
 
 type SeriesExpansion =
   | { readonly kind: "expanded"; readonly instances: readonly unknown[] }
@@ -13,7 +12,16 @@ interface ExpandOptions {
   readonly fetchInstances: (master: RemoteEventId) => Promise<SeriesExpansion>;
 }
 
-const expandSeries = (options: ExpandOptions): Promise<SeriesExpansion> => unimplemented(options);
+const expandSeries = async (options: ExpandOptions): Promise<SeriesExpansion> => {
+  if (options.context.signal.aborted) {
+    return { kind: "empty" };
+  }
+  const answered = await options.fetchInstances(options.master);
+  if (answered.kind === "expanded" && answered.instances.length === 0) {
+    return { kind: "empty" };
+  }
+  return answered;
+};
 
 export { expandSeries };
 export type { ExpandOptions, SeriesExpansion };

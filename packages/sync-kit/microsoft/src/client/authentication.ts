@@ -1,5 +1,4 @@
 import type { AuthenticationProvider } from "@microsoft/microsoft-graph-client";
-import { unimplemented } from "../unimplemented";
 
 interface HeldTokenOptions {
   readonly getAccessToken: () => Promise<string>;
@@ -7,7 +6,9 @@ interface HeldTokenOptions {
 
 const createHeldTokenAuthenticationProvider = (
   options: HeldTokenOptions,
-): AuthenticationProvider => unimplemented(options);
+): AuthenticationProvider => ({
+  getAccessToken: () => options.getAccessToken(),
+});
 
 export { createHeldTokenAuthenticationProvider };
 export type { HeldTokenOptions };

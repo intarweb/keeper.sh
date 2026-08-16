@@ -6368,12 +6368,13 @@ abort (recorded as not attempted), so a user-cancelled sync is not counted as a 
 `providers/outlook/source/utils/fetch-events.ts` (`REQUEST_TIMEOUT_MS`, `isRequestTimeoutError` with
 `!options.signal?.aborted`).
 **Honoured by.** `src/client/deadline.ts` composes the caller's `signal` with the operation deadline; the
-resulting rejection carries which one fired. An abort maps to `{ kind: "notAttempted", reason: "aborted" }`,
-a timeout to `{ kind: "transport", disposition: "transient" }`.
+resulting rejection carries which one fired. An abort maps to `{ kind: "notAttempted", reason: "aborted" }`
+and a spent deadline to `{ kind: "notAttempted", reason: "budgetExhausted" }`, so a user-cancelled sync and
+a provider that never answered stay distinguishable without either being charged as a provider failure.
 **Proved by.** `microsoft/tests/lockups/deadline.test.ts :: MS-L7: a request that never resolves rejects at
 the deadline`;
-`microsoft/tests/lockups/abort-vs-timeout.test.ts :: MS-L8: an aborted request is notAttempted and a timed
-out request is transport`;
+`microsoft/tests/lockups/abort-vs-timeout.test.ts :: MS-L8: an aborted request is aborted and a timed out
+request is budgetExhausted`;
 `microsoft/tests/lockups/every-verb-deadline.test.ts :: MS-L9: listCalendars, listChanges and write each
 reject against a stub that never resolves`.
 
@@ -7034,7 +7035,7 @@ const microsoftCapabilities = {
   provider: "microsoft",
   delta: { kind: "tokenized", windowBoundToCursor: true },
   deletionAuthority: "snapshotAbsence",
-  removalsAreAmbiguous: true,
+  removalsAreAmbiguous: false,
   precondition: "matchesVersion",
   provenanceChannel: "extendedProperty",
   quotaScope: "perMailbox",
@@ -7055,9 +7056,9 @@ const microsoftCapabilities = {
 ```
 
 `windowBoundToCursor: true` is forced by MS-I5: the window bounds live inside the `$deltatoken`.
-`removalsAreAmbiguous: true` is the honest reading of MS-I8 and MS-I9 — Graph's `@removed` may carry no type
-and may name identities the walk never covered — and it selects the *stricter* set of conformance cases
-rather than skipping any. `deletionAuthority: "snapshotAbsence"` is honest only because the snapshot mode is
+`removalsAreAmbiguous: false` is the reading the green phase forced, and MS-I86 records why: the ambiguity
+of MS-I8 and MS-I9 is expressed *per removal* — an untyped `@removed` is a resync trigger and an identity the
+walk never covered is `outOfScope` — so what survives into the listing is never ambiguous. `deletionAuthority: "snapshotAbsence"` is honest only because the snapshot mode is
 a full `calendarView` bounded by `startDateTime`/`endDateTime` that really does prove that window, and
 because the three resync triggers of MS-I1, MS-I7 and MS-I8 guarantee a delta can never masquerade as one.
 `zeroDuration: "accept"` and `invertedRange: "clampToStart"` are the Graph-specific half of MS-I31 — and are
@@ -7132,3 +7133,101 @@ reading of MS-I27, `rewritesBody(true)` for the HTML rewrite of MS-I24, `cyclesN
 items that are not valid `Event` resources at all. No test reaches past it to stub an internal function, and
 no lockup test asserts elapsed wall-clock time: each one counts operations, asserts a typed refusal, or runs
 at two configured ceilings and shows the outcome differs.
+
+## Green phase addendum (sync-microsoft)
+
+### MS-I86. `removalsAreAmbiguous` describes the removals that survive, not the ones the wire carries
+
+**Lesson.** The design declared `removalsAreAmbiguous: true` on the reading that Graph's `@removed` entries
+may carry no type (MS-I8) and may name identities the walk never covered (MS-I9). Under that declaration the
+shared suite becomes unsatisfiable: `CONF-O6` requires that an identity the source really dropped is *named*
+as a removal, while the ambiguous branch of `CONF-O13` requires that no listing ever names one. Both arrive
+as the same page shape — one event, one cancelled row, one untyped `@removed` — so no adapter can answer
+both. The flag is about what reaches the reconciler, and by then every ambiguity has already been spent: an
+untyped tombstone has collapsed the round to `cursorLost` (MS-I8) and an unattributable identity has been
+demoted to `outOfScope` (MS-I9). What is left is attributable, so the honest declaration is `false`.
+**Learned from.** `sync-conformance` `CONF-O6` against `CONF-O13`, running the two branches side by side.
+**Honoured by.** `src/capabilities.ts` declares `removalsAreAmbiguous: false`; the ambiguity itself still
+lives in `src/listing/resync-triggers.ts` and in the `outOfScope` arm of `src/listing/build-feed.ts`.
+**Proved by.** `microsoft/tests/listing/untyped-tombstone.test.ts :: MS-O8: an @removed entry with no type
+collapses the listing to cursorLost rather than deleting`;
+`microsoft/tests/listing/removal-outside-window.test.ts :: MS-O9: an @removed naming an id outside the
+walked window is outOfScope, not an authoritative removal`;
+`microsoft/tests/decode/cancelled-and-removed.test.ts :: MS-O10: a cancelled occurrence and a deleted
+tombstone are distinct authoritative removals`.
+
+### MS-I87. A removal is authoritative only when the same walk named the identity it removes
+
+**Lesson.** `Removal.deleted` and `Removal.cancelled` both carry a `uid`, and a Graph tombstone carries only
+an `id`. The type therefore refuses to express an authoritative removal the walk cannot attribute, which is
+exactly the guard MS-I9 asks for: the uid is resolved from the events the same round decoded, and a
+tombstone naming an identity that round never saw degrades to `outOfScope`.
+**Honoured by.** `src/listing/build-feed.ts` builds a uid index from the decoded events of the round and
+resolves every tombstone against it before choosing an arm.
+**Proved by.** `microsoft/tests/listing/removal-outside-window.test.ts :: MS-O9: an @removed naming an id
+outside the walked window is outOfScope, not an authoritative removal`.
+
+### MS-I88. Identity is a property we stamp, not one Graph hands back
+
+**Lesson.** Graph mints `iCalUId` itself, so a mirrored event read back does not carry the identity the
+caller asked us to write. Every conformance case that inspects what it wrote — replayed creates, conflicts,
+concurrent writers — addresses objects by that identity. The adapter stamps the idempotency key into a
+single-value extended property beside the provenance stamp and prefers it over `iCalUId` on read; an absent
+`iCalUId` falls back to the event id, while a *present but empty* one is `missingIdentity`, because a blank
+identity is a broken record rather than an omitted projection.
+**Honoured by.** `src/decode/extended-property.ts` names the property, `src/decode/identity.ts` reads it
+first, `src/write/serialize.ts` writes it and carries the stamps of an event forward across a PATCH so an
+update never strips the identity or the provenance the create established.
+**Proved by.** `microsoft/tests/decode/nullable-fields.test.ts :: MS-O18: a null iCalUId, seriesMasterId and
+subject all decode without an assertion`;
+`microsoft/tests/writes/idempotent-create.test.ts :: MS-O30: a replayed create returns alreadyExists and
+creates nothing`;
+`microsoft/tests/provenance/two-markers.test.ts :: MS-O31: either the extended property or the category
+identifies our own write, and the iCalUId alone does not`.
+
+### MS-I89. The operation deadline is armed once, at the seam the caller entered
+
+**Lesson.** Arming a deadline inside the request seam as well as at the provider boundary spends a second
+timer on the injected clock for every request, and an observer of that clock cannot tell a backoff sleep
+from a deadline. Worse, it hides which ceiling actually stopped a run. The deadline is armed once per
+`listCalendars`, `listChanges` and `write`; the seam below it owns only the retry ladder, and the page loop
+below that only re-reads the remaining budget.
+**Honoured by.** `src/internals.ts` wraps every verb in `raceDeadline`; `src/client/request.ts` retries
+against the caller's signal alone; `src/listing/paginate.ts` compares `remainingMilliseconds` before each
+page and never arms a timer.
+**Proved by.** `microsoft/tests/lockups/quota-inside-retry.test.ts :: MS-L18: a backoff sleep holds no
+mailbox permit`;
+`microsoft/tests/lockups/every-verb-deadline.test.ts :: MS-L9: listCalendars, listChanges and write each
+reject against a stub that never resolves`;
+`microsoft/tests/lockups/loop-deadline.test.ts :: MS-L12: pages that each finish under the per-request
+deadline still end at the loop deadline`.
+
+### MS-I90. A permit an aborted caller can no longer use is refused, not merely released
+
+**Lesson.** Releasing the permit when the signal fires still leaves the caller awaiting a body that will
+never settle, so the caller wedges even though the mailbox recovered. The guarded body is raced against the
+abort, so an aborted caller rejects with `PermitAborted` and the seam records `notAttempted` rather than
+charging the provider.
+**Honoured by.** `src/client/semaphore.ts` races the body against the abort inside the same `finally` that
+releases the permit.
+**Proved by.** `microsoft/tests/lockups/permit-release.test.ts :: MS-L13: a permit is released when the
+caller is aborted mid-body`;
+`microsoft/tests/lockups/queued-abort.test.ts :: MS-L14: a waiter aborted while queued rejects and frees its
+slot for its successor`.
+
+### MS-I91. The fixture was under-modelling Graph in four places, and each one hid a real guard
+
+**Lesson.** Four behaviours the red phase's fake Graph did not carry each made a guard untestable, so each
+was added to the fixture rather than worked around in the adapter. A delta response mints a **fresh**
+`$deltatoken` every round, which is what makes a superseded cursor detectable at all (MS-I57). A seed that
+drops an identity reports it as a **cancelled row**, which is how Graph expresses a deletion in a delta feed
+and the only way a real removal can be named. `ProviderSeed.corruptKnownRows` answers **410 resyncRequired**,
+which is the demand for a full resync the reconciler is being tested against. Scripted write failures reach
+the **subscription** verbs, so a renewal can be shown to distinguish a vanished channel from a throttled one
+(MS-I78). `microsoft/tests/cursor/quiet-poll.test.ts` was seeding an *empty* calendar to stand for a quiet
+round, which under a fixture that models deletion asserts that emptying a calendar derives no removals —
+the exact hazard this package exists to prevent — so it now re-seeds the same events it started with.
+**Honoured by.** `microsoft/tests/support/fake-graph.ts`.
+**Proved by.** `microsoft/tests/cursor/quiet-poll.test.ts :: MS-O11: a delta round with no items advances
+the cursor and derives no removal`;
+`microsoft/tests/push/renewal.test.ts :: MS-P11: a 404 on renewal is gone and a 429 is not`.

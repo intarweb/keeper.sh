@@ -13,7 +13,7 @@ describe("a poll that reports nothing is a successful poll", () => {
         operationContext(harness.environment),
       ),
     );
-    harness.fake.seedFromProvider(seedOf([]));
+    harness.fake.seedFromProvider(seedOf(manyForeignEvents(2)));
 
     const second = listingOf(
       await harness.provider.listChanges(

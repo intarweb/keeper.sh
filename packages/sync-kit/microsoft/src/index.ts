@@ -5,7 +5,7 @@ export type { MicrosoftLimits } from "./limits";
 export { createGraphClient } from "./client/graph-client";
 export type { FetchImplementation, GraphClientOptions } from "./client/graph-client";
 export { createHeldTokenAuthenticationProvider } from "./client/authentication";
-export { microsoftPrefer, preferHeaderValue } from "./client/prefer";
+export { microsoftPrefer, preferHeaders, preferHeaderValue } from "./client/prefer";
 
 export { createMicrosoftProvider } from "./provider";
 export { createMicrosoftContract } from "./contract";
@@ -21,7 +21,7 @@ export type {
   GraphPushSignal,
   PushRejection,
 } from "./push/receiver";
-export { verifyClientState } from "./push/secret";
+export { clientStateHash, verifyClientState } from "./push/secret";
 export { graphLifecycleEvents, lifecycleOutcomeOf } from "./push/lifecycle";
 export type { GraphLifecycleEvent, LifecycleOutcome } from "./push/lifecycle";
 export type { RichHint } from "./push/resource-data";

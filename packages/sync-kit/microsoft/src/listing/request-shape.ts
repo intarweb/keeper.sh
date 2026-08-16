@@ -1,6 +1,5 @@
-import type { ListingScope } from "@keeper.sh/sync-protocol";
+import type { ListingScope, TimeWindow } from "@keeper.sh/sync-protocol";
 import type { ListingMode } from "../cursor/fingerprint";
-import { unimplemented } from "../unimplemented";
 
 const calendarViewSelect = [
   "id",
@@ -37,13 +36,28 @@ const requestPaths = {
 
 type RequestPath = (typeof requestPaths)[keyof typeof requestPaths];
 
+const selectedFields = (): string => instancesSelect.join(",");
+
+const spanParameters = (bounds: TimeWindow): Readonly<Record<string, string>> => ({
+  startDateTime: bounds.start.value,
+  endDateTime: bounds.end.value,
+});
+
 const requestParameters = (
   scope: ListingScope,
   mode: ListingMode,
-): Readonly<Record<string, string>> => unimplemented(scope, mode);
+): Readonly<Record<string, string>> => {
+  if (mode === "delta") {
+    return { $select: selectedFields() };
+  }
+  const { window: bounds } = scope;
+  return { ...spanParameters(bounds), $select: selectedFields() };
+};
 
-const instancesParameters = (scope: ListingScope): Readonly<Record<string, string>> =>
-  unimplemented(scope);
+const instancesParameters = (scope: ListingScope): Readonly<Record<string, string>> => {
+  const { window: bounds } = scope;
+  return { ...spanParameters(bounds), $select: selectedFields() };
+};
 
 export {
   calendarViewSelect,

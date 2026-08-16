@@ -267,6 +267,8 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
   let rewritesBodies = false;
   let calendarsBody: unknown = null;
   let issuedLinks = 0;
+  let issuedDeltaTokens = 0;
+  let corruptRows = false;
   let deleteBodyCancelled = false;
 
   const removalEntries = (): readonly unknown[] =>
@@ -305,11 +307,18 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
     if (withheldDeltaLink) {
       return base;
     }
-    return { ...base, "@odata.deltaLink": `${graphRoot}/v1.0${url.pathname}?$deltatoken=d-${issuedLinks}` };
+    issuedDeltaTokens += 1;
+    return {
+      ...base,
+      "@odata.deltaLink": `${graphRoot}/v1.0${url.pathname}?$deltatoken=d-${issuedDeltaTokens}`,
+    };
   };
 
   const answerList = (url: URL): Response => {
     listCalls += 1;
+    if (corruptRows) {
+      return errorResponse({ onCall: listCalls, status: 410, code: "resyncRequired" });
+    }
     const failure = scriptedFailureFor(listFailures, listCalls);
     if (failure !== null) {
       return errorResponse(failure);
@@ -340,6 +349,19 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
       },
       { status: 200, headers: headersOf({}) },
     );
+  };
+
+  const tombstonesFor = (events: readonly RemoteEvent[]): readonly GraphEvent[] => {
+    const surviving = new Set(events.map((event) => event.id.value));
+    const gone = new Map<string, GraphEvent>();
+    for (const item of stored) {
+      const id = idOfItem(item);
+      if (id.length === 0 || surviving.has(id)) {
+        continue;
+      }
+      gone.set(id, { ...item, isCancelled: true });
+    }
+    return [...gone.values()];
   };
 
   const positionOfId = (id: string): number => stored.findLastIndex((item) => idOfItem(item) === id);
@@ -475,6 +497,11 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
     if (method === "GET") {
       return Response.json({ value: openSubscriptions }, { status: 200, headers: headersOf({}) });
     }
+    writeCalls += 1;
+    const scripted = scriptedFailureFor(writeFailures, writeCalls);
+    if (scripted !== null) {
+      return errorResponse(scripted);
+    }
     if (method === "POST") {
       return createSubscription(body);
     }
@@ -552,12 +579,15 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
   return {
     fetch: fakeFetch,
     seedFromProvider: (seed: ProviderSeed) => {
+      const vanished = tombstonesFor(seed.events);
       stored.length = 0;
       extras.length = 0;
       removals.length = 0;
+      corruptRows = seed.corruptKnownRows.length > 0;
       for (const event of seed.events) {
         stored.push(itemOfRemoteEvent(event, options.startedAt));
       }
+      stored.push(...vanished);
       for (const uid of seed.cancelled) {
         for (const [position, item] of stored.entries()) {
           if (item.iCalUId === uid.value) {

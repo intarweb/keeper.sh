@@ -10,5 +10,7 @@ type PreferDirective = (typeof microsoftPrefer)[number];
 
 const preferHeaderValue = (): string => microsoftPrefer.join(", ");
 
-export { microsoftPrefer, preferHeaderValue };
+const preferHeaders = (): Readonly<Record<string, string>> => ({ Prefer: preferHeaderValue() });
+
+export { microsoftPrefer, preferHeaders, preferHeaderValue };
 export type { PreferDirective };

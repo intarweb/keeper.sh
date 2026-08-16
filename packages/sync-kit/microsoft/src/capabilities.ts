@@ -4,7 +4,7 @@ const microsoftCapabilities = {
   provider: "microsoft",
   delta: { kind: "tokenized", windowBoundToCursor: true },
   deletionAuthority: "snapshotAbsence",
-  removalsAreAmbiguous: true,
+  removalsAreAmbiguous: false,
   precondition: "matchesVersion",
   provenanceChannel: "extendedProperty",
   quotaScope: "perMailbox",

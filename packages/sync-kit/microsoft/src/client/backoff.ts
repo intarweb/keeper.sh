@@ -1,7 +1,7 @@
 import type { OperationContext } from "@keeper.sh/sync-protocol";
+import { assertNever } from "@keeper.sh/sync-protocol";
 import type { MicrosoftClock } from "../dependencies";
 import type { MicrosoftFailure } from "../errors/classify";
-import { unimplemented } from "../unimplemented";
 
 type Attempt<Value> =
   | { readonly kind: "answered"; readonly value: Value }
@@ -23,14 +23,95 @@ interface BackoffOptions<Value> {
   readonly attempt: (attemptNumber: number) => Promise<Attempt<Value>>;
 }
 
+type SleepOutcome = "slept" | "aborted" | "refused";
+
+const backoffStepMs = 100;
+
+const exponentialMs = (attemptNumber: number): number => backoffStepMs * 2 ** (attemptNumber - 1);
+
+const askedDelayMs = (
+  failure: MicrosoftFailure,
+  clock: MicrosoftClock,
+  attemptNumber: number,
+): number => {
+  if (failure.kind !== "throttled" || failure.retryAfter === null) {
+    return exponentialMs(attemptNumber);
+  }
+  return Date.parse(failure.retryAfter.value) - Date.parse(clock.now().value);
+};
+
+const jitteredMs = (milliseconds: number, fraction: number): number => {
+  const bounded = Math.min(1, Math.max(0, fraction));
+  return Math.round(milliseconds * (0.5 + bounded / 2));
+};
+
 const retryDelayMs = (
   failure: MicrosoftFailure,
   options: Pick<BackoffOptions<unknown>, "clock" | "context" | "randomFraction">,
   attemptNumber: number,
-): number => unimplemented(failure, options, attemptNumber);
+): number => {
+  const ceiling = options.context.retryBudget.retryDelayCeilingMs;
+  const asked = askedDelayMs(failure, options.clock, attemptNumber);
+  return Math.max(0, Math.min(ceiling, jitteredMs(asked, options.randomFraction())));
+};
 
-const withBackoff = <Value>(options: BackoffOptions<Value>): Promise<BackoffOutcome<Value>> =>
-  unimplemented(options);
+const sleptBetweenAttempts = async (
+  milliseconds: number,
+  options: BackoffOptions<unknown>,
+): Promise<SleepOutcome> => {
+  try {
+    await options.clock.sleep(milliseconds, options.signal);
+    return "slept";
+  } catch {
+    if (options.signal.aborted) {
+      return "aborted";
+    }
+    return "refused";
+  }
+};
 
-export { retryDelayMs, withBackoff };
-export type { Attempt, BackoffOptions, BackoffOutcome };
+const withBackoff = async <Value>(
+  options: BackoffOptions<Value>,
+): Promise<BackoffOutcome<Value>> => {
+  const ceiling = options.context.retryBudget.maxAttempts;
+  for (let attemptNumber = 1; attemptNumber <= ceiling; attemptNumber += 1) {
+    if (options.signal.aborted) {
+      return { kind: "aborted" };
+    }
+    const attempted = await options.attempt(attemptNumber);
+    switch (attempted.kind) {
+      case "answered": {
+        return { kind: "answered", value: attempted.value };
+      }
+      case "fatal": {
+        return { kind: "failed", failure: attempted.failure };
+      }
+      case "aborted": {
+        return { kind: "aborted" };
+      }
+      case "retryable": {
+        if (attemptNumber === ceiling) {
+          return { kind: "failed", failure: attempted.failure };
+        }
+        const slept = await sleptBetweenAttempts(
+          retryDelayMs(attempted.failure, options, attemptNumber),
+          options,
+        );
+        if (slept === "aborted") {
+          return { kind: "aborted" };
+        }
+        if (slept === "refused") {
+          return { kind: "failed", failure: attempted.failure };
+        }
+        break;
+      }
+      default: {
+        return assertNever(attempted);
+      }
+    }
+  }
+  return { kind: "exhausted", attempts: ceiling };
+};
+
+export { jitteredMs, retryDelayMs, withBackoff };
+export type { Attempt, BackoffOptions, BackoffOutcome, SleepOutcome };
