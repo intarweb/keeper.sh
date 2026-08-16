@@ -336,6 +336,7 @@ interface ContentUpdates {
   allDayChanged: boolean;
   observedIsAllDay: boolean;
   rejected: boolean;
+  rejectedFields: WriteBackField[];
   text: WriteBackUpdates;
 }
 
@@ -382,6 +383,9 @@ const collectContentUpdates = (
     allDayChanged: observed.isAllDay !== mapping.destinationIsAllDay,
     observedIsAllDay: observed.isAllDay,
     rejected: writable.length !== textChanges.length,
+    rejectedFields: textChanges
+      .filter(([field]) => !eligibleFields.has(field))
+      .map(([field]) => field),
     text: Object.fromEntries(writable),
   };
 };
@@ -728,7 +732,9 @@ const createRejection = (
 });
 
 interface DriftResolution {
+  availabilityRejected: boolean;
   conflicted: boolean;
+  rejectedFields: WriteBackField[];
   rejectionReason: WriteBackRejectionReason | null;
   sourceNonTimeDrifted: boolean;
   sourceTimeDrifted: boolean;
@@ -744,6 +750,7 @@ const NO_CONTENT_UPDATES: ContentUpdates = {
   allDayChanged: false,
   observedIsAllDay: false,
   rejected: false,
+  rejectedFields: [],
   text: {},
 };
 
@@ -845,12 +852,64 @@ const resolveDrift = (
    * the count is what makes it visible. It is taken before the reason is weighed, because
    * a payload from another axis discards the reason but not the discarded edit.
    */
+  let availabilityRejected = false;
   if (drift.availability) {
     counters.blockedAvailability += FIRST_OBSERVATION;
+    availabilityRejected = true;
     rejectionReason = resolveAvailabilityRejection(localEvent, remoteEvent);
   }
 
-  return { conflicted, rejectionReason, sourceNonTimeDrifted, sourceTimeDrifted, updates };
+  return {
+    availabilityRejected,
+    conflicted,
+    rejectedFields: content.rejectedFields,
+    rejectionReason,
+    sourceNonTimeDrifted,
+    sourceTimeDrifted,
+    updates,
+  };
+};
+
+/*
+ * The witness is what the next pass measures drift against, so it may only ever record the
+ * axes this pass could actually carry to the source. Recording the copy's value on an axis
+ * the payload never carried — an availability the source cannot express, a field the pair
+ * is configured to hide — would make the witness agree with the copy: drift would read as
+ * zero on the next pass, one-way repair is barred from a mapping write-back is holding, and
+ * the divergence would be invisible for good. Keeping the recorded value instead leaves the
+ * drift standing until the repair path puts the copy back.
+ */
+const revertRejectedContentField = (
+  mapping: EventMapping,
+  field: WriteBackField,
+): Partial<ObservedDestinationState> => {
+  if (field === "summary") {
+    return { summary: mapping.destinationSummary ?? "" };
+  }
+  if (field === "description") {
+    return { description: mapping.destinationDescription ?? "" };
+  }
+  return { location: mapping.destinationLocation ?? "" };
+};
+
+const resolveRecordedWitness = (
+  mapping: EventMapping,
+  observed: ObservedDestinationState,
+  resolution: DriftResolution,
+): ObservedDestinationState => {
+  const contentReverts = resolution.rejectedFields.map((field) =>
+    revertRejectedContentField(mapping, field)
+  );
+  return {
+    ...observed,
+    ...(resolution.availabilityRejected && {
+      availability: mapping.destinationAvailability ?? null,
+    }),
+    ...Object.assign({}, ...contentReverts) as Partial<ObservedDestinationState>,
+    ...(resolution.rejectedFields.length > NO_OBSERVATIONS && {
+      contentHash: mapping.destinationContentHash ?? observed.contentHash,
+    }),
+  };
 };
 
 /*
@@ -936,6 +995,7 @@ const hasDivergedFromPush = (
 const createUnwritableRejection = (
   context: MappingContext,
   observed: ObservedDestinationState,
+  witness: ObservedDestinationState,
   reason: WriteBackRejectionReason,
   released: boolean,
 ): MappingOutcome => {
@@ -946,7 +1006,7 @@ const createUnwritableRejection = (
       suppress: false,
     };
   }
-  return createRejection(mapping, observed, reason, released);
+  return createRejection(mapping, witness, reason, released);
 };
 
 const classifyPresentMirror = (
@@ -995,7 +1055,7 @@ const classifyPresentMirror = (
   }
 
   if (isRecurringMapping(mapping)) {
-    return createUnwritableRejection(context, observed, "recurring_event", released);
+    return createUnwritableRejection(context, observed, observed, "recurring_event", released);
   }
 
   /*
@@ -1043,6 +1103,8 @@ const classifyPresentMirror = (
     };
   }
 
+  const recordedWitness = resolveRecordedWitness(mapping, observed, resolution);
+
   if (Object.keys(resolution.updates).length > NO_OBSERVATIONS) {
     assertWriteBackPayload(resolution.updates, eligibleFields);
     return {
@@ -1050,7 +1112,7 @@ const classifyPresentMirror = (
         expectedSource: collectExpectedSource(localEvent, resolution.updates),
         expectedSyncEventHash: mapping.syncEventHash,
         mappingId: mapping.id,
-        observed,
+        observed: recordedWitness,
         projectedSyncEventHash: resolveProjectedSyncEventHash(
           localEvent,
           mapping,
@@ -1065,7 +1127,13 @@ const classifyPresentMirror = (
   }
 
   if (resolution.rejectionReason) {
-    return createUnwritableRejection(context, observed, resolution.rejectionReason, released);
+    return createUnwritableRejection(
+      context,
+      observed,
+      recordedWitness,
+      resolution.rejectionReason,
+      released,
+    );
   }
 
   /*

@@ -35,6 +35,21 @@ type EventLookup =
   | { event: GoogleEventWithAttendees | null };
 
 /*
+ * The lookup runs before Google is asked to change or destroy anything, so every way it
+ * can fail — a typed error, an error body that is a gateway's HTML rather than JSON, a
+ * response that does not match the schema, a socket that never connected — is a failure
+ * that touched nothing. It has to reach the caller as an answer it can read: an exception
+ * is indistinguishable from one raised after the write, and the write-back pass can only
+ * release the record of a deletion it knows did not happen.
+ */
+const describeLookupFailure = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "The Google Calendar lookup failed.";
+};
+
+/*
  * A source event with other people on it is a meeting, and Google notifies every one of
  * them when the organizer moves or deletes it. That notice cannot be recalled and the
  * attendee list cannot be rebuilt, so a mirrored copy is never allowed to reach it. The
@@ -200,10 +215,7 @@ const createGoogleSourceWriter = (
       }
       return { event: await findEventByUid(accessToken, reference.sourceEventUid, signal) };
     } catch (error) {
-      if (error instanceof GoogleSourceLookupError) {
-        return { error: error.message };
-      }
-      throw error;
+      return { error: describeLookupFailure(error) };
     }
   };
 

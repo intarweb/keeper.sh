@@ -38,6 +38,21 @@ type EventLookup =
   | { event: OutlookEventWithAttendees | null };
 
 /*
+ * The lookup runs before Outlook is asked to change or destroy anything, so every way it
+ * can fail — a typed error, an error body that is a gateway's HTML rather than JSON, a
+ * response that does not match the schema, a socket that never connected — is a failure
+ * that touched nothing. It has to reach the caller as an answer it can read: an exception
+ * is indistinguishable from one raised after the write, and the write-back pass can only
+ * release the record of a deletion it knows did not happen.
+ */
+const describeLookupFailure = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "The Outlook lookup failed.";
+};
+
+/*
  * Graph sends a meeting update to every attendee when the organizer changes an event, and
  * a cancellation to every one of them when the organizer deletes it. Neither notice can be
  * recalled, so a mirrored copy is never allowed to reach an event that carries attendees.
@@ -216,10 +231,7 @@ const createOutlookSourceWriter = (
       }
       return { event: await findEventByUid(accessToken, reference.sourceEventUid, signal) };
     } catch (error) {
-      if (error instanceof OutlookSourceLookupError) {
-        return { error: error.message };
-      }
-      throw error;
+      return { error: describeLookupFailure(error) };
     }
   };
 

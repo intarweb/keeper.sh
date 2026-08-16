@@ -13,6 +13,7 @@ describe("re-picking the mode a paused pair already carries", () => {
       nextMode: "edits",
       selectedMode: "edits",
       status: { reason: "plan_downgraded", state: "quarantined" },
+      writableSource: true,
     })).toBe("commit");
   });
 
@@ -22,6 +23,7 @@ describe("re-picking the mode a paused pair already carries", () => {
       nextMode: "edits_and_deletes",
       selectedMode: "edits_and_deletes",
       status: { reason: "bulk_edit_breaker", state: "quarantined" },
+      writableSource: true,
     })).toBe("confirm_deletions");
   });
 
@@ -36,6 +38,7 @@ describe("re-picking the mode a paused pair already carries", () => {
       nextMode: "edits_and_deletes",
       selectedMode: "edits_and_deletes",
       status: { reason: "all_copies_missing", state: "delete_confirmation_required" },
+      writableSource: true,
     })).toBe("ignore");
   });
 
@@ -45,6 +48,7 @@ describe("re-picking the mode a paused pair already carries", () => {
       nextMode: "edits",
       selectedMode: "edits",
       status: { reason: null, state: "ok" },
+      writableSource: true,
     })).toBe("ignore");
   });
 
@@ -54,12 +58,14 @@ describe("re-picking the mode a paused pair already carries", () => {
       nextMode: "edits",
       selectedMode: "off",
       status: null,
+      writableSource: true,
     })).toBe("ignore");
     expect(resolveModeSelection({
       locked: true,
       nextMode: "off",
       selectedMode: "edits",
       status: { reason: "plan_downgraded", state: "quarantined" },
+      writableSource: true,
     })).toBe("commit");
   });
 
@@ -69,12 +75,14 @@ describe("re-picking the mode a paused pair already carries", () => {
       nextMode: "edits",
       selectedMode: "off",
       status: null,
+      writableSource: true,
     })).toBe("commit");
     expect(resolveModeSelection({
       locked: false,
       nextMode: "edits_and_deletes",
       selectedMode: "edits",
       status: null,
+      writableSource: true,
     })).toBe("confirm_deletions");
   });
 });

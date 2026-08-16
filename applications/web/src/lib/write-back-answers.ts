@@ -42,8 +42,9 @@ const resolveModeSelection = (input: {
   nextMode: WriteBackMode;
   selectedMode: WriteBackMode;
   status: WriteBackStatus | null;
+  writableSource: boolean;
 }): ModeSelection => {
-  if (input.locked && input.nextMode !== "off") {
+  if ((input.locked || !input.writableSource) && input.nextMode !== "off") {
     return "ignore";
   }
   const restartable = input.status?.state === QUARANTINED_STATE;

@@ -58,6 +58,11 @@ import {
 import type { ExcludeField } from "@/state/calendar-detail";
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 import { resolveDeleteConfirmationAnswers, resolveModeSelection } from "@/lib/write-back-answers";
+import {
+  supportsWriteBack,
+  UNWRITABLE_SOURCE_COPY,
+  WRITE_BACK_STATE_COPY,
+} from "@/lib/write-back-copy";
 import { buildWriteBackFieldSummary } from "@/features/dashboard/components/write-back-summary";
 import type { DeleteConfirmationAnswer } from "@/lib/write-back-answers";
 import {
@@ -612,6 +617,8 @@ function WriteBackModeControl({
   const siblingCount = useAtomValue(siblingCountAtom);
   const [pendingDeletionConsent, setPendingDeletionConsent] = useState(false);
   const locked = Boolean(entitlements && !entitlements.canUseTwoWaySync);
+  const calendarDetail = useAtomValue(calendarDetailAtom);
+  const writableSource = supportsWriteBack(calendarDetail);
 
   const applyMode = (nextMode: WriteBackMode) => {
     const selection = resolveModeSelection({
@@ -619,6 +626,7 @@ function WriteBackModeControl({
       nextMode,
       selectedMode: mode,
       status,
+      writableSource,
     });
     if (selection === "ignore") {
       return;
@@ -680,7 +688,7 @@ function WriteBackModeControl({
           <button
             key={option.mode}
             type="button"
-            disabled={locked && option.mode !== "off"}
+            disabled={(locked || !writableSource) && option.mode !== "off"}
             onClick={() => { applyMode(option.mode); }}
             className={writeBackOptionStyle(option.mode === mode)}
           >
@@ -694,7 +702,12 @@ function WriteBackModeControl({
       {mode !== "off" && (
         <WriteBackFieldSummary sourceName={sourceName || "this calendar"} />
       )}
-      {locked && <UpgradeHint>Two-way sync is a Pro feature.</UpgradeHint>}
+      {!writableSource && (
+        <Text size="xs" className="text-muted-foreground">
+          {UNWRITABLE_SOURCE_COPY}
+        </Text>
+      )}
+      {locked && writableSource && <UpgradeHint>Two-way sync is a Pro feature.</UpgradeHint>}
       <WriteBackStatusLine
         destinationName={destinationName}
         onResolveDeleteConfirmation={resolveDeleteConfirmation}
@@ -720,38 +733,6 @@ function WriteBackModeControl({
   );
 }
 
-const WRITE_BACK_STATE_COPY: Record<string, string> = {
-  all_copies_missing:
-    "Every copy on {destination} is gone. Keeper.sh has not deleted the originals on"
-    + " {source} and is waiting for you to say what happened.",
-  delete_breaker_tripped:
-    "A large number of copies on {destination} disappeared at once, so Keeper.sh did not"
-    + " delete the originals on {source} and is waiting for you to say what happened.",
-  delete_probe_blocked:
-    "Keeper.sh was asked to delete originals on {source}, but it can still see the copies"
-    + " on {destination}. Nothing was deleted.",
-  delete_daily_cap:
-    "Two-way sync to {destination} is paused: more originals on {source} were being"
-    + " deleted in a day than Keeper.sh will apply unattended.",
-  bulk_edit_breaker:
-    "Copies on {destination} changed all at once, which reads as something moving the whole"
-    + " calendar rather than as edits you made. Keeper.sh did not rewrite the originals on"
-    + " {source} and paused two-way sync; the copies go back to matching {source}.",
-  plan_downgraded: "Two-way sync to {destination} is paused because the plan changed."
-    + " Pick the two-way option again to restart it.",
-  source_event_rich_body:
-    "A copy on {destination} was changed, but the original on {source} has a formatted description — links, styling, or a meeting join block. Keeper.sh only ever reads it as plain text, so writing the change back would flatten it. Nothing on {source} was touched and two-way sync to {destination} is paused.",
-  source_event_has_attendees:
-    "A copy on {destination} was changed, but the original on {source} is a meeting other"
-    + " people are invited to. Keeper.sh will not cancel or move a meeting on their behalf,"
-    + " so two-way sync to {destination} is paused and nothing on {source} was touched.",
-  runaway_write_back:
-    "Two-way sync to {destination} is paused: the copies kept changing on their own, so"
-    + " Keeper.sh stopped writing to {source}.",
-  write_back_failing:
-    "Keeper.sh could not write recent changes back to {source}, so two-way sync to"
-    + " {destination} is paused.",
-};
 
 const ANSWER_LABELS: Record<DeleteConfirmationAnswer, (sourceName: string) => string> = {
   apply: (sourceName) => `Delete the originals on ${sourceName}`,

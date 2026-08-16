@@ -182,6 +182,18 @@ const readWriteStatus = (result: unknown): number => {
 const isSuccessfulStatus = (status: number): boolean =>
   status >= OK_STATUS && status < REDIRECT_STATUS;
 
+const describeLookupFailure = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "The CalDAV lookup failed.";
+};
+
+const isLookupFailure = (
+  located: CalDAVObject | null | { lookupError: string },
+): located is { lookupError: string } =>
+  located !== null && "lookupError" in located;
+
 const createCalDAVSourceWriter = (
   config: CalDAVSourceWriterConfig,
 ): CalendarSourceWriter => {
@@ -226,12 +238,30 @@ const createCalDAVSourceWriter = (
     return found.find((object) => matchesUid(object, sourceEventUid)) ?? null;
   };
 
+  /*
+   * The lookup runs before the server is asked to change or destroy anything, so every way
+   * it can fail touched nothing. It has to reach the caller as an answer it can read: an
+   * exception is indistinguishable from one raised after the write, and the write-back
+   * pass can only release the record of a deletion it knows did not happen.
+   */
+  const findObject = (
+    client: CalDAVWriterClient,
+    sourceEventUid: string,
+  ): Promise<CalDAVObject | null | { lookupError: string }> =>
+    locateObject(client, sourceEventUid).catch((error: unknown) => ({
+      lookupError: describeLookupFailure(error),
+    }));
+
   const updateEvent = async (
     reference: { sourceEventId: string | null; sourceEventUid: string },
     updates: SourceEventUpdate,
   ): Promise<SourceWriteResult> => {
     const client = await config.client();
-    const object = await locateObject(client, reference.sourceEventUid);
+    const located = await findObject(client, reference.sourceEventUid);
+    if (isLookupFailure(located)) {
+      return { error: located.lookupError, success: false };
+    }
+    const object = located;
     if (!object?.data) {
       return { error: "Event not found on the CalDAV server.", success: false };
     }
@@ -283,7 +313,11 @@ const createCalDAVSourceWriter = (
     reference: { sourceEventId: string | null; sourceEventUid: string },
   ): Promise<SourceWriteResult> => {
     const client = await config.client();
-    const object = await locateObject(client, reference.sourceEventUid);
+    const located = await findObject(client, reference.sourceEventUid);
+    if (isLookupFailure(located)) {
+      return { error: located.lookupError, success: false };
+    }
+    const object = located;
     if (!object) {
       return { success: true };
     }
