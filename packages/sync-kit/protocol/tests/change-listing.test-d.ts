@@ -1,6 +1,8 @@
 import { describe, expectTypeOf, test } from "vitest";
 import type {
+  AccountId,
   CalendarEnumeration,
+  CalendarId,
   CalendarKey,
   ChangeListing,
   Continuation,
@@ -16,6 +18,7 @@ import type {
 } from "../src/index";
 
 declare const scope: ListingScope;
+declare const calendarId: CalendarId;
 declare const coverage: CoverageWindow;
 declare const requestedWindow: TimeWindow;
 declare const events: readonly RemoteEvent[];
@@ -112,13 +115,20 @@ describe("a listing may only authorise what it proved", () => {
 
   test("a snapshot listing cannot omit its coverage window", () => {
     // @ts-expect-error a snapshot without coverage claims authority it never proved
-    acceptListing({ kind: "snapshot", scope, events, withheld, cursor, diagnostics });
+    acceptListing({ kind: "snapshot", scope, events, withheld, removals, cursor, diagnostics });
+  });
+
+  test("a cancelled event has somewhere to go in both authoritative listing kinds", () => {
+    acceptListing({ kind: "snapshot", scope, coverage, events, removals, withheld, cursor, diagnostics });
+    // @ts-expect-error a snapshot that cannot report cancellations must filter them, and filtering deletes
+    acceptListing({ kind: "snapshot", scope, coverage, events, withheld, cursor, diagnostics });
+    expectTypeOf<Removal["kind"]>().toEqualTypeOf<"deleted" | "cancelled" | "outOfScope">();
   });
 
   test("a requested window is not a proven coverage window", () => {
     // @ts-expect-error the range we asked for is not the range the provider returned
     acceptCoverage(requestedWindow);
-    expectTypeOf<keyof CoverageWindow>().toEqualTypeOf<"coveredFrom" | "coveredTo" | "calendar">();
+    expectTypeOf<keyof CoverageWindow>().toEqualTypeOf<"covered" | "calendar">();
     expectTypeOf<keyof TimeWindow>().toEqualTypeOf<"start" | "end">();
   });
 
@@ -135,8 +145,10 @@ describe("a listing may only authorise what it proved", () => {
 
   test("a calendar key is a composite that includes the owning account", () => {
     // @ts-expect-error two accounts' calendars collide unless provider and account are part of the key
-    acceptCalendarKey({ calendar: "primary" });
-    expectTypeOf<CalendarKey>().toHaveProperty("account");
+    acceptCalendarKey({ calendar: { kind: "calendarId", value: "primary" } });
+    expectTypeOf<CalendarKey["account"]>().toEqualTypeOf<AccountId>();
     expectTypeOf<CalendarKey>().toHaveProperty("provider");
+    // @ts-expect-error the provider's own account id is not the account row this key names
+    acceptCalendarKey({ provider: "google", account: "user@example.com", calendar: calendarId });
   });
 });

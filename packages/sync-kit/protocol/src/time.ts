@@ -7,8 +7,7 @@ interface TimeWindow {
 }
 
 interface CoverageWindow {
-  readonly coveredFrom: Instant;
-  readonly coveredTo: Instant;
+  readonly covered: TimeWindow;
   readonly calendar: CalendarKey;
 }
 
@@ -25,6 +24,33 @@ type EventTime =
       readonly endDateExclusive: CalendarDate;
     };
 
+type OccurrenceDuration =
+  | { readonly kind: "exact"; readonly seconds: number }
+  | { readonly kind: "nominal"; readonly days: number };
+
+type NominalDuration = Extract<OccurrenceDuration, { kind: "nominal" }>;
+
+type RecurrenceAnchor =
+  | {
+      readonly kind: "timed";
+      readonly start: Instant;
+      readonly zone: ZoneId;
+      readonly duration: OccurrenceDuration;
+    }
+  | {
+      readonly kind: "allDay";
+      readonly startDate: CalendarDate;
+      readonly duration: NominalDuration;
+    };
+
 type WindowMembership = (window: TimeWindow, time: EventTime) => boolean;
 
-export type { CoverageWindow, EventTime, TimeWindow, WindowMembership };
+export type {
+  CoverageWindow,
+  EventTime,
+  NominalDuration,
+  OccurrenceDuration,
+  RecurrenceAnchor,
+  TimeWindow,
+  WindowMembership,
+};

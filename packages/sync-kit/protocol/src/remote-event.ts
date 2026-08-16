@@ -8,7 +8,7 @@ import type {
   RemoteVersion,
   Revision,
 } from "./handles";
-import type { EventTime } from "./time";
+import type { EventTime, RecurrenceAnchor } from "./time";
 
 const availabilityKinds = ["busy", "free"] as const;
 type Availability = (typeof availabilityKinds)[number];
@@ -25,15 +25,27 @@ interface RecurrencePayload {
   readonly exceptions: readonly string[];
 }
 
-interface EditableContent {
+interface DescribedContent {
   readonly title: string;
   readonly description: string | null;
   readonly location: string | null;
-  readonly time: EventTime;
   readonly availability: Availability;
   readonly visibility: Visibility;
-  readonly recurrence: RecurrencePayload | null;
 }
+
+type SingleOccurrenceContent = DescribedContent & {
+  readonly recurrence: null;
+  readonly time: EventTime;
+  readonly anchor?: never;
+};
+
+type RecurringContent = DescribedContent & {
+  readonly recurrence: RecurrencePayload;
+  readonly anchor: RecurrenceAnchor;
+  readonly time?: never;
+};
+
+type EditableContent = SingleOccurrenceContent | RecurringContent;
 
 interface RemoteEventFacts {
   readonly id: RemoteEventId;
@@ -65,6 +77,7 @@ type MirrorSource = ForeignEvent;
 export { availabilityKinds, recurrenceDialects, visibilityKinds };
 export type {
   Availability,
+  DescribedContent,
   EditableContent,
   ForeignEvent,
   IndeterminateEvent,
@@ -73,6 +86,8 @@ export type {
   Provenance,
   RecurrenceDialect,
   RecurrencePayload,
+  RecurringContent,
   RemoteEvent,
+  SingleOccurrenceContent,
   Visibility,
 };

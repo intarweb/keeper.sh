@@ -1,10 +1,16 @@
 import { describe, expectTypeOf, test } from "vitest";
 import type {
+  AccountId,
+  CalendarDate,
+  CalendarId,
+  CalendarKey,
   Continuation,
   DeleteHandle,
+  EventTime,
   EventUid,
   Fingerprint,
   IdempotencyKey,
+  Instant,
   RemoteEventId,
   RemoteVersion,
   SyncCursor,
@@ -16,6 +22,10 @@ declare const eventUid: EventUid;
 declare const fingerprint: Fingerprint;
 declare const syncCursor: SyncCursor;
 declare const continuation: Continuation;
+declare const accountId: AccountId;
+declare const calendarId: CalendarId;
+declare const instant: Instant;
+declare const calendarDate: CalendarDate;
 
 declare const acceptRemoteEventId: (identifier: RemoteEventId) => void;
 declare const acceptDeleteHandle: (handle: DeleteHandle) => void;
@@ -24,6 +34,10 @@ declare const acceptRemoteVersion: (version: RemoteVersion) => void;
 declare const acceptIdempotencyKey: (key: IdempotencyKey) => void;
 declare const acceptSyncCursor: (cursor: SyncCursor) => void;
 declare const acceptContinuation: (token: Continuation) => void;
+declare const acceptCalendarId: (calendar: CalendarId) => void;
+declare const acceptCalendarKey: (key: CalendarKey) => void;
+declare const acceptInstant: (moment: Instant) => void;
+declare const acceptEventTime: (time: EventTime) => void;
 
 describe("identifiers are not interchangeable", () => {
   test("a RemoteEventId and a DeleteHandle cannot be swapped", () => {
@@ -57,6 +71,20 @@ describe("identifiers are not interchangeable", () => {
     acceptContinuation(syncCursor);
   });
 
+  test("an AccountId is not a CalendarId, and the three parts of a key cannot be permuted", () => {
+    // @ts-expect-error the account a calendar belongs to is not the calendar
+    acceptCalendarId(accountId);
+    // @ts-expect-error two users holding one provider account collide unless the parts are distinct
+    acceptCalendarKey({ provider: "google", account: calendarId, calendar: accountId });
+  });
+
+  test("an Instant is not a CalendarDate", () => {
+    // @ts-expect-error a DATE-TIME written into a DATE field moves the event by the zone offset
+    acceptEventTime({ kind: "allDay", startDate: instant, endDateExclusive: instant });
+    // @ts-expect-error a floating DATE is not a point on the timeline
+    acceptInstant(calendarDate);
+  });
+
   test("every handle is a tagged object carrying its own discriminant", () => {
     expectTypeOf<RemoteEventId>().toEqualTypeOf<{
       readonly kind: "remoteEventId";
@@ -68,6 +96,11 @@ describe("identifiers are not interchangeable", () => {
     }>();
     expectTypeOf<IdempotencyKey>().toEqualTypeOf<{
       readonly kind: "idempotencyKey";
+      readonly value: string;
+    }>();
+    expectTypeOf<Instant>().toEqualTypeOf<{ readonly kind: "instant"; readonly value: string }>();
+    expectTypeOf<CalendarDate>().toEqualTypeOf<{
+      readonly kind: "calendarDate";
       readonly value: string;
     }>();
   });

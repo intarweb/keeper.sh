@@ -1,11 +1,35 @@
 type ProviderId = string;
-type AccountId = string;
-type CalendarId = string;
-type InstallationId = string;
-type Instant = string;
-type CalendarDate = string;
-type ZoneId = string;
 type Revision = number;
+
+interface AccountId {
+  readonly kind: "accountId";
+  readonly value: string;
+}
+
+interface CalendarId {
+  readonly kind: "calendarId";
+  readonly value: string;
+}
+
+interface InstallationId {
+  readonly kind: "installationId";
+  readonly value: string;
+}
+
+interface Instant {
+  readonly kind: "instant";
+  readonly value: string;
+}
+
+interface CalendarDate {
+  readonly kind: "calendarDate";
+  readonly value: string;
+}
+
+interface ZoneId {
+  readonly kind: "zoneId";
+  readonly value: string;
+}
 
 interface RemoteEventId {
   readonly kind: "remoteEventId";

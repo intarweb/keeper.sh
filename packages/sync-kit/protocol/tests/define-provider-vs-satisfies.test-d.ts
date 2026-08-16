@@ -6,7 +6,7 @@ const googleCapabilities = {
   delta: { kind: "tokenized", windowBoundToCursor: true },
   deletionAuthority: "explicitRemovalsOnly",
   removalsAreAmbiguous: true,
-  precondition: "version",
+  precondition: "matchesVersion",
   provenanceChannel: "extendedProperty",
   quotaScope: "perUser",
   throttleSignals: [{ status: 403, hasRetryAfter: false }],

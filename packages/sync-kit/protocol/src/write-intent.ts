@@ -1,4 +1,4 @@
-import type { CalendarKey } from "./calendar-ref";
+import type { WritableCalendar } from "./calendar-ref";
 import type {
   DeleteHandle,
   Fingerprint,
@@ -6,7 +6,7 @@ import type {
   ProviderId,
   RemoteEventId,
 } from "./handles";
-import type { Precondition } from "./precondition";
+import type { ObservedPrecondition, Precondition } from "./precondition";
 import type { EditableContent, MirrorSource, Provenance } from "./remote-event";
 
 interface NormalizedContent<Provider extends ProviderId = ProviderId> {
@@ -25,7 +25,7 @@ type RetireReason = (typeof retireReasons)[number];
 type WriteIntent<Provider extends ProviderId = ProviderId> =
   | {
       readonly kind: "create";
-      readonly calendar: CalendarKey;
+      readonly calendar: WritableCalendar;
       readonly idempotencyKey: IdempotencyKey;
       readonly content: NormalizedContent<Provider>;
       readonly provenance: Extract<Provenance, { kind: "ours" }>;
@@ -34,31 +34,31 @@ type WriteIntent<Provider extends ProviderId = ProviderId> =
     }
   | {
       readonly kind: "update";
-      readonly calendar: CalendarKey;
+      readonly calendar: WritableCalendar;
       readonly target: RemoteEventId;
       readonly content: NormalizedContent<Provider>;
-      readonly precondition: Precondition;
+      readonly precondition: ObservedPrecondition;
     }
   | {
       readonly kind: "delete";
-      readonly calendar: CalendarKey;
+      readonly calendar: WritableCalendar;
       readonly target: DeleteHandle;
-      readonly precondition: Precondition;
+      readonly precondition: ObservedPrecondition;
       readonly reason: DeleteReason;
       readonly content?: never;
     }
   | {
       readonly kind: "retire";
-      readonly calendar: CalendarKey;
+      readonly calendar: WritableCalendar;
       readonly target: DeleteHandle;
-      readonly precondition: Precondition;
+      readonly precondition: ObservedPrecondition;
       readonly reason: RetireReason;
       readonly content?: never;
     };
 
 type BuildMirrorIntent<Provider extends ProviderId = ProviderId> = (
   source: MirrorSource,
-  destination: CalendarKey,
+  destination: WritableCalendar,
   normalized: NormalizedContent<Provider>,
 ) => WriteIntent<Provider>;
 

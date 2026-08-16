@@ -15,7 +15,15 @@ export type {
   ZoneId,
 } from "./handles";
 
-export type { CoverageWindow, EventTime, TimeWindow, WindowMembership } from "./time";
+export type {
+  CoverageWindow,
+  EventTime,
+  NominalDuration,
+  OccurrenceDuration,
+  RecurrenceAnchor,
+  TimeWindow,
+  WindowMembership,
+} from "./time";
 
 export { calendarAccessKinds } from "./calendar-ref";
 export type {
@@ -23,11 +31,13 @@ export type {
   CalendarEnumeration,
   CalendarKey,
   CalendarRef,
+  WritableCalendar,
 } from "./calendar-ref";
 
 export { availabilityKinds, recurrenceDialects, visibilityKinds } from "./remote-event";
 export type {
   Availability,
+  DescribedContent,
   EditableContent,
   ForeignEvent,
   IndeterminateEvent,
@@ -36,7 +46,9 @@ export type {
   Provenance,
   RecurrenceDialect,
   RecurrencePayload,
+  RecurringContent,
   RemoteEvent,
+  SingleOccurrenceContent,
   Visibility,
 } from "./remote-event";
 
@@ -45,10 +57,12 @@ export type {
   BoundedSample,
   ListingDiagnostics,
   WithheldEvent,
+  WithheldIdentity,
   WithholdReason,
 } from "./diagnostics";
 
 export type {
+  AuthoritativeRemoval,
   ChangeListing,
   Continuation,
   ListingScope,
@@ -65,8 +79,7 @@ export type {
   SnapshotListing,
 } from "./deletion";
 
-export { preconditionKinds } from "./precondition";
-export type { Precondition, PreconditionKind } from "./precondition";
+export type { ObservedPrecondition, Precondition, PreconditionKind } from "./precondition";
 
 export { deleteReasons, retireReasons } from "./write-intent";
 export type {
@@ -86,8 +99,13 @@ export type {
   WriteOutcome,
 } from "./write-outcome";
 
-export { operationNames, quotaScopes } from "./provider-failure";
-export type { OperationName, ProviderFailure, QuotaScope } from "./provider-failure";
+export { operationNames, quotaScopes, transportDispositions } from "./provider-failure";
+export type {
+  OperationName,
+  ProviderFailure,
+  QuotaScope,
+  TransportDisposition,
+} from "./provider-failure";
 
 export type { Result } from "./result";
 
@@ -112,9 +130,14 @@ export type {
   CalendarProvider,
   ListChangesRequest,
   OperationContext,
+  ProviderContract,
   RetryBudget,
 } from "./provider";
 
 export { assertNever } from "./assert-never";
 
-export type { FingerprintContract, ProviderConformanceSuite } from "./conformance";
+export type {
+  ConformanceObligation,
+  FingerprintContract,
+  ProviderConformanceSuite,
+} from "./conformance";

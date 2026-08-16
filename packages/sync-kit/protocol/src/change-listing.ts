@@ -24,7 +24,10 @@ interface Continuation {
 
 type Removal =
   | { readonly kind: "deleted"; readonly id: RemoteEventId; readonly uid: EventUid }
+  | { readonly kind: "cancelled"; readonly id: RemoteEventId; readonly uid: EventUid }
   | { readonly kind: "outOfScope"; readonly id: RemoteEventId };
+
+type AuthoritativeRemoval = Extract<Removal, { kind: "deleted" } | { kind: "cancelled" }>;
 
 type ChangeListing =
   | {
@@ -32,10 +35,10 @@ type ChangeListing =
       readonly scope: ListingScope;
       readonly coverage: CoverageWindow;
       readonly events: readonly RemoteEvent[];
+      readonly removals: readonly Removal[];
       readonly withheld: readonly WithheldEvent[];
       readonly cursor: SyncCursor | null;
       readonly diagnostics: ListingDiagnostics;
-      readonly removals?: never;
       readonly continuation?: never;
     }
   | {
@@ -72,4 +75,11 @@ type ChangeListing =
       readonly continuation?: never;
     };
 
-export type { ChangeListing, Continuation, ListingScope, Removal, SyncCursor };
+export type {
+  AuthoritativeRemoval,
+  ChangeListing,
+  Continuation,
+  ListingScope,
+  Removal,
+  SyncCursor,
+};

@@ -6,21 +6,23 @@ import type {
   EditableContent,
   IdempotencyKey,
   NormalizedContent,
-  Precondition,
+  ObservedPrecondition,
   Provenance,
   RemoteEventId,
   RemoteVersion,
+  WritableCalendar,
   WriteIntent,
 } from "../src/index";
 
-declare const calendar: CalendarKey;
+declare const calendar: WritableCalendar;
+declare const calendarKey: CalendarKey;
 declare const target: RemoteEventId;
 declare const handle: DeleteHandle;
 declare const normalized: NormalizedContent<"google">;
 declare const rawContent: EditableContent;
 declare const idempotencyKey: IdempotencyKey;
 declare const ourProvenance: Extract<Provenance, { kind: "ours" }>;
-declare const precondition: Precondition;
+declare const precondition: ObservedPrecondition;
 declare const version: RemoteVersion;
 declare const googleIntent: WriteIntent<"google">;
 
@@ -35,7 +37,26 @@ describe("a write cannot be expressed without the guard it needs", () => {
     acceptIntent({ kind: "update", calendar, target, content: normalized });
     expectTypeOf<
       Extract<WriteIntent<"google">, { kind: "update" }>["precondition"]
-    >().toEqualTypeOf<Precondition>();
+    >().toEqualTypeOf<ObservedPrecondition>();
+  });
+
+  test("an update pinned to absent is not expressible", () => {
+    // @ts-expect-error "overwrite it if it isn't there" is last-write-wins spelled differently
+    acceptIntent({
+      kind: "update",
+      calendar,
+      target,
+      content: normalized,
+      precondition: { kind: "absent" },
+    });
+    // @ts-expect-error a delete guarded by absence deletes whatever it finds
+    acceptIntent({
+      kind: "delete",
+      calendar,
+      target: handle,
+      reason: "sourceDeleted",
+      precondition: { kind: "absent" },
+    });
   });
 
   test("a delete WriteIntent without a precondition does not compile", () => {
@@ -72,6 +93,20 @@ describe("a write cannot be expressed without the guard it needs", () => {
       provenance: ourProvenance,
       precondition: { kind: "absent" },
     });
+  });
+
+  test("a calendar we only ever read cannot be written to", () => {
+    acceptIntent({
+      kind: "update",
+      // @ts-expect-error the access we discovered at enumeration must survive to the write
+      calendar: { key: calendarKey, access: "readOnly" },
+      target,
+      content: normalized,
+      precondition,
+    });
+    // @ts-expect-error a bare key has forgotten whether we may write to it
+    acceptIntent({ kind: "update", calendar: calendarKey, target, content: normalized, precondition });
+    expectTypeOf<WritableCalendar["access"]>().toEqualTypeOf<"readWrite">();
   });
 
   test("unnormalized EditableContent cannot reach a write", () => {

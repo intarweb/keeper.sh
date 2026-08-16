@@ -1,5 +1,5 @@
 import type { ProviderId } from "./handles";
-import type { PreconditionKind } from "./precondition";
+import type { ObservedPrecondition } from "./precondition";
 import type { QuotaScope } from "./provider-failure";
 
 const allDayRepresentations = ["dateOnly", "utcMidnightPair"] as const;
@@ -35,7 +35,7 @@ interface Capabilities<Provider extends ProviderId = ProviderId> {
   readonly delta: DeltaSupport;
   readonly deletionAuthority: DeletionAuthority;
   readonly removalsAreAmbiguous: boolean;
-  readonly precondition: PreconditionKind;
+  readonly precondition: ObservedPrecondition["kind"];
   readonly provenanceChannel: ProvenanceChannel;
   readonly quotaScope: QuotaScope;
   readonly throttleSignals: readonly ThrottleSignal[];

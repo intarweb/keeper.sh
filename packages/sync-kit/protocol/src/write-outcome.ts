@@ -1,6 +1,6 @@
 import type { BoundedSample } from "./diagnostics";
 import type { DeleteHandle, RemoteEventId, RemoteVersion } from "./handles";
-import type { Precondition } from "./precondition";
+import type { ObservedPrecondition } from "./precondition";
 
 interface RemoteRef {
   readonly id: RemoteEventId;
@@ -41,7 +41,11 @@ type WriteOutcome =
   | { readonly kind: "unchanged"; readonly remote: RemoteRef; readonly version: RemoteVersion }
   | { readonly kind: "deleted"; readonly remote: RemoteRef }
   | { readonly kind: "alreadyAbsent"; readonly remote: RemoteRef }
-  | { readonly kind: "conflict"; readonly remote: RemoteRef; readonly observed: Precondition }
+  | {
+      readonly kind: "conflict";
+      readonly remote: RemoteRef;
+      readonly observed: ObservedPrecondition;
+    }
   | { readonly kind: "unrepresentable"; readonly constraint: RepresentabilityConstraint }
   | { readonly kind: "notAttempted"; readonly reason: NotAttemptedReason };
 

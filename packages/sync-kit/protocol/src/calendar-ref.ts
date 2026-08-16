@@ -17,6 +17,11 @@ interface CalendarRef {
   readonly access: CalendarAccess;
 }
 
+interface WritableCalendar {
+  readonly key: CalendarKey;
+  readonly access: Extract<CalendarAccess, "readWrite">;
+}
+
 type CalendarEnumeration =
   | {
       readonly kind: "snapshot";
@@ -32,4 +37,10 @@ type CalendarEnumeration =
     };
 
 export { calendarAccessKinds };
-export type { CalendarAccess, CalendarEnumeration, CalendarKey, CalendarRef };
+export type {
+  CalendarAccess,
+  CalendarEnumeration,
+  CalendarKey,
+  CalendarRef,
+  WritableCalendar,
+};

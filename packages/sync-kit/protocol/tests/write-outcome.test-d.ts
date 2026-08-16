@@ -4,7 +4,7 @@ import type {
   DeleteHandle,
   EchoVerdict,
   NotAttemptedReason,
-  Precondition,
+  ObservedPrecondition,
   ProviderFailure,
   RemoteRef,
   RemoteVersion,
@@ -55,7 +55,7 @@ describe("an outcome says exactly what happened", () => {
     expectTypeOf<{
       readonly kind: "conflict";
       readonly remote: RemoteRef;
-      readonly observed: Precondition;
+      readonly observed: ObservedPrecondition;
     }>().toExtend<WriteOutcome>();
   });
 
@@ -69,7 +69,7 @@ describe("an outcome says exactly what happened", () => {
     expectTypeOf<Extract<WriteOutcome, { kind: "conflict" }>>().toEqualTypeOf<{
       readonly kind: "conflict";
       readonly remote: RemoteRef;
-      readonly observed: Precondition;
+      readonly observed: ObservedPrecondition;
     }>();
     // @ts-expect-error a conflict is not a version advance and must not update the mapping
     recordMapping(conflict);
@@ -122,7 +122,7 @@ describe("an outcome says exactly what happened", () => {
 
   test("an observed precondition is the only place a conflict reports state", () => {
     expectTypeOf<Extract<WriteOutcome, { kind: "conflict" }>["observed"]>().toEqualTypeOf<
-      Precondition
+      ObservedPrecondition
     >();
     expectTypeOf(echo).not.toBeBoolean();
   });

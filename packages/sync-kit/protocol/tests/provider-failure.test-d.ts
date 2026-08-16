@@ -2,10 +2,15 @@ import { describe, expectTypeOf, test } from "vitest";
 import { assertNever } from "../src/index";
 import type {
   AccountId,
+  Capabilities,
   Instant,
   NotAttemptedReason,
+  ObservedPrecondition,
+  OperationName,
+  Precondition,
   ProviderFailure,
   QuotaScope,
+  RepresentabilityConstraint,
 } from "../src/index";
 
 declare const scope: QuotaScope;
@@ -25,11 +30,12 @@ describe("failure is typed, never free text", () => {
         case "conflict":
         case "notFound":
         case "unsupported":
+        case "unrepresentable":
         case "notAttempted": {
           return false;
         }
         case "transport": {
-          return failure.retryable;
+          return failure.disposition === "transient";
         }
         default: {
           // @ts-expect-error reauth retried as a transient error burns quota and never succeeds
@@ -55,11 +61,42 @@ describe("failure is typed, never free text", () => {
     acceptFailure({ kind: "rateLimited", scope });
   });
 
+  test("transport retryability is a named disposition, never a boolean", () => {
+    expectTypeOf<Extract<ProviderFailure, { kind: "transport" }>["disposition"]>().toEqualTypeOf<
+      "transient" | "permanent"
+    >();
+    // @ts-expect-error every boolean verdict in this codebase grew a second field within months
+    acceptFailure({ kind: "transport", status: 503, retryable: true });
+  });
+
+  test("normalization can refuse an event without throwing or mislabelling it", () => {
+    expectTypeOf<OperationName>().toEqualTypeOf<
+      "listCalendars" | "listChanges" | "normalize" | "write"
+    >();
+    expectTypeOf<
+      Extract<ProviderFailure, { kind: "unrepresentable" }>["constraint"]
+    >().toEqualTypeOf<RepresentabilityConstraint>();
+    acceptFailure({ kind: "unrepresentable", constraint: "minimumSpan" });
+    acceptFailure({ kind: "unsupported", operation: "normalize" });
+  });
+
+  test("a conflict reports state the provider actually observed", () => {
+    expectTypeOf<Extract<ProviderFailure, { kind: "conflict" }>["observed"]>().toEqualTypeOf<
+      ObservedPrecondition
+    >();
+    expectTypeOf<ObservedPrecondition>().toEqualTypeOf<
+      Exclude<Precondition, { kind: "absent" }>
+    >();
+    expectTypeOf<Capabilities["precondition"]>().toEqualTypeOf<ObservedPrecondition["kind"]>();
+    // @ts-expect-error "it wasn't there" is notFound, never a comparison against observed state
+    acceptFailure({ kind: "conflict", observed: { kind: "absent" } });
+  });
+
   test("a failure carries no free-text message to classify on", () => {
     acceptFailure({
       kind: "transport",
       status: 503,
-      retryable: true,
+      disposition: "transient",
       // @ts-expect-error classifying by message substring is how reauth was missed for months
       message: "service unavailable",
     });

@@ -11,14 +11,16 @@ const withholdReasons = [
   "unrepresentableTime",
   "recurrenceBudgetExceeded",
   "supersededRevisionUnbuildable",
+  "unsupportedRecurrenceRange",
+  "missingIdentity",
 ] as const;
 type WithholdReason = (typeof withholdReasons)[number];
 
-interface WithheldEvent {
-  readonly uid: EventUid;
-  readonly id: RemoteEventId | null;
-  readonly reason: WithholdReason;
-}
+type WithheldIdentity =
+  | { readonly uid: EventUid; readonly id: RemoteEventId | null }
+  | { readonly uid: null; readonly id: RemoteEventId };
+
+type WithheldEvent = WithheldIdentity & { readonly reason: WithholdReason };
 
 interface ListingDiagnostics {
   readonly withheld: BoundedSample;
@@ -28,4 +30,10 @@ interface ListingDiagnostics {
 }
 
 export { withholdReasons };
-export type { BoundedSample, ListingDiagnostics, WithheldEvent, WithholdReason };
+export type {
+  BoundedSample,
+  ListingDiagnostics,
+  WithheldEvent,
+  WithheldIdentity,
+  WithholdReason,
+};

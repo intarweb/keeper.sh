@@ -5,7 +5,7 @@ interface FingerprintContract {
   readonly comparableFields: readonly (keyof EditableContent)[];
 }
 
-type ConformanceObligation = () => void;
+type ConformanceObligation = () => Promise<void>;
 
 interface ProviderConformanceSuite {
   readonly leaseReleasedOnThrow: ConformanceObligation;
@@ -14,6 +14,7 @@ interface ProviderConformanceSuite {
   readonly abortMidFlightCleansUp: ConformanceObligation;
   readonly retryCeilingProven: ConformanceObligation;
   readonly concurrentSameKeyDoesNotDeadlock: ConformanceObligation;
+  readonly deletionInputsShareOneCalendar: ConformanceObligation;
 }
 
-export type { FingerprintContract, ProviderConformanceSuite };
+export type { ConformanceObligation, FingerprintContract, ProviderConformanceSuite };
