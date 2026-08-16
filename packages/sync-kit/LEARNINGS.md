@@ -1016,7 +1016,10 @@ originating timezone, or expansion walks its wall clock and re-introduces DST dr
 **Learned from.** commit `82799c5b` (#602); `interpret-full-day-timed-events.ts`.
 **Honoured by.** The protocol's `EventTime` already makes all-day a separate variant carrying
 `CalendarDate`s and no zone, so a timezone cannot leak into an all-day fingerprint.
-`src/canonical/all-day.ts` owns `resolveIsAllDay`, used identically by the hash and by any diff.
+`src/canonical/all-day.ts` owns `resolveIsAllDay` and the re-anchor, used identically by the hash and by
+any diff. `src/parse/event-time.ts` performs the recognition itself: a timed range that starts and ends on
+local midnight in its own stated zone is read as the pair of calendar dates it names, so an all-day event
+authored in a zone ahead of UTC hashes as the UTC day grid the destination will read back.
 **Proved by.** `tests/canonical/all-day.test.ts :: a zone ahead of UTC anchors on the UTC midnight of its
 local calendar day`; `:: a zone behind UTC does too`; `:: the originating timezone is dropped`;
 `:: a non-midnight 24-hour timed event is not all-day`.

@@ -1,4 +1,6 @@
 import type { ZoneId } from "@keeper.sh/sync-protocol";
+import { isKnownToPlatform, windowsMapping } from "./normalize-zone-id";
+import { minutesInHour } from "./offset";
 import type { DeclaredZone } from "./vtimezone";
 import type { ZoneCache } from "./zone-cache";
 
@@ -17,11 +19,75 @@ type ZoneResolution =
   | { readonly kind: "resolved"; readonly zone: ZoneId; readonly via: ZoneResolutionRung }
   | { readonly kind: "unsupported"; readonly identifier: string; readonly reason: ZoneRefusal };
 
+const resolvedAs = (value: string, via: ZoneResolutionRung): ZoneResolution => ({
+  kind: "resolved",
+  zone: { kind: "zoneId", value },
+  via,
+});
+
+const embeddedIanaSegment = (identifier: string): string | null => {
+  const segments = identifier.split("/").filter((segment) => segment.length > 0);
+  for (let width = Math.min(3, segments.length); width >= 2; width--) {
+    const candidate = segments.slice(segments.length - width).join("/");
+    if (isKnownToPlatform(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+};
+
+const fixedOffsetZone = (offsetMinutes: number): string | null => {
+  if (offsetMinutes % minutesInHour !== 0) {
+    return null;
+  }
+  const hours = offsetMinutes / minutesInHour;
+  if (hours === 0) {
+    return "UTC";
+  }
+  if (hours < 0) {
+    return `Etc/GMT+${Math.abs(hours)}`;
+  }
+  return `Etc/GMT-${hours}`;
+};
+
+const fromDeclaredZone = (declared: DeclaredZone): ZoneResolution => {
+  if (declared.offsets.some((offset) => !Number.isInteger(offset))) {
+    return { kind: "unsupported", identifier: declared.declaredId, reason: "subMinuteOffset" };
+  }
+  const distinct = [...new Set(declared.offsets)];
+  const [only] = distinct;
+  if (distinct.length !== 1 || typeof only !== "number") {
+    return { kind: "unsupported", identifier: declared.declaredId, reason: "declaredZoneChangesOffset" };
+  }
+  const flattened = fixedOffsetZone(only);
+  if (!flattened) {
+    return { kind: "unsupported", identifier: declared.declaredId, reason: "unknownIdentifier" };
+  }
+  return resolvedAs(flattened, "declaredFixedOffset");
+};
+
 const resolveZoneIdentifier = (
-  _identifier: string,
-  _declared: readonly DeclaredZone[],
-  _zones: ZoneCache): ZoneResolution => {
-  throw new Error("unimplemented");
+  identifier: string,
+  declared: readonly DeclaredZone[],
+  _zones: ZoneCache,
+): ZoneResolution => {
+  const trimmed = identifier.trim();
+  if (isKnownToPlatform(trimmed)) {
+    return resolvedAs(trimmed, "ianaDirect");
+  }
+  const windows = windowsMapping(trimmed);
+  if (windows) {
+    return resolvedAs(windows, "windowsCldr");
+  }
+  const embedded = embeddedIanaSegment(trimmed);
+  if (embedded) {
+    return resolvedAs(embedded, "embeddedIanaSegment");
+  }
+  const declaration = declared.find((candidate) => candidate.declaredId === trimmed);
+  if (declaration) {
+    return fromDeclaredZone(declaration);
+  }
+  return { kind: "unsupported", identifier: trimmed, reason: "unknownIdentifier" };
 };
 
 export { resolveZoneIdentifier, zoneRefusals, zoneResolutionRungs };

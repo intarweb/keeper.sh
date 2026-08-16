@@ -1,4 +1,5 @@
 import type { Instant, ZoneId } from "@keeper.sh/sync-protocol";
+import { millisecondsInMinute, offsetMinutesAt, padded, wallClockFieldsAt } from "./offset";
 import type { ZoneCache } from "./zone-cache";
 
 interface WallTime {
@@ -11,13 +12,68 @@ type WallTimeResolution =
   | { readonly kind: "fold"; readonly instant: Instant; readonly discarded: Instant }
   | { readonly kind: "gap"; readonly instant: Instant; readonly shiftMinutes: number };
 
-const resolveWallTime = (_wall: WallTime, _zone: ZoneId, _zones: ZoneCache): WallTimeResolution => {
-  throw new Error("unimplemented");
+const bracketMs = 24 * 60 * millisecondsInMinute;
+const wallTimePattern = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/u;
+
+const instantOf = (atMs: number): Instant => ({ kind: "instant", value: new Date(atMs).toISOString() });
+
+const wallTimeMs = (wall: WallTime): number => {
+  const matched = wallTimePattern.exec(wall.value);
+  if (!matched) {
+    return Number.NaN;
+  }
+  const [, year, month, day, hour, minute, second] = matched;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
 };
 
-const instantToWallTime = (_instant: Instant, _zone: ZoneId, _zones: ZoneCache): WallTime => {
-  throw new Error("unimplemented");
+const formatWallTime = (fields: {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+}): string =>
+  `${padded(fields.year, 4)}${padded(fields.month, 2)}${padded(fields.day, 2)}T${padded(fields.hour, 2)}${padded(fields.minute, 2)}${padded(fields.second, 2)}`;
+
+const instantToWallTime = (instant: Instant, zone: ZoneId, zones: ZoneCache): WallTime => ({
+  kind: "wallTime",
+  value: formatWallTime(wallClockFieldsAt(zones, zone.value, Date.parse(instant.value))),
+});
+
+const isConsistent = (
+  zones: ZoneCache,
+  zone: ZoneId,
+  localMs: number,
+  candidateMs: number,
+): boolean => offsetMinutesAt(zones, zone.value, candidateMs) * millisecondsInMinute === localMs - candidateMs;
+
+const resolveWallTime = (wall: WallTime, zone: ZoneId, zones: ZoneCache): WallTimeResolution => {
+  const localMs = wallTimeMs(wall);
+  const before = offsetMinutesAt(zones, zone.value, localMs - bracketMs);
+  const after = offsetMinutesAt(zones, zone.value, localMs + bracketMs);
+  if (before === after) {
+    return { kind: "unique", instant: instantOf(localMs - before * millisecondsInMinute) };
+  }
+  const earlierCandidate = localMs - Math.max(before, after) * millisecondsInMinute;
+  const laterCandidate = localMs - Math.min(before, after) * millisecondsInMinute;
+  const earlierValid = isConsistent(zones, zone, localMs, earlierCandidate);
+  const laterValid = isConsistent(zones, zone, localMs, laterCandidate);
+  if (earlierValid && laterValid) {
+    return { kind: "fold", instant: instantOf(earlierCandidate), discarded: instantOf(laterCandidate) };
+  }
+  if (earlierValid) {
+    return { kind: "unique", instant: instantOf(earlierCandidate) };
+  }
+  if (laterValid) {
+    return { kind: "unique", instant: instantOf(laterCandidate) };
+  }
+  return {
+    kind: "gap",
+    instant: instantOf(laterCandidate),
+    shiftMinutes: Math.abs(after - before),
+  };
 };
 
-export { instantToWallTime, resolveWallTime };
+export { formatWallTime, instantOf, instantToWallTime, resolveWallTime, wallTimeMs };
 export type { WallTime, WallTimeResolution };
