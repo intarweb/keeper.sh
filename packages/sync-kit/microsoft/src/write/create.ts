@@ -1,7 +1,6 @@
 import type {
   NormalizedContent,
   OperationContext,
-  RemoteVersion,
   Result,
   WriteIntent,
   WriteOutcome,
@@ -11,7 +10,6 @@ import type { Event as GraphEvent } from "@microsoft/microsoft-graph-types";
 import { graphJson } from "../client/graph-call";
 import { preferHeaders } from "../client/prefer";
 import { contentOfGraphEvent } from "../decode/decode-event";
-import { readIdentity } from "../decode/identity";
 import { canonicalEncoding } from "../fingerprint";
 import { echoVerdictOf } from "./echo";
 import { normalizeForMicrosoft } from "./normalize";
@@ -19,30 +17,17 @@ import type { RemoteRead } from "./remote";
 import {
   eventsPathOf,
   findByIdempotencyKey,
+  isGraphEvent,
   mailboxesOf,
   remoteRefOf,
+  unreadableVersion,
+  versionOfEvent,
   writeFailure,
 } from "./remote";
 import { serializeForGraph } from "./serialize";
 import type { WriteSurroundings } from "./surroundings";
 
 type CreateIntent = Extract<WriteIntent<"microsoft">, { kind: "create" }>;
-
-const unobservedVersion: Result<WriteOutcome> = {
-  ok: false,
-  failure: { kind: "transport", status: null, disposition: "permanent" },
-};
-
-const isGraphEvent = (value: unknown): value is GraphEvent =>
-  typeof value === "object" && value !== null;
-
-const versionOfEvent = (event: GraphEvent): RemoteVersion | null => {
-  const reading = readIdentity(event);
-  if (reading.kind !== "identified") {
-    return null;
-  }
-  return reading.identity.version;
-};
 
 const matchesSubmission = (
   event: GraphEvent,
@@ -63,7 +48,7 @@ const resolvedExisting = (
 ): Result<WriteOutcome> => {
   const version = versionOfEvent(event);
   if (version === null || typeof event.id !== "string") {
-    return unobservedVersion;
+    return unreadableVersion;
   }
   const remote = remoteRefOf(event.id);
   if (matchesSubmission(event, shaped, surroundings)) {
@@ -141,7 +126,7 @@ const createdFrom = (
 ): Result<WriteOutcome> => {
   const version = versionOfEvent(event);
   if (version === null || typeof event.id !== "string") {
-    return unobservedVersion;
+    return unreadableVersion;
   }
   return {
     ok: true,
@@ -167,7 +152,7 @@ const insertedOutcome = async (
       return createdFrom(inserted.event, shaped);
     }
     case "absent": {
-      return unobservedVersion;
+      return unreadableVersion;
     }
     case "notAttempted": {
       return { ok: true, value: { kind: "notAttempted", reason: inserted.reason } };

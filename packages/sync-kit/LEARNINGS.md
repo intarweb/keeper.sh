@@ -5864,8 +5864,10 @@ place; the conformance package's own 309 tests, including its 119 negative contr
 every `CONF-O*` and `CONF-L*` case the capability declaration gates on. A case this adapter cannot pass is
 a defect in this adapter until proven otherwise.
 
-Entries are numbered `MS-I1`–`MS-I72`. `MS-I1`–`MS-I52` are adopted, `MS-I53`–`MS-I60` are the explicit
-not-applicable set, and `MS-I61`–`MS-I72` are dependencies taken and rejected plus process. Every
+Entries are numbered `MS-I1`–`MS-I96`. `MS-I1`–`MS-I52` are adopted, `MS-I53`–`MS-I60` are the explicit
+not-applicable set, `MS-I61`–`MS-I72` are dependencies taken and rejected plus process, `MS-I73`–`MS-I91` are
+push, hygiene and fixture findings, and `MS-I92`–`MS-I96` are the adversarial-review findings resolved after
+implementation. Every
 **Proved by** citation names a file under `packages/sync-kit/microsoft/tests` and the exact test name inside
 it, or a `CONF-` case id that the conformance run enforces, so the ledger can be walked against the suite
 mechanically by `microsoft/tests/hygiene/ledger-citations.test.ts`.
@@ -6107,9 +6109,15 @@ null.
 **Honoured by.** `src/listing/request-shape.ts` holds the `$select` list as an `as const` array, and the
 decode layer types those fields as nullable up front so no null ever reaches a non-null assertion — which is
 also how the no-type-assertions rule is kept.
+**Amended (review, MS-I92).** `$select` is mandatory on the **delta** request, which cannot `$expand`. The
+window and instances requests send `$expand` instead and omit `$select` entirely, because Graph refuses the
+two together and the extended-property stamps are unreachable without the expand; omitting `$select` returns
+the full default property set, which is a superset of the list above.
 **Proved by.** `microsoft/tests/decode/nullable-fields.test.ts :: MS-O18: a null iCalUId, seriesMasterId and
-subject all decode without an assertion`; `microsoft/tests/hygiene/select-fields.test.ts :: MS-H1: the
-instances request selects every field the decoder reads`.
+subject all decode without an assertion`; `microsoft/tests/hygiene/select-fields.test.ts :: MS-H1: the delta
+request selects every field the decoder reads`;
+`microsoft/tests/hygiene/select-fields.test.ts :: MS-H26: the window requests expand our extended properties
+instead of selecting fields`.
 
 ### MS-I19. A series whose expansion is empty is "no occurrence here"; a series whose expansion errors fails the run
 
@@ -6220,12 +6228,21 @@ etag gives false assurance if the server is last-write-wins.
 `https://learn.microsoft.com/en-us/graph/api/listitem-update?view=graph-rest-1.0`; Microsoft Q&A reports of
 the change-key error (all verified 2026-08-16).
 **Honoured by.** `src/write/precondition.ts` exposes two constructors, `enforcedPrecondition` and
-`verifiedPrecondition`. Under `verified`, the write reads the current version inside the same operation and
-refuses with a typed `conflict` when it differs, so an ignored `If-Match` degrades to a conflict rather than
-to a silent overwrite. The fake Graph in the suite has an `honoursIfMatch: false` mode precisely so this path
-is exercised.
+`verifiedPrecondition`. **Every** mutating verb sends the `If-Match` *and* verifies it itself: `updateInGraph`
+and `deleteInGraph` both read the current event through `readRemoteEvent`, compare it with `matchesObserved`,
+and answer a typed `conflict` before issuing the PATCH or the DELETE, so an ignored `If-Match` degrades to a
+conflict rather than to a silent overwrite or an unrecoverable removal. The fake Graph in the suite has an
+`honoursIfMatch: false` mode precisely so both paths are exercised.
+**Correction (review).** The removal path originally carried the header without the guard, so a
+stale-precondition delete against an If-Match-ignoring Graph destroyed a revision the caller had never
+observed. The claim above was true of `update` only; `MS-O44` was written red against `delete` and the guard
+was added to match.
 **Proved by.** `microsoft/tests/writes/ignored-if-match.test.ts :: MS-O27: a server that ignores If-Match
 yields a conflict, never a silent overwrite`;
+`microsoft/tests/writes/ignored-if-match-delete.test.ts :: MS-O44: a server that ignores If-Match yields a
+conflict rather than deleting a newer event`;
+`microsoft/tests/writes/ignored-if-match-delete.test.ts :: MS-O45: a removal whose precondition still matches
+deletes the event`;
 `microsoft/tests/writes/stale-precondition.test.ts :: MS-O28: a stale etag is a typed conflict and writes
 nothing`.
 
@@ -6245,9 +6262,17 @@ identifier to make a create naturally idempotent. A retried create therefore dup
 adapter looks first.
 **Learned from.** `LEARNINGS.md` entry 38, `GOOG-I40`/`GOOG-I78`; `core/events/identity.ts`.
 **Honoured by.** `src/write/create.ts` stamps the `IdempotencyKey` into a single-valued extended property
-and, before creating, resolves that key against the destination. An existing match returns
-`{ kind: "alreadyExists" }` with the remote it found. A create conflict is resolved by reading, never by
-retrying blind.
+and, before creating, resolves that key against the destination. The resolution is the documented one
+(MS-I92): `findByIdempotencyKey` narrows with
+`$filter=singleValueExtendedProperties/any(ep:ep/id eq '…' and ep/value eq '…')`, follows `@odata.nextLink`
+under `microsoftLimits.maxPages`, and — because Graph does **not** echo the property back on a filtered
+collection — re-reads each candidate by id with `$expand` and only accepts one whose stamp it can actually
+see. An existing match returns `{ kind: "alreadyExists" }` with the remote it found. A create conflict is
+resolved by reading, never by retrying blind.
+**Correction (review).** The first implementation listed `…/events` with no `$filter` and no `$expand` and
+scanned for the stamp in the response. On real Graph that scan can never match, so every replayed create
+would have duplicated; it passed only because the fixture attached extended properties to every row it
+served. The fixture now models Graph's retrieval rules (MS-I92), which is what makes this path honest.
 **Proved by.** `microsoft/tests/writes/idempotent-create.test.ts :: MS-O30: a replayed create returns
 alreadyExists and creates nothing`; conformance `CONF-O14`.
 
@@ -6260,10 +6285,20 @@ and counts self-authored skips separately from discards so those stay zero on a 
 (`parseOutlookEventsWithDiagnostics`); `core/events/identity.ts`; tests *"counts a changed event whose
 iCalUId became Keeper-authored"*, *"counts a changed event the provider tagged with the Keeper category"*.
 **Honoured by.** `src/decode/provenance.ts` reads the single-valued extended property first and the category
-second; either marker is sufficient, and the `iCalUId` heuristic alone is explicitly not. A match yields
-`provenance: { kind: "ours", installation }` and a `selfAuthored` diagnostic counted apart from `withheld`.
-**Proved by.** `microsoft/tests/provenance/two-markers.test.ts :: MS-O31: either the extended property or
-the category identifies our own write, and the iCalUId alone does not`; conformance `CONF-O15`, `CONF-O16`.
+second, but the two markers do **not** carry the same authority. Only the stamp names an installation, so
+only the stamp yields `{ kind: "ours", installation }`; a stamp bearing somebody else's value yields
+`{ kind: "ours", installation: <theirs> }` so the reconciler can classify it as `foreignInstallation`. The
+category is mailbox-wide and user-editable and every Keeper.sh installation writes the same string, so a
+category with no stamp yields `{ kind: "indeterminate" }` — enough to decline mirroring, never enough to
+claim the event as ours. The `iCalUId` heuristic alone remains explicitly insufficient.
+`src/listing/build-feed.ts` counts `selfAuthored` only for a stamp matching *our* installation.
+**Correction (review).** The category-only branch previously returned `{ kind: "ours", installation }` with
+*our* id substituted — an invented internal value that made another installation's events, and any event a
+user had hand-tagged, read as our own echo.
+**Proved by.** `microsoft/tests/provenance/two-markers.test.ts :: MS-O31: only the stamped extended property
+claims our installation; the category is indeterminate and the iCalUId proves nothing`;
+`microsoft/tests/provenance/two-markers.test.ts :: MS-O31: another installation's stamp is read as its own,
+never as ours`; conformance `CONF-O15`, `CONF-O16`.
 
 ### MS-I31. Range normalization happens at one seam, before the mapping and the fingerprint
 
@@ -6649,7 +6684,7 @@ fields of MS-I18 are declared by it.
 
 The types this package implements. Never redefined here.
 
-### MS-I64. Taken: `@keeper.sh/sync-ical` (workspace), imported in exactly one file
+### MS-I64. Taken: `@keeper.sh/sync-ical` (workspace), imported as values in exactly two files
 
 `resolveZoneIdentifier`, `normalizeZoneIdentifier`, `windowsZones`, `resolveWallTime` and
 `instantToWallTime`. The full CLDR windowsZones table and the two-probe wall-time algorithm are years of
@@ -6700,7 +6735,11 @@ Tests run with `bun x --bun vitest run`, never bare `bun test`. `Bun.sleep` is a
 `vi.useFakeTimers` cannot patch, so every delay in this package is `setTimeout` on the injected clock — a
 lesson that already cost this team CI time. `AbortSignal.timeout` is likewise not patched by fake timers, so
 deadlines are measured on `dependencies.clock`, never on the ambient one. Hashing arrives as
-`dependencies.hash`, so the package has no module-level side effect and no ambient crypto import.
+`dependencies.hash` on **both** halves of every hash contract — `clientStateHash` and `verifyClientState`
+alike (MS-I75) — so the package has no module-level side effect and no ambient hasher. The one remaining
+`node:crypto` import is `timingSafeEqual`, a pure comparison primitive with no configuration to inject;
+`microsoft/tests/push/constant-time.test.ts :: MS-P23: the module reaches for no ambient hasher of its own`
+pins that nothing else creeps back in.
 
 ---
 
@@ -6749,11 +6788,23 @@ the batch. Max `clientState` length is 128 characters, which a 32-byte hex secre
 batch spanning two subscriptions into one claim per entry"*;
 `https://learn.microsoft.com/en-us/graph/api/resources/subscription` (verified 2026-08-16, clientState max
 128).
-**Honoured by.** `src/push/secret.ts` compares a hash in constant time; `receiver.ts` applies it to every
-entry including lifecycle entries, and rejects the request outright only when every claim was rejected.
+**Honoured by.** `src/push/secret.ts` exports `clientStateHash` to mint the stored value and
+`verifyClientState` to compare a presented one against it in constant time; **both take the host's `hash` as
+an argument**, so mint and verify are provably the same function. `receiver.ts` decodes a batch into one
+claim per entry, lifecycle entries included, each carrying its own `presentedClientState`; the caller applies
+`verifyClientState` per claim, because the adapter owns no channel storage (MS-I71) and so cannot know which
+stored hash a claim belongs to.
+**Correction (review).** This entry previously claimed the receiver performed the verification and rejected
+a request when every claim failed. It does not, and no code did; the accurate division of labour is the one
+above. Separately, `verifyClientState` used to re-hash with a module-private `Bun.CryptoHasher`, so any host
+injecting a non-sha256-hex `hash` would have had every notification silently rejected — push would have gone
+deaf with no error anywhere.
 **Proved by.** `microsoft/tests/push/client-state.test.ts :: MS-P5: one bad client state rejects its own
 claim and not the batch`;
-`microsoft/tests/push/constant-time.test.ts :: MS-P6: verification compares hashes, never the plaintext`.
+`microsoft/tests/push/constant-time.test.ts :: MS-P6: verification compares hashes, never the plaintext`;
+`microsoft/tests/push/constant-time.test.ts :: MS-P22: the host's own hash mints and verifies the same
+secret`;
+`microsoft/tests/push/constant-time.test.ts :: MS-P23: the module reaches for no ambient hasher of its own`.
 
 ### MS-I76. Lifecycle events are three distinct outcomes and must not be collapsed
 
@@ -7178,12 +7229,18 @@ identity is a broken record rather than an omitted projection.
 **Honoured by.** `src/decode/extended-property.ts` names the property, `src/decode/identity.ts` reads it
 first, `src/write/serialize.ts` writes it and carries the stamps of an event forward across a PATCH so an
 update never strips the identity or the provenance the create established.
+**Scope limit (review).** The stamp is only *readable* where the request asked for it (MS-I92). It is
+present on the write path and on the calendarView window listing, which `$expand` it; it is **absent** on the
+delta listing, which cannot `$expand`. So `uidOf`'s `iCalUId` fallback is not a courtesy — on a delta round
+it is the only identity available, and the same is true of the provenance category. `MS-O30`'s replayed
+create and `CONF-O16`'s round trip both run through paths that do expand, which is why the stamp is still
+load-bearing where it matters.
 **Proved by.** `microsoft/tests/decode/nullable-fields.test.ts :: MS-O18: a null iCalUId, seriesMasterId and
 subject all decode without an assertion`;
 `microsoft/tests/writes/idempotent-create.test.ts :: MS-O30: a replayed create returns alreadyExists and
 creates nothing`;
-`microsoft/tests/provenance/two-markers.test.ts :: MS-O31: either the extended property or the category
-identifies our own write, and the iCalUId alone does not`.
+`microsoft/tests/provenance/two-markers.test.ts :: MS-O31: only the stamped extended property claims our
+installation; the category is indeterminate and the iCalUId proves nothing`.
 
 ### MS-I89. The operation deadline is armed once, at the seam the caller entered
 
@@ -7209,11 +7266,21 @@ never settle, so the caller wedges even though the mailbox recovered. The guarde
 abort, so an aborted caller rejects with `PermitAborted` and the seam records `notAttempted` rather than
 charging the provider.
 **Honoured by.** `src/client/semaphore.ts` races the body against the abort inside the same `finally` that
-releases the permit.
+releases the permit, **and** checks `signal.aborted` on entry to `holding` before it invokes the body at all.
+**Correction (review).** The entry guard was missing, which left a one-microtask window with no owner: once
+`release()` hands a queued waiter its slot it aborts that waiter's `listening` controller, removing the
+listener registered in `queued()`, while `holding` does not run until the following microtask. An abort
+landing in between fired at no listener and was dropped, `holding` then registered on an already-aborted
+signal — which never fires — and the body ran to completion. Through `createRequestSeam` that body is the
+POST/PATCH/DELETE, so a caller told `notAttempted` could still have written to the calendar.
 **Proved by.** `microsoft/tests/lockups/permit-release.test.ts :: MS-L13: a permit is released when the
 caller is aborted mid-body`;
 `microsoft/tests/lockups/queued-abort.test.ts :: MS-L14: a waiter aborted while queued rejects and frees its
-slot for its successor`.
+slot for its successor`;
+`microsoft/tests/lockups/resume-abort.test.ts :: MS-L26: an abort between release and body rejects instead of
+running the body`;
+`microsoft/tests/lockups/resume-abort.test.ts :: MS-L27: the permit freed by the aborted handover is still
+usable by the next caller`.
 
 ### MS-I91. The fixture was under-modelling Graph in four places, and each one hid a real guard
 
@@ -7231,3 +7298,113 @@ the exact hazard this package exists to prevent — so it now re-seeds the same 
 **Proved by.** `microsoft/tests/cursor/quiet-poll.test.ts :: MS-O11: a delta round with no items advances
 the cursor and derives no removal`;
 `microsoft/tests/push/renewal.test.ts :: MS-P11: a 404 on renewal is gone and a 429 is not`.
+
+### MS-I92. Extended properties are outside `$select`; only `$expand` or `$filter` retrieves them
+
+**Lesson.** A single-valued extended property is *never* returned by a plain read, and `$select` cannot ask
+for one. Graph documents exactly two retrievals: `$expand=singleValueExtendedProperties($filter=id eq '…')`
+returns the property on the instance or collection, and
+`$filter=singleValueExtendedProperties/any(ep:ep/id eq '…' and ep/value eq '…')` returns the *instances* that
+carry a matching property — and states plainly that "the response body doesn't include the extended
+property". Two further constraints follow from the field: `$expand` is not supported alongside the advanced
+query parameters that `$select` travels with, so a request asks for one or the other; and `$expand` on
+`calendarView/delta` is rejected outright ("Parsing OData Select and Expand failed"). This is the deciding
+constraint for MS-I88 and MS-I30, and it is why four separate reads — `uidOf`, `readProvenance`,
+`storedPayload` and `heldProperties` — would otherwise have silently run on their fallbacks forever.
+**Learned from.** `https://learn.microsoft.com/en-us/graph/api/singlevaluelegacyextendedproperty-get`;
+`https://learn.microsoft.com/en-us/graph/known-issues`; Microsoft Q&A *"Expanded SingleValueExtendedProperties
+do not show up when combined with $select"* and *"How to expand Microsoft Graph extended properties in
+calendar events in a calendar view"* (all verified 2026-08-16).
+**Honoured by.** `src/decode/extended-property.ts` owns both query shapes as `expandKeeperProperties` and
+`matchesPropertyValue`. `src/listing/request-shape.ts` sends `$expand` on the window and instances requests
+and `$select` on delta, never both, with the constraint recorded as the package's one cited comment.
+`src/write/remote.ts` expands on every single-event read and uses the `any(...)` filter plus a confirming
+re-read for the idempotency lookup (MS-I29). Where the stamp is unreachable — the delta round — the adapter
+runs on `iCalUId` and answers `indeterminate` provenance rather than pretending to know (MS-I30).
+**Proved by.** `microsoft/tests/hygiene/select-fields.test.ts :: MS-H1: the delta request selects every field
+the decoder reads`;
+`microsoft/tests/hygiene/select-fields.test.ts :: MS-H26: the window requests expand our extended properties
+instead of selecting fields`;
+`microsoft/tests/writes/idempotent-create.test.ts :: MS-O30: a replayed create returns alreadyExists and
+creates nothing`, now against a fixture that withholds extended properties from any request that did not
+`$expand` them and honours the `any(...)` filter.
+
+### MS-I93. An expansion cut short is a distinct answer from a series with no occurrences
+
+**Lesson.** `expandSeries` mapped an aborted context onto `{ kind: "empty" }` — the same value a genuinely
+empty series produces. The caller dropped every occurrence of that series and went on to build a `snapshot`
+carrying `provenCoverage(scope, scope.window)`: a full coverage claim over a window whose recurring events had
+all been silently discarded. Because `DeriveSnapshotRemovals` licenses absence-based deletion inside a proven
+coverage window, that listing would have deleted every occurrence of every series. Nothing in the types
+stopped it; only the ordering inside `raceDeadline` did, which is a wrong write held off by a race rather
+than by construction.
+**Learned from.** Review of this package's own listing path against the `ICAL`/`CONF` rule that a deletion is
+never inferred outside a proven coverage window.
+**Honoured by.** `SeriesExpansion` gains an `abandoned` arm the caller cannot mistake for an empty series;
+`expandItems` propagates it and `completedListing` answers `{ kind: "notAttempted", reason: "aborted" }`, so
+no coverage-claiming listing is ever built from a truncated expansion.
+**Proved by.** `microsoft/tests/listing/abandoned-expansion.test.ts :: MS-O46: an aborted expansion is
+abandoned, never an empty series`;
+`microsoft/tests/listing/abandoned-expansion.test.ts :: MS-O47: a listing abandoned mid-expansion yields no
+snapshot claiming coverage`.
+
+### MS-I94. A ceiling the client cannot enforce is deleted, not decorated
+
+**Lesson.** `GraphClientOptions.timeoutMs` was validated by `checkedCeiling`, stored on the transport handler
+and then never used: `execute` handed the request straight to `fetch`, and `requestCeilingMs()` had no caller
+anywhere. Nothing hung, because the operation-level `raceDeadline` is the real bound — but a client that
+advertises a per-request ceiling it does not apply teaches the next reader a false invariant. The obvious
+repair, composing `AbortSignal.timeout` into the request, is barred twice over by this package's own rules:
+MS-I72 because fake timers cannot patch `AbortSignal.timeout` (`MS-L6` pins that no source file names it),
+and MS-I89 because arming a second timer below the provider seam is exactly the thing that made it
+impossible to tell which ceiling stopped a run. So the field, its validator and its accessor were removed
+instead, leaving the operation deadline as the single documented bound.
+**Learned from.** Review; resolved against MS-I72 and MS-I89 rather than against the reviewer's first
+suggestion.
+**Honoured by.** `src/client/graph-client.ts` carries `fetch` and `getAccessToken` only, and
+`GraphTransportHandler` forwards the caller's signal untouched.
+**Proved by.** `microsoft/tests/lockups/request-ceiling.test.ts :: MS-L28: the transport passes the caller's
+signal through and adds no timer of its own`;
+`microsoft/tests/lockups/request-ceiling.test.ts :: MS-L29: the client takes no request ceiling it would not
+enforce`;
+`microsoft/tests/hygiene/no-bun-sleep.test.ts :: MS-L6: no source file references Bun.sleep or
+AbortSignal.timeout`;
+`microsoft/tests/lockups/every-verb-deadline.test.ts :: MS-L9: listCalendars, listChanges and write each
+reject against a stub that never resolves`.
+
+### MS-I95. A subscription Graph did not describe is a failure, never an invented row
+
+**Lesson.** `registerSubscription` fell back to `{ id: "", … }` when Graph's 201 body was unreadable and
+still answered `ok: true`. That fabricated record then addressed `PATCH subscriptions/` and
+`DELETE subscriptions/` — the collection, not a row — and entered `reconcileSubscriptions` as `keep: [""]`,
+which protects nothing and lets a live subscription be classified deletable. `renewSubscription` already
+handled the identical case correctly, so the two verbs disagreed about the same body.
+**Learned from.** Review; the repo rule that internally-produced data fails loud rather than falling back.
+**Honoured by.** `registerSubscription` returns `unreadableSubscription` when `subscriptionOf` yields null,
+matching `renewSubscription` exactly.
+**Proved by.** `microsoft/tests/push/unreadable-registration.test.ts :: MS-P24: a 201 without an id fails
+rather than minting an empty subscription`.
+
+### MS-I96. Serialization arithmetic is bounded before it runs, not caught after it throws
+
+**Lesson.** `normalizeForMicrosoft` is typed `Result<…>` but could throw: the recurring arm's
+`anchorViolation` checked only the zone, so an anchor whose `start` did not parse reached
+`new Date(Date.parse(<garbage>)).toISOString()` and raised `RangeError`. The emit side had the same class of
+hole — `shiftedDate` and the duration arms compute `Date.parse(...) + n * ms` with no bound, and ECMA-262
+gives a Date only ±8.64e15 ms before `toISOString` throws. Inside the write path that throw is caught by
+`attemptOnce`, classified as a transport failure, and a deterministic serialization bug is retried to the
+budget ceiling and then reported as if Graph had failed.
+**Learned from.** Adopted #42 *"Adapters must return failures, not throw them"*; `ICAL-I64` *"a feed value
+must never reach arithmetic that can throw"*; ECMA-262 `sec-time-values-and-time-range`.
+**Honoured by.** `constraintViolatedBy` rejects both shapes before `shapeForMicrosoft` runs: an unparseable
+anchor start is `invertedRange`, a timed span leaving the Date range is `minimumSpan`, and an all-day anchor
+leaving it is `allDayGrid`. The non-recurring arm already guarded the parse and now shares one
+`unreadableInstant` predicate with the recurring one.
+**Proved by.** `microsoft/tests/writes/unrepresentable-anchor.test.ts :: MS-O48: a recurring anchor whose
+start does not parse is unrepresentable`;
+`microsoft/tests/writes/unrepresentable-anchor.test.ts :: MS-O49: a nominal span past the Date range is
+unrepresentable rather than a RangeError`;
+`microsoft/tests/writes/unrepresentable-anchor.test.ts :: MS-O50: an all-day anchor past the Date range is
+unrepresentable`;
+`microsoft/tests/writes/unrepresentable-anchor.test.ts :: MS-O51: a representable recurring anchor still
+normalizes`.

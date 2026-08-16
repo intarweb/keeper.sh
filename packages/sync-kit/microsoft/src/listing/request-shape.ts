@@ -1,5 +1,6 @@
 import type { ListingScope, TimeWindow } from "@keeper.sh/sync-protocol";
 import type { ListingMode } from "../cursor/fingerprint";
+import { expandKeeperProperties } from "../decode/extended-property";
 
 const calendarViewSelect = [
   "id",
@@ -43,6 +44,13 @@ const spanParameters = (bounds: TimeWindow): Readonly<Record<string, string>> =>
   endDateTime: bounds.end.value,
 });
 
+/*
+  Graph returns singleValueExtendedProperties only for a request that $expands them, and documents
+  $expand as unsupported alongside the advanced query parameters $select rides with, so a request
+  asks for one or the other, never both. Delta additionally rejects $expand outright.
+  https://learn.microsoft.com/en-us/graph/api/singlevaluelegacyextendedproperty-get
+  https://learn.microsoft.com/en-us/graph/known-issues
+*/
 const requestParameters = (
   scope: ListingScope,
   mode: ListingMode,
@@ -51,12 +59,12 @@ const requestParameters = (
     return { $select: selectedFields() };
   }
   const { window: bounds } = scope;
-  return { ...spanParameters(bounds), $select: selectedFields() };
+  return { ...spanParameters(bounds), $expand: expandKeeperProperties() };
 };
 
 const instancesParameters = (scope: ListingScope): Readonly<Record<string, string>> => {
   const { window: bounds } = scope;
-  return { ...spanParameters(bounds), $select: selectedFields() };
+  return { ...spanParameters(bounds), $expand: expandKeeperProperties() };
 };
 
 export {

@@ -10,33 +10,25 @@ import { assertNever } from "@keeper.sh/sync-protocol";
 import type { Event as GraphEvent } from "@microsoft/microsoft-graph-types";
 import { graphJson } from "../client/graph-call";
 import { preferHeaders } from "../client/prefer";
-import { readIdentity } from "../decode/identity";
 import { echoVerdictOf } from "./echo";
 import { normalizeForMicrosoft } from "./normalize";
 import { splitBodyRegions } from "./online-meeting";
 import { enforcedPrecondition, matchesObserved } from "./precondition";
 import type { RemoteRead } from "./remote";
-import { eventPathOf, mailboxesOf, readRemoteEvent, remoteRefOf, writeFailure } from "./remote";
+import {
+  eventPathOf,
+  isGraphEvent,
+  mailboxesOf,
+  readRemoteEvent,
+  remoteRefOf,
+  unreadableVersion,
+  versionOfEvent,
+  writeFailure,
+} from "./remote";
 import { serializeForGraph } from "./serialize";
 import type { WriteSurroundings } from "./surroundings";
 
 type UpdateIntent = Extract<WriteIntent<"microsoft">, { kind: "update" }>;
-
-const unobservedVersion: Result<WriteOutcome> = {
-  ok: false,
-  failure: { kind: "transport", status: null, disposition: "permanent" },
-};
-
-const isGraphEvent = (value: unknown): value is GraphEvent =>
-  typeof value === "object" && value !== null;
-
-const versionOfEvent = (event: GraphEvent): RemoteVersion | null => {
-  const reading = readIdentity(event);
-  if (reading.kind !== "identified") {
-    return null;
-  }
-  return reading.identity.version;
-};
 
 const conflictOn = (target: string, version: RemoteVersion): Result<WriteOutcome> => ({
   ok: true,
@@ -57,7 +49,7 @@ const spentPrecondition = async (
     case "found": {
       const version = versionOfEvent(fetched.event);
       if (version === null) {
-        return unobservedVersion;
+        return unreadableVersion;
       }
       return conflictOn(intent.target.value, version);
     }
@@ -139,7 +131,7 @@ const appliedPatch = async (
     case "found": {
       const version = versionOfEvent(patched.event);
       if (version === null) {
-        return unobservedVersion;
+        return unreadableVersion;
       }
       return {
         ok: true,
@@ -152,7 +144,7 @@ const appliedPatch = async (
       };
     }
     case "absent": {
-      return unobservedVersion;
+      return unreadableVersion;
     }
     case "notAttempted": {
       return { ok: true, value: { kind: "notAttempted", reason: patched.reason } };
@@ -205,7 +197,7 @@ const updateInGraph = async (
     case "found": {
       const observed = versionOfEvent(current.event);
       if (observed === null) {
-        return unobservedVersion;
+        return unreadableVersion;
       }
       if (!matchesObserved(intent.precondition, observed)) {
         return conflictOn(intent.target.value, observed);

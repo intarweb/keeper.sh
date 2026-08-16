@@ -31,7 +31,9 @@ describe("one bad secret rejects one claim, never the batch", () => {
     }
     expect(signal.claims).toHaveLength(3);
     expect(
-      signal.claims.map((claim) => verifyClientState(claim.presentedClientState ?? "", stored)),
+      signal.claims.map((claim) =>
+        verifyClientState(claim.presentedClientState ?? "", stored, conformanceHash),
+      ),
     ).toEqual([true, false, true]);
   });
 

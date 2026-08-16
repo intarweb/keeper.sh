@@ -1,32 +1,30 @@
 import type {
   OperationContext,
-  RemoteVersion,
+  RemoteEventId,
   Result,
   WriteIntent,
   WriteOutcome,
 } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
-import type { Event as GraphEvent } from "@microsoft/microsoft-graph-types";
 import { graphEmpty } from "../client/graph-call";
-import { readIdentity } from "../decode/identity";
-import { enforcedPrecondition } from "./precondition";
-import { eventPathOf, mailboxesOf, readRemoteEvent, remoteRefOf, writeFailure } from "./remote";
+import { enforcedPrecondition, matchesObserved } from "./precondition";
+import {
+  eventPathOf,
+  mailboxesOf,
+  readRemoteEvent,
+  remoteRefOf,
+  unreadableVersion,
+  versionOfEvent,
+  writeFailure,
+} from "./remote";
 import type { WriteSurroundings } from "./surroundings";
 
 type Removing = Extract<WriteIntent<"microsoft">, { kind: "delete" } | { kind: "retire" }>;
 
-const unobservedVersion: Result<WriteOutcome> = {
-  ok: false,
-  failure: { kind: "transport", status: null, disposition: "permanent" },
-};
-
-const versionOfEvent = (event: GraphEvent): RemoteVersion | null => {
-  const reading = readIdentity(event);
-  if (reading.kind !== "identified") {
-    return null;
-  }
-  return reading.identity.version;
-};
+const targetOf = (intent: Removing): RemoteEventId => ({
+  kind: "remoteEventId",
+  value: intent.target.value,
+});
 
 const spentPrecondition = async (
   intent: Removing,
@@ -34,17 +32,12 @@ const spentPrecondition = async (
   surroundings: WriteSurroundings,
 ): Promise<Result<WriteOutcome>> => {
   const remote = remoteRefOf(intent.target.value);
-  const fetched = await readRemoteEvent(
-    intent.calendar,
-    { kind: "remoteEventId", value: intent.target.value },
-    context,
-    surroundings,
-  );
+  const fetched = await readRemoteEvent(intent.calendar, targetOf(intent), context, surroundings);
   switch (fetched.kind) {
     case "found": {
       const version = versionOfEvent(fetched.event);
       if (version === null) {
-        return unobservedVersion;
+        return unreadableVersion;
       }
       return {
         ok: true,
@@ -110,16 +103,44 @@ const removedInGraph = async (
   }
 };
 
-const deleteInGraph = (
+const deleteInGraph = async (
   intent: Removing,
   context: OperationContext,
   surroundings: WriteSurroundings,
 ): Promise<Result<WriteOutcome>> => {
   const precondition = enforcedPrecondition(intent.precondition);
   if (precondition.kind !== "enforced") {
-    return Promise.resolve({ ok: false, failure: { kind: "unsupported", operation: "write" } });
+    return { ok: false, failure: { kind: "unsupported", operation: "write" } };
   }
-  return removedInGraph(intent, precondition.ifMatch, context, surroundings);
+  const remote = remoteRefOf(intent.target.value);
+  const current = await readRemoteEvent(intent.calendar, targetOf(intent), context, surroundings);
+  switch (current.kind) {
+    case "absent": {
+      return { ok: true, value: { kind: "alreadyAbsent", remote } };
+    }
+    case "notAttempted": {
+      return { ok: true, value: { kind: "notAttempted", reason: current.reason } };
+    }
+    case "failed": {
+      return { ok: false, failure: writeFailure(current.failure, intent.calendar) };
+    }
+    case "found": {
+      const observed = versionOfEvent(current.event);
+      if (observed === null) {
+        return unreadableVersion;
+      }
+      if (!matchesObserved(intent.precondition, observed)) {
+        return {
+          ok: true,
+          value: { kind: "conflict", remote, observed: { kind: "matchesVersion", version: observed } },
+        };
+      }
+      return removedInGraph(intent, precondition.ifMatch, context, surroundings);
+    }
+    default: {
+      return assertNever(current);
+    }
+  }
 };
 
 export { deleteInGraph };

@@ -4,6 +4,7 @@ import type { MicrosoftFailure } from "../errors/classify";
 type SeriesExpansion =
   | { readonly kind: "expanded"; readonly instances: readonly unknown[] }
   | { readonly kind: "empty" }
+  | { readonly kind: "abandoned" }
   | { readonly kind: "failed"; readonly failure: MicrosoftFailure };
 
 interface ExpandOptions {
@@ -14,7 +15,7 @@ interface ExpandOptions {
 
 const expandSeries = async (options: ExpandOptions): Promise<SeriesExpansion> => {
   if (options.context.signal.aborted) {
-    return { kind: "empty" };
+    return { kind: "abandoned" };
   }
   const answered = await options.fetchInstances(options.master);
   if (answered.kind === "expanded" && answered.instances.length === 0) {

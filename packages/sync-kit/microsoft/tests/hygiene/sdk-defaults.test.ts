@@ -34,7 +34,6 @@ describe("the SDK's own retry and redirect handlers are switched off", () => {
     const chain = graphMiddlewareChain({
       fetch: () => Promise.reject(new Error("the hygiene test never sends a request")),
       getAccessToken: () => Promise.resolve("a-token-we-already-hold"),
-      timeoutMs: 7500,
     });
 
     const names = chain.map((middleware) => middleware.constructor.name);

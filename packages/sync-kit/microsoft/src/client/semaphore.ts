@@ -82,6 +82,10 @@ const createMailboxSemaphore = (permitsPerMailbox: number): MailboxSemaphore => 
       released = true;
       release(mailbox);
     };
+    if (signal.aborted) {
+      releaseOnce();
+      throw new PermitAborted();
+    }
     const watching = new AbortController();
     const abandoned = Promise.withResolvers<never>();
     signal.addEventListener(

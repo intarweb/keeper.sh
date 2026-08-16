@@ -4,6 +4,7 @@ import type {
   EventTime,
   Instant,
   NormalizedContent,
+  OccurrenceDuration,
   RecurrenceAnchor,
   RepresentabilityConstraint,
   Result,
@@ -98,13 +99,46 @@ const unresolvable = (zone: ZoneId | null): boolean => {
   return !resolvesAsZone(zone.value);
 };
 
+const unreadableInstant = (instant: Instant): boolean => Number.isNaN(Date.parse(instant.value));
+
+/*
+  ECMA-262 sec-time-values-and-time-range gives a Date ±8.64e15 ms; arithmetic that leaves that
+  range yields an Invalid Date whose toISOString throws rather than returning a value.
+*/
+const latestRepresentableMs = 8.64e15;
+
+const millisecondsInSecond = 1000;
+const dayMs = 24 * 60 * 60 * millisecondsInSecond;
+
+const spanMillisecondsOf = (duration: OccurrenceDuration): number => {
+  switch (duration.kind) {
+    case "exact": {
+      return duration.seconds * millisecondsInSecond;
+    }
+    case "nominal": {
+      return duration.days * dayMs;
+    }
+    default: {
+      return assertNever(duration);
+    }
+  }
+};
+
+const outsideDateRange = (fromMs: number, duration: OccurrenceDuration): boolean => {
+  const span = spanMillisecondsOf(duration);
+  if (!Number.isFinite(span)) {
+    return true;
+  }
+  return Math.abs(fromMs + span) > latestRepresentableMs;
+};
+
 const timedViolation = (
   time: Extract<EventTime, { kind: "timed" }>,
 ): RepresentabilityConstraint | null => {
   if (unresolvable(time.zone)) {
     return "zoneIdentifier";
   }
-  if (Number.isNaN(Date.parse(time.start.value)) || Number.isNaN(Date.parse(time.end.value))) {
+  if (unreadableInstant(time.start) || unreadableInstant(time.end)) {
     return "invertedRange";
   }
   return null;
@@ -135,14 +169,37 @@ const occurrenceViolation = (time: EventTime): RepresentabilityConstraint | null
   }
 };
 
-const anchorViolation = (anchor: RecurrenceAnchor): RepresentabilityConstraint | null => {
-  if (anchor.kind === "allDay") {
-    return null;
-  }
-  if (unresolvable(anchor.zone)) {
-    return "zoneIdentifier";
+const allDayAnchorViolation = (
+  anchor: Extract<RecurrenceAnchor, { kind: "allDay" }>,
+): RepresentabilityConstraint | null => {
+  const from = Date.parse(`${anchor.startDate.value}T00:00:00.000Z`);
+  if (Number.isNaN(from) || outsideDateRange(from, anchor.duration)) {
+    return "allDayGrid";
   }
   return null;
+};
+
+const anchorViolation = (anchor: RecurrenceAnchor): RepresentabilityConstraint | null => {
+  switch (anchor.kind) {
+    case "allDay": {
+      return allDayAnchorViolation(anchor);
+    }
+    case "timed": {
+      if (unresolvable(anchor.zone)) {
+        return "zoneIdentifier";
+      }
+      if (unreadableInstant(anchor.start)) {
+        return "invertedRange";
+      }
+      if (outsideDateRange(Date.parse(anchor.start.value), anchor.duration)) {
+        return "minimumSpan";
+      }
+      return null;
+    }
+    default: {
+      return assertNever(anchor);
+    }
+  }
 };
 
 const constraintViolatedBy = (content: EditableContent): RepresentabilityConstraint | null => {

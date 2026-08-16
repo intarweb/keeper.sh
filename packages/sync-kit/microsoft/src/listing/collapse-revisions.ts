@@ -1,3 +1,4 @@
+import { assertNever } from "@keeper.sh/sync-protocol";
 import type { DecodedFields, DecodedItem } from "../decode/decode-event";
 import { compareCodeUnits } from "../canonical";
 
@@ -43,7 +44,7 @@ const identityOf = (arrived: ArrivedItem): string | null => {
       return null;
     }
     default: {
-      return null;
+      return assertNever(item);
     }
   }
 };

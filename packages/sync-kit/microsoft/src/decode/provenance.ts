@@ -18,8 +18,11 @@ const readProvenance = (event: GraphEvent, installation: InstallationId): Proven
   if (stamped === installation.value) {
     return { kind: "ours", installation };
   }
-  if (stamped === null && carriesOurCategory(event)) {
-    return { kind: "ours", installation };
+  if (stamped !== null) {
+    return { kind: "ours", installation: { kind: "installationId", value: stamped } };
+  }
+  if (carriesOurCategory(event)) {
+    return { kind: "indeterminate" };
   }
   return { kind: "foreign" };
 };

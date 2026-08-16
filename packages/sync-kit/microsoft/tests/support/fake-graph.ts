@@ -67,6 +67,7 @@ interface FakeGraph {
   readonly mutateItem: (id: string, patch: GraphEvent) => void;
   readonly removeItem: (id: string, reason: string | null) => void;
   readonly deleteBodyWasCancelled: () => boolean;
+  readonly withholdSubscriptionId: () => void;
 }
 
 const graphRoot = "https://graph.microsoft.com";
@@ -228,6 +229,48 @@ const bodyOf = async (request: Request): Promise<unknown> => {
 
 const idOfItem = (item: GraphEvent): string => item.id ?? "";
 
+const expandsExtendedProperties = (url: URL): boolean =>
+  (url.searchParams.get("$expand") ?? "").includes("singleValueExtendedProperties");
+
+const withoutExtendedProperties = (item: unknown): unknown => {
+  if (typeof item !== "object" || item === null) {
+    return item;
+  }
+  const held: Record<string, unknown> = { ...item };
+  Reflect.deleteProperty(held, "singleValueExtendedProperties");
+  return held;
+};
+
+const asGraphRetrieves = (url: URL, items: readonly unknown[]): readonly unknown[] => {
+  if (expandsExtendedProperties(url)) {
+    return items;
+  }
+  return items.map((item) => withoutExtendedProperties(item));
+};
+
+const propertyFilterOf = (url: URL): { readonly id: string; readonly value: string } | null => {
+  const filter = url.searchParams.get("$filter");
+  if (filter === null) {
+    return null;
+  }
+  const matched = /ep\/id eq '([^']*)' and ep\/value eq '([^']*)'/.exec(filter);
+  if (!matched) {
+    return null;
+  }
+  return { id: matched[1] ?? "", value: matched[2] ?? "" };
+};
+
+const carriesProperty = (item: unknown, id: string, value: string): boolean => {
+  if (typeof item !== "object" || item === null) {
+    return false;
+  }
+  const held = Reflect.get(item, "singleValueExtendedProperties");
+  if (!Array.isArray(held)) {
+    return false;
+  }
+  return held.some((property) => property?.id === id && property?.value === value);
+};
+
 const scriptedFailureFor = (
   failures: readonly ScriptedFailure[],
   call: number,
@@ -270,6 +313,7 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
   let issuedDeltaTokens = 0;
   let corruptRows = false;
   let deleteBodyCancelled = false;
+  let unreadableRegistrations = false;
 
   const removalEntries = (): readonly unknown[] =>
     removals.map((removal) => {
@@ -279,8 +323,7 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
       return { id: removal.id, "@removed": { reason: removal.reason } };
     });
 
-  const pageAt = (offset: number) => {
-    const everything = [...stored, ...extras, ...removalEntries()];
+  const pageAt = (offset: number, everything: readonly unknown[]) => {
     const slice = everything.slice(offset, offset + pageSize);
     const consumed = offset + slice.length;
     return { slice, consumed, last: consumed >= everything.length };
@@ -297,10 +340,19 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
     return `${graphRoot}/v1.0${path}?$skiptoken=page-${consumed}`;
   };
 
+  const matchingRows = (url: URL): readonly unknown[] => {
+    const wanted = propertyFilterOf(url);
+    const everything = [...stored, ...extras, ...removalEntries()];
+    if (wanted === null) {
+      return everything;
+    }
+    return everything.filter((item) => carriesProperty(item, wanted.id, wanted.value));
+  };
+
   const listBody = (url: URL): unknown => {
     const offset = offsetOfToken(url.searchParams.get("$skiptoken"));
-    const page = pageAt(offset);
-    const base = { value: page.slice };
+    const page = pageAt(offset, matchingRows(url));
+    const base = { value: asGraphRetrieves(url, page.slice) };
     if (!page.last || endlessPages) {
       return { ...base, "@odata.nextLink": linkFor(page.consumed, url.pathname) };
     }
@@ -378,12 +430,13 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
     };
   };
 
-  const answerRead = (id: string): Response => {
+  const answerRead = (url: URL, id: string): Response => {
     const found = itemWithId(id);
     if (!found) {
       return errorResponse({ onCall: writeCalls, status: 404, code: "ErrorItemNotFound" });
     }
-    return Response.json(rewritten(found), { status: 200, headers: headersOf({}) });
+    const retrieved = asGraphRetrieves(url, [rewritten(found)]).at(0) ?? null;
+    return Response.json(retrieved, { status: 200, headers: headersOf({}) });
   };
 
   const insert = (body: unknown): Response => {
@@ -467,6 +520,10 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
       id: `subscription-${openSubscriptions.length + 1}`,
     };
     openSubscriptions.push(created);
+    if (unreadableRegistrations) {
+      const { id: _unreadable, ...withoutId } = created;
+      return Response.json(withoutId, { status: 201, headers: headersOf({}) });
+    }
     return Response.json(created, { status: 201, headers: headersOf({}) });
   };
 
@@ -551,7 +608,7 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
       return answerCalendars();
     }
     if (method === "GET" && url.pathname.includes("/events/")) {
-      return answerRead(eventIdOf(url.pathname));
+      return answerRead(url, eventIdOf(url.pathname));
     }
     if (method === "GET" && url.pathname.endsWith("/events")) {
       return answerList(url);
@@ -663,6 +720,9 @@ const createFakeGraph = (options: FakeGraphOptions): FakeGraph => {
       removals.push({ id, reason });
     },
     deleteBodyWasCancelled: () => deleteBodyCancelled,
+    withholdSubscriptionId: () => {
+      unreadableRegistrations = true;
+    },
   };
 };
 

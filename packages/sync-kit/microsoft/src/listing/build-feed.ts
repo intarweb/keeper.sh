@@ -1,6 +1,7 @@
 import type {
   EditableContent,
   EventUid,
+  InstallationId,
   ListingScope,
   Removal,
   RemoteEvent,
@@ -15,6 +16,7 @@ import { withinMicrosoftWindow } from "../window/membership";
 interface FeedInputs {
   readonly items: readonly DecodedItem[];
   readonly scope: ListingScope;
+  readonly installation: InstallationId;
 }
 
 interface BuiltFeed {
@@ -31,6 +33,9 @@ const staysInScope = (bounds: TimeWindow, content: EditableContent): boolean => 
   }
   return withinMicrosoftWindow(bounds, content.time);
 };
+
+const writtenByUs = (event: RemoteEvent, installation: InstallationId): boolean =>
+  event.provenance.kind === "ours" && event.provenance.installation.value === installation.value;
 
 const uidsByIdentifier = (items: readonly DecodedItem[]): ReadonlyMap<string, EventUid> => {
   const known = new Map<string, EventUid>();
@@ -88,7 +93,7 @@ const buildFeed = (inputs: FeedInputs): BuiltFeed => {
           break;
         }
         events.push(item.event);
-        if (item.event.provenance.kind === "ours") {
+        if (writtenByUs(item.event, inputs.installation)) {
           selfAuthored.push(item.event.uid.value);
         }
         break;

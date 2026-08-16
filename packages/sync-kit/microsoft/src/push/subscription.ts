@@ -196,17 +196,11 @@ const registerSubscription = async (
   });
   switch (answered.kind) {
     case "answered": {
-      return {
-        ok: true,
-        value: subscriptionOf(answered.value, { resource, createdAt: now }) ?? {
-          id: "",
-          resource,
-          notificationUrl: request.notificationUrl,
-          expiration,
-          includesResourceData: request.includeResourceData,
-          createdAt: now,
-        },
-      };
+      const registered = subscriptionOf(answered.value, { resource, createdAt: now });
+      if (registered === null) {
+        return unreadableSubscription;
+      }
+      return { ok: true, value: registered };
     }
     case "failed": {
       return { ok: false, failure: subscriptionFailure(answered.failure, resource) };

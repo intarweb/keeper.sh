@@ -11,6 +11,7 @@ const microsoftLimits = {
   pushBodyMaxBytes: 65_536,
   validationTokenMaxLength: 2048,
   clientStateMaxLength: 128,
+  idempotencyCandidateCeiling: 8,
 } as const;
 
 type MicrosoftLimits = typeof microsoftLimits;

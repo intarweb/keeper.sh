@@ -57,6 +57,7 @@ type Resumption =
 
 type Expansion =
   | { readonly kind: "expanded"; readonly items: readonly unknown[] }
+  | { readonly kind: "abandoned" }
   | { readonly kind: "failed"; readonly failure: ProviderFailure };
 
 interface FeedSummary {
@@ -319,6 +320,9 @@ const expandItems = async (
       case "empty": {
         break;
       }
+      case "abandoned": {
+        return { kind: "abandoned" };
+      }
       case "failed": {
         return {
           kind: "failed",
@@ -377,8 +381,9 @@ const summarisedFeed = (
   discarded: number,
   scope: ListingScope,
   pagesFetched: number,
+  surroundings: ListingSurroundings,
 ): FeedSummary => {
-  const feed = buildFeed({ items: kept, scope });
+  const feed = buildFeed({ items: kept, scope, installation: surroundings.dependencies.installation });
   return {
     feed,
     diagnostics: listingDiagnostics({
@@ -402,13 +407,16 @@ const completedListing = async (
   if (expansion.kind === "failed") {
     return { ok: false, failure: expansion.failure };
   }
+  if (expansion.kind === "abandoned") {
+    return { ok: false, failure: { kind: "notAttempted", reason: "aborted" } };
+  }
   const arrived = decodeAll(expansion.items, scope, mode, surroundings);
   const verdict = resyncVerdictOf(decodedItemsOf(arrived), mode);
   if (verdict.kind === "resyncRequired") {
     return { ok: true, value: cursorLostListing(scope) };
   }
   const collapsed = collapseRevisions(arrived);
-  const summary = summarisedFeed(collapsed.kept, collapsed.discarded, scope, walk.pagesFetched);
+  const summary = summarisedFeed(collapsed.kept, collapsed.discarded, scope, walk.pagesFetched, surroundings);
   const { hash } = surroundings.dependencies;
   const { window: walked } = scope;
   const cursor = mintCursorIn(scope, mode, walk.deltaLink, { hash });
@@ -436,7 +444,7 @@ const truncatedListing = (
 ): Result<ChangeListing> => {
   const arrived = decodeAll(walk.items, scope, modeOf(resumption), surroundings);
   const collapsed = collapseRevisions(arrived);
-  const summary = summarisedFeed(collapsed.kept, collapsed.discarded, scope, walk.pagesFetched);
+  const summary = summarisedFeed(collapsed.kept, collapsed.discarded, scope, walk.pagesFetched, surroundings);
   return {
     ok: true,
     value: {

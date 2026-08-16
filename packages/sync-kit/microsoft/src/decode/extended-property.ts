@@ -27,9 +27,31 @@ const singleValueProperty = (id: string, value: string): SingleValueLegacyExtend
   value,
 });
 
+const installationPropertyName = namedProperty("installation");
+
+const keeperPropertyNames = [
+  installationPropertyName,
+  mirroredUidPropertyName,
+  recurrencePropertyName,
+] as const;
+
+const anyOfOurIds = (): string =>
+  keeperPropertyNames.map((name) => `id eq '${name}'`).join(" or ");
+
+const expandKeeperProperties = (): string =>
+  `singleValueExtendedProperties($filter=${anyOfOurIds()})`;
+
+const matchesPropertyValue = (name: string, value: string): string =>
+  `singleValueExtendedProperties/any(ep:ep/id eq '${name}' and ep/value eq '${value}')`;
+
 export {
+  anyOfOurIds,
+  expandKeeperProperties,
   extendedPropertyValue,
+  installationPropertyName,
+  keeperPropertyNames,
   keeperPropertySet,
+  matchesPropertyValue,
   mirroredUidPropertyName,
   namedProperty,
   recurrencePropertyName,
