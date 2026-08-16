@@ -630,10 +630,21 @@ const isWriteBackCapableSource = (
  * access, and every reader resolves it through here so an unwritable source is offered as
  * off to the screen and to the write-back pass alike.
  */
+/*
+ * Pausing a calendar is the documented way to make Keeper.sh stop touching it: nothing is
+ * read from it or written to it while paused. A paused source is also a source Keeper.sh
+ * has stopped re-reading, so the stored snapshot it would compare against is frozen and
+ * every "refuse if the original moved" guard downstream is comparing it against itself.
+ */
 const resolveWritableWriteBackMode = <Mode extends string>(
   writeBackMode: Mode,
-  source: { calendarType: string; capabilities: readonly string[] } | null,
+  source:
+    | { calendarType: string; capabilities: readonly string[]; disabled?: boolean | null }
+    | null,
 ): Mode | "off" => {
+  if (source?.disabled) {
+    return "off";
+  }
   if (isWriteBackCapableSource(source)) {
     return writeBackMode;
   }

@@ -161,6 +161,7 @@ const getWriteBackPoliciesForDestination = async (
       capabilities: calendarsTable.capabilities,
       deleteConfirmationApprovedAt:
         sourceDestinationMappingsTable.deleteConfirmationApprovedAt,
+      disabled: calendarsTable.disabled,
       excludeEventDescription: calendarsTable.excludeEventDescription,
       excludeEventLocation: calendarsTable.excludeEventLocation,
       excludeEventName: calendarsTable.excludeEventName,
@@ -191,6 +192,7 @@ const getWriteBackPoliciesForDestination = async (
     const effectiveMode = resolveWritableWriteBackMode(row.writeBackMode, {
       calendarType: row.calendarType,
       capabilities: row.capabilities,
+      disabled: row.disabled,
     });
     policies.set(row.sourceCalendarId, {
       destinationCalendarId,

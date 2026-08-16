@@ -31,10 +31,10 @@ create table source_destination_mappings (
 );
 `;
 
-const seed = async (capabilities: string[], calendarType = "google"): Promise<void> => {
+const seed = async (disabled: boolean): Promise<void> => {
   await client.query(
-    `insert into calendars ("id", "calendarType", "capabilities") values ($1, $2, $3)`,
-    [SOURCE_CALENDAR_ID, calendarType, capabilities],
+    `insert into calendars ("id", "capabilities", "disabled") values ($1, $2, $3)`,
+    [SOURCE_CALENDAR_ID, ["pull", "push"], disabled],
   );
   await client.query(
     `insert into calendars ("id", "capabilities") values ($1, $2)`,
@@ -62,27 +62,15 @@ beforeEach(async () => {
   await client.exec(DDL);
 });
 
-/*
- * Calendar rediscovery rewrites a source's capabilities when the provider stops granting
- * write access. Nothing rewrites the mode the pair is carrying, so the write-back pass
- * would keep classifying edits and deletions against a calendar Keeper.sh may only read,
- * firing them at the provider until enough rejections quarantine the pair.
- */
-describe("write-back policies for a source whose write access was revoked", () => {
-  it("stops offering an active mode once the source can only be read", async () => {
-    await seed(["pull"]);
+describe("the write-back policy of a paused source calendar", () => {
+  it("offers no active mode while the source is paused", async () => {
+    await seed(true);
 
     expect(await readPolicyMode()).toBe("off");
   });
 
-  it("stops offering an active mode for a source whose type can never be written", async () => {
-    await seed(["pull", "push"], "ical");
-
-    expect(await readPolicyMode()).toBe("off");
-  });
-
-  it("still carries the mode of a source the account can write", async () => {
-    await seed(["pull", "push"]);
+  it("still offers the stored mode while the source is running", async () => {
+    await seed(false);
 
     expect(await readPolicyMode()).toBe("edits_and_deletes");
   });

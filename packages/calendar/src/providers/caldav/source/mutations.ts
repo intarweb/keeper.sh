@@ -40,6 +40,7 @@ interface CalDAVWriterClient {
 
 interface CalDAVSourceWriterConfig {
   accountEmail?: string | null;
+  accountUsername?: string | null;
   calendarUrl: string;
   client: () => Promise<CalDAVWriterClient>;
 }
@@ -54,16 +55,43 @@ const normalizeOrganizerAddress = (value: string): string => {
   return trimmed;
 };
 
+/*
+ * A CalDAV calendar account is stored without an email — nothing in the connect flow ever
+ * asks for one — so the login the credential was created with is the only address this
+ * account is known by. It is an address on iCloud, Fastmail and every other server that
+ * authenticates by email, and something else entirely on the servers that do not.
+ */
+const resolveAccountIdentity = (
+  config: CalDAVSourceWriterConfig,
+): string | null => {
+  const stored = config.accountEmail?.trim().toLowerCase();
+  if (stored) {
+    return stored;
+  }
+  const login = config.accountUsername?.trim().toLowerCase();
+  if (login?.includes("@")) {
+    return login;
+  }
+  return null;
+};
+
+/*
+ * An ORGANIZER that cannot be compared to anything is not an event this account is known
+ * to have written, and a shared collection is exactly where an unmatchable one appears.
+ * Refusing costs the user an unsynced edit; guessing costs somebody else their event.
+ */
 const isAuthoredBySomeoneElse = (
   ics: string,
-  accountEmail: string | null | undefined,
+  identity: string | null,
 ): boolean => {
   const organizers = readEventOrganizers(ics);
-  if (!accountEmail || organizers.length === 0) {
+  if (organizers.length === 0) {
     return false;
   }
-  const account = accountEmail.trim().toLowerCase();
-  return organizers.some((organizer) => normalizeOrganizerAddress(organizer) !== account);
+  if (!identity) {
+    return true;
+  }
+  return organizers.some((organizer) => normalizeOrganizerAddress(organizer) !== identity);
 };
 
 const ensureTrailingSlash = (url: string): string => {
@@ -197,6 +225,8 @@ const isLookupFailure = (
 const createCalDAVSourceWriter = (
   config: CalDAVSourceWriterConfig,
 ): CalendarSourceWriter => {
+  const identity = resolveAccountIdentity(config);
+
   const buildObjectUrl = (sourceEventUid: string): string =>
     `${ensureTrailingSlash(config.calendarUrl)}${sourceEventUid}.ics`;
 
@@ -268,7 +298,7 @@ const createCalDAVSourceWriter = (
     if (hasEventAttendees(object.data)) {
       return ATTENDEE_REFUSAL;
     }
-    if (isAuthoredBySomeoneElse(object.data, config.accountEmail)) {
+    if (isAuthoredBySomeoneElse(object.data, identity)) {
       return AUTHORSHIP_REFUSAL;
     }
 
@@ -324,7 +354,7 @@ const createCalDAVSourceWriter = (
     if (object.data && hasEventAttendees(object.data)) {
       return ATTENDEE_REFUSAL;
     }
-    if (object.data && isAuthoredBySomeoneElse(object.data, config.accountEmail)) {
+    if (object.data && isAuthoredBySomeoneElse(object.data, identity)) {
       return AUTHORSHIP_REFUSAL;
     }
 

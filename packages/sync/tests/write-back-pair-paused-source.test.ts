@@ -34,10 +34,10 @@ const store = createDatabaseWriteBackStore({
   userId: USER_ID,
 });
 
-const seed = async (capabilities: string[]): Promise<void> => {
+const seed = async (disabled: boolean): Promise<void> => {
   await client.query(
-    `insert into calendars ("id", "capabilities") values ($1, $2)`,
-    [SOURCE_CALENDAR_ID, capabilities],
+    `insert into calendars ("id", "capabilities", "disabled") values ($1, $2, $3)`,
+    [SOURCE_CALENDAR_ID, ["pull", "push"], disabled],
   );
   await client.query(
     `insert into calendars ("id", "capabilities") values ($1, $2)`,
@@ -66,21 +66,20 @@ beforeEach(async () => {
 
 /*
  * The gate taken under the source lock, immediately before a real calendar is written. A
- * source regraded to read-only after two-way was switched on still carries its stored
- * mode, and reading that mode alone would send edits and deletions at a provider that can
- * only reject them.
+ * paused source is one Keeper.sh has stopped reading, so the snapshot every downstream
+ * "refuse if the original moved" guard compares against is frozen and cannot dissent.
  */
-describe("the last write-back gate for a source that can no longer be written", () => {
-  it("reads the pair as off once the source only carries read access", async () => {
-    await seed(["pull"]);
+describe("the last write-back gate for a paused source", () => {
+  it("reads the pair as off while the source is paused", async () => {
+    await seed(true);
 
     const pair = await readPair();
 
     expect(pair?.writeBackMode).toBe("off");
   });
 
-  it("still reads the stored mode while the source can be written", async () => {
-    await seed(["pull", "push"]);
+  it("still reads the stored mode while the source is running", async () => {
+    await seed(false);
 
     const pair = await readPair();
 

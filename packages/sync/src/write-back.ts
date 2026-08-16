@@ -281,6 +281,7 @@ const resolveCalDAVSourceWriter = async (
   const { calendarUrl } = credentials;
   return createCalDAVSourceWriter({
     accountEmail: credentials.accountEmail,
+    accountUsername: credentials.username,
     calendarUrl,
     client: () => {
       /*
@@ -456,6 +457,7 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
       .select({
         calendarType: calendarsTable.calendarType,
         capabilities: calendarsTable.capabilities,
+        disabled: calendarsTable.disabled,
         writeBackMode: sourceDestinationMappingsTable.writeBackMode,
         writeBackState: sourceDestinationMappingsTable.writeBackState,
       })
@@ -476,6 +478,7 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
       writeBackMode: resolveWritableWriteBackMode(row.writeBackMode, {
         calendarType: row.calendarType,
         capabilities: row.capabilities,
+        disabled: row.disabled,
       }),
       writeBackState: row.writeBackState,
     };

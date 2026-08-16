@@ -47,6 +47,15 @@ const TWO_WAY_DELETE_RATIO = 0.2;
  */
 const TWO_WAY_EDIT_ABSOLUTE_FLOOR = 10;
 const TWO_WAY_EDIT_RATIO = 0.5;
+/*
+ * A ratio alone cannot see a shift that moved a large minority of a large calendar, and a
+ * large minority of real events is exactly what nobody can put back: an edit carries no
+ * confirmation, no per-event probe, no tombstone and no per-calendar daily cap, so the
+ * count in a single pass is the only bound there is. The same figure the floor already
+ * calls more than a person plausibly edits inside one pass is therefore also the most any
+ * one source calendar may take from one pass, whatever the calendar's size.
+ */
+const TWO_WAY_EDIT_ABSOLUTE_CEILING = TWO_WAY_EDIT_ABSOLUTE_FLOOR;
 const TWO_WAY_EPOCH_QUARANTINE_LIMIT = 5;
 const TWO_WAY_EPOCH_WINDOW_MS = 60 * MINUTE_MS;
 const FIRST_OBSERVATION = 1;
@@ -107,6 +116,7 @@ type InboundClassification =
     expectedSource: ExpectedSourceFields;
     expectedSyncEventHash: string | null;
     mappingId: string;
+    mappingUpdate?: PendingUpdate;
     observed: ObservedDestinationState;
     /*
      * Null leaves the recorded push hash alone so the outbound comparison stays armed:
@@ -603,6 +613,7 @@ const resolveTrippedSourceCalendarIds = (
   candidates: { mapping: EventMapping }[],
   floor: number,
   ratio: number,
+  ceiling: number = Number.POSITIVE_INFINITY,
 ): Set<string> => {
   const candidateCounts = countBySourceCalendar(candidates);
   if (candidates.length > floor && candidates.length / eligible.length > ratio) {
@@ -613,7 +624,7 @@ const resolveTrippedSourceCalendarIds = (
   const tripped = new Set<string>();
   for (const [sourceCalendarId, candidateCount] of candidateCounts) {
     const total = eligibleCounts.get(sourceCalendarId) ?? candidateCount;
-    if (candidateCount > floor && candidateCount / total > ratio) {
+    if (candidateCount > ceiling || (candidateCount > floor && candidateCount / total > ratio)) {
       tripped.add(sourceCalendarId);
     }
   }
@@ -1225,6 +1236,7 @@ const resolveEditBreaker = (
     pendingWriteBacks,
     TWO_WAY_EDIT_ABSOLUTE_FLOOR,
     TWO_WAY_EDIT_RATIO,
+    TWO_WAY_EDIT_ABSOLUTE_CEILING,
   );
   const classifications: InboundClassification[] = [];
   const suppressedMappingIds: string[] = [];
@@ -1238,6 +1250,9 @@ const resolveEditBreaker = (
         observed: classification.observed,
         reason: "bulk_edit_breaker",
         type: "rejected",
+        ...(classification.mappingUpdate && {
+          mappingUpdate: classification.mappingUpdate,
+        }),
       });
       continue;
     }
@@ -1274,6 +1289,47 @@ const readObservedState = (
   };
 };
 
+/*
+ * The copy answered this listing, so whichever earlier absence started the delete clock
+ * was the provider not returning it, not the user destroying it. Retiring the clock here
+ * covers every branch that acts on a present copy at once: leaving it standing on the
+ * branches that record nothing lets a copy flickering out of two listings a minute apart
+ * satisfy a guard written to require ten continuous minutes of absence.
+ */
+const clearPendingDeleteOnObservation = (
+  mapping: EventMapping,
+  outcome: MappingOutcome,
+): MappingOutcome => {
+  if (!hasPendingDeleteState(mapping)) {
+    return outcome;
+  }
+  const { classification } = outcome;
+  if (!classification) {
+    return {
+      ...outcome,
+      classification: {
+        mappingId: mapping.id,
+        mappingUpdate: clearPendingDeleteUpdate(mapping),
+        missingObservationCount: NO_OBSERVATIONS,
+        type: "none",
+      },
+    };
+  }
+  if (classification.type === "delete") {
+    return outcome;
+  }
+  if (classification.mappingUpdate) {
+    return outcome;
+  }
+  return {
+    ...outcome,
+    classification: {
+      ...classification,
+      mappingUpdate: clearPendingDeleteUpdate(mapping),
+    },
+  };
+};
+
 const classifyMapping = (
   context: MappingContext,
   remoteEvent?: RemoteEvent,
@@ -1283,9 +1339,12 @@ const classifyMapping = (
   }
   const observed = readObservedState(remoteEvent);
   if (!observed) {
-    return { suppress: false };
+    return clearPendingDeleteOnObservation(context.mapping, { suppress: false });
   }
-  return classifyPresentMirror(context, remoteEvent, observed);
+  return clearPendingDeleteOnObservation(
+    context.mapping,
+    classifyPresentMirror(context, remoteEvent, observed),
+  );
 };
 
 interface MappingPassResult {
@@ -1505,6 +1564,7 @@ export {
   TWO_WAY_DELETE_GRACE_MS,
   TWO_WAY_DELETE_MIN_OBSERVATIONS,
   TWO_WAY_DELETE_RATIO,
+  TWO_WAY_EDIT_ABSOLUTE_CEILING,
   TWO_WAY_EDIT_ABSOLUTE_FLOOR,
   TWO_WAY_EDIT_RATIO,
   TWO_WAY_EPOCH_QUARANTINE_LIMIT,

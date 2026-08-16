@@ -3,6 +3,7 @@ import { createCalDAVSourceWriter } from "../../../../src/providers/caldav/sourc
 
 const CALENDAR_URL = "https://caldav.example.com/calendars/personal";
 const SOURCE_EVENT_UID = "source-event-uid-1";
+const ORGANIZER_LOGIN = "ada@example.com";
 const OBJECT_URL = `${CALENDAR_URL}/${SOURCE_EVENT_UID}.ics`;
 const NO_CONTENT_STATUS = 204;
 
@@ -39,7 +40,7 @@ const ORIGINAL_ICS = [
   String.raw`X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-TITLE=Clinic:geo:52.5\,13.4`,
   "X-MICROSOFT-SKYPETEAMSMEETINGURL:https://teams.example.com/l/meetup/abc",
   "CATEGORIES:Work,Planning",
-  "ORGANIZER;CN=Ada:mailto:ada@example.com",
+  `ORGANIZER;CN=Ada:mailto:${ORGANIZER_LOGIN}`,
   "SEQUENCE:4",
   "END:VEVENT",
   "END:VCALENDAR",
@@ -65,6 +66,7 @@ const createClient = () => {
 const writeSummary = async (): Promise<string> => {
   const stub = createClient();
   const writer = createCalDAVSourceWriter({
+    accountUsername: ORGANIZER_LOGIN,
     calendarUrl: CALENDAR_URL,
     client: () => Promise.resolve(stub.client),
   });
@@ -123,6 +125,7 @@ describe("a CalDAV source write-back edits the user's event without rewriting it
   it("moves the event without disturbing the properties around it", async () => {
     const stub = createClient();
     const writer = createCalDAVSourceWriter({
+    accountUsername: ORGANIZER_LOGIN,
       calendarUrl: CALENDAR_URL,
       client: () => Promise.resolve(stub.client),
     });
