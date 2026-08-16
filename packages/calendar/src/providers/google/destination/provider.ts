@@ -22,6 +22,7 @@ import type { GoogleEvent } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, PROVIDER_PUSH_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GOOGLE_CALENDAR_MAX_RESULTS, GONE_STATUS } from "../shared/api";
+import { listUserCalendars } from "../source/utils/list-calendars";
 import { withBackoff } from "../../../core/utils/backoff";
 import { executeBatchChunked } from "../shared/batch";
 import { isRateLimitApiError, parseGoogleApiError } from "../shared/errors";
@@ -533,23 +534,19 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
   };
 
   /*
-   * A copy missing from a page of the list read is a candidate, never evidence. Only a
-   * targeted lookup that comes back with nothing — or with nothing but cancelled
-   * occurrences — justifies destroying the original on the source.
-   *
    * A missing event is an OK answer holding no items. The 404 and 410 this URL can return
    * are the collection's, not the event's, and a calendar that has been deleted or whose
    * access was revoked answers them for every copy in it at once.
    */
-  const probeRemoteEvent = async (
-    reference: RemoteEventReference,
+  const findLiveCopyIn = async (
+    externalCalendarId: string,
+    uid: string,
   ): Promise<RemoteEventPresence> => {
-    await refreshIfNeeded();
     const url = new URL(
-      `calendars/${encodeURIComponent(config.externalCalendarId)}/events`,
+      `calendars/${encodeURIComponent(externalCalendarId)}/events`,
       GOOGLE_CALENDAR_API,
     );
-    url.searchParams.set("iCalUID", reference.uid);
+    url.searchParams.set("iCalUID", uid);
     url.searchParams.set("showDeleted", "false");
 
     const response = await fetchWithTimeout(
@@ -569,6 +566,41 @@ const createGoogleSyncProvider = (config: GoogleSyncProviderConfig) => {
       return "absent";
     }
     return "present";
+  };
+
+  /*
+   * A copy missing from a page of the list read is a candidate, never evidence. Only a
+   * targeted lookup that comes back with nothing — or with nothing but cancelled
+   * occurrences — justifies destroying the original on the source.
+   *
+   * Google scopes every read to one calendar, so the destination alone cannot tell a
+   * deleted copy from one the user dragged into another calendar of the same account: a
+   * move keeps the event and its iCalUID, and it is still a copy the user can see. Every
+   * calendar the account can read is asked before the original is destroyed, and a
+   * calendar list that cannot be read is refused rather than assumed empty.
+   */
+  const probeRemoteEvent = async (
+    reference: RemoteEventReference,
+  ): Promise<RemoteEventPresence> => {
+    await refreshIfNeeded();
+    const inDestination = await findLiveCopyIn(config.externalCalendarId, reference.uid);
+    if (inDestination === "present") {
+      return "present";
+    }
+
+    const calendars = await listUserCalendars(tokenState.accessToken, {
+      ...(config.signal && { signal: config.signal }),
+    });
+    for (const calendar of calendars) {
+      if (calendar.id === config.externalCalendarId) {
+        continue;
+      }
+      const elsewhere = await findLiveCopyIn(calendar.id, reference.uid);
+      if (elsewhere === "present") {
+        return "present";
+      }
+    }
+    return "absent";
   };
 
   return {

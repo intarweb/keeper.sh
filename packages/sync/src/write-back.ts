@@ -48,6 +48,8 @@ import type {
 
 const TOMBSTONE_RETENTION_MS = 30 * 86_400_000;
 const ABANDONED_TOMBSTONE_STATE = "abandoned";
+const APPLIED_TOMBSTONE_STATE = "applied";
+const PENDING_TOMBSTONE_STATE = "pending";
 
 /*
  * A tombstone reaches "abandoned" only on the paths where the provider was never asked to
@@ -529,11 +531,22 @@ const createSiblingNotifier = (
 const createDatabaseWriteBackStore = (
   config: WriteBackApplierConfig,
 ): WriteBackStore => ({
-  abandonTombstone: async (tombstoneId) => {
+  /*
+   * The record is shared by every pass over the mapping, and only a pass that reached the
+   * lock and turned back may release it. A pass that lost the race reads the same row a
+   * winner has since carried to "applied", so the release is refused unless the row is
+   * still the pending one it was handed: uncounting a deletion that really happened would
+   * hand its slot back to the daily cap and lose the user's record of a destroyed event.
+   */
+  abandonTombstone: async ({ observedAt, tombstoneId }) => {
     await config.database
       .update(eventWriteBackTombstonesTable)
-      .set({ state: "abandoned" })
-      .where(eq(eventWriteBackTombstonesTable.id, tombstoneId));
+      .set({ state: ABANDONED_TOMBSTONE_STATE })
+      .where(and(
+        eq(eventWriteBackTombstonesTable.id, tombstoneId),
+        eq(eventWriteBackTombstonesTable.state, PENDING_TOMBSTONE_STATE),
+        eq(eventWriteBackTombstonesTable.observedAt, observedAt),
+      ));
   },
   /*
    * Windowed on observedAt rather than appliedAt, because the rows this must not miss are
@@ -644,6 +657,11 @@ const createDatabaseWriteBackStore = (
    * check abandoned or a crash interrupted leaves a record behind, and a plain insert
    * would collide with it on every retry: the deletion could never complete and the pair
    * would quarantine on a constraint rather than on anything the user did.
+   *
+   * A record already carried to "applied" is left exactly as it is: the deletion it
+   * records really happened, and returning it to pending would let a later pass release
+   * it. The observedAt handed back is what claims the row — the release below refuses
+   * unless the record is still the one this attempt wrote.
    */
   recordTombstone: async ({ snapshot, target }) => {
     const now = new Date();
@@ -664,21 +682,35 @@ const createDatabaseWriteBackStore = (
         snapshot,
         sourceCalendarId: target.sourceCalendarId,
         sourceEventUid: target.sourceEventUid,
-        state: "pending",
+        state: PENDING_TOMBSTONE_STATE,
         userId: config.userId,
       })
       .onConflictDoUpdate({
-        set: { appliedAt: now, expiresAt, observedAt: now, snapshot, state: "pending" },
+        set: { appliedAt: now, expiresAt, observedAt: now, snapshot, state: PENDING_TOMBSTONE_STATE },
+        setWhere: ne(eventWriteBackTombstonesTable.state, APPLIED_TOMBSTONE_STATE),
         target: eventWriteBackTombstonesTable.eventMappingId,
       })
       .returning({ id: eventWriteBackTombstonesTable.id });
 
-    if (!row) {
+    if (row) {
+      return { id: row.id, observedAt: now, priorAttempt };
+    }
+
+    /*
+     * The upsert declined the row, so a deletion this mapping already carried out is on
+     * record. Its id is handed back so the caller can complete against it, marked as an
+     * attempt nobody may release.
+     */
+    const [applied] = await config.database
+      .select({ id: eventWriteBackTombstonesTable.id })
+      .from(eventWriteBackTombstonesTable)
+      .where(eq(eventWriteBackTombstonesTable.eventMappingId, target.mappingId));
+    if (!applied) {
       throw new Error(
         `Refusing to delete ${target.sourceEventUid} without a committed tombstone`,
       );
     }
-    return { id: row.id, priorAttempt };
+    return { id: applied.id, observedAt: now, priorAttempt: true };
   },
   /*
    * The pending state is left exactly where it is. The pair is waiting on an answer about

@@ -110,7 +110,7 @@ const createHarness = (options: ProbeHarnessOptions = {}) => {
     ?? (() => Promise.resolve<RemoteEventPresence>("absent"));
 
   const store: WriteBackStore = {
-    abandonTombstone: (tombstoneId) => {
+    abandonTombstone: ({ tombstoneId }) => {
       log.push("tombstone:abandon");
       tombstones.set(tombstoneId, { state: "abandoned" });
       return Promise.resolve();
@@ -127,7 +127,7 @@ const createHarness = (options: ProbeHarnessOptions = {}) => {
       tombstoneCounter += 1;
       const id = `tombstone-${tombstoneCounter}`;
       tombstones.set(id, { state: "pending" });
-      return Promise.resolve({ id, priorAttempt: false });
+      return Promise.resolve({ id, observedAt: new Date(), priorAttempt: false });
     },
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: async (_sourceCalendarId, run) => {

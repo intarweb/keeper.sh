@@ -204,6 +204,22 @@ const createGoogleSourceWriter = (
     return googleEventWithAttendeesSchema.assert(await response.json());
   };
 
+  /*
+   * The token read refreshes the grant, so it fails the same ways the lookup does — a
+   * revoked grant, an unreachable token endpoint, a refresh lock that could not be taken —
+   * and every one of them happens before Google is asked to change anything. It has to
+   * reach the caller as an answer for the same reason the lookup does: an exception is
+   * indistinguishable from one raised after the write, and the write-back pass can only
+   * release the record of a deletion it knows did not happen.
+   */
+  const resolveAccessToken = async (): Promise<{ accessToken: string } | { error: string }> => {
+    try {
+      return { accessToken: await config.accessToken() };
+    } catch (error) {
+      return { error: describeLookupFailure(error) };
+    }
+  };
+
   const resolveEvent = async (
     accessToken: string,
     reference: { sourceEventId: string | null; sourceEventUid: string },
@@ -241,7 +257,11 @@ const createGoogleSourceWriter = (
     updates: SourceEventUpdate,
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
-    const accessToken = await config.accessToken();
+    const token = await resolveAccessToken();
+    if ("error" in token) {
+      return { error: token.error, success: false };
+    }
+    const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
@@ -279,7 +299,11 @@ const createGoogleSourceWriter = (
     reference: { sourceEventId: string | null; sourceEventUid: string },
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
-    const accessToken = await config.accessToken();
+    const token = await resolveAccessToken();
+    if ("error" in token) {
+      return { error: token.error, success: false };
+    }
+    const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };

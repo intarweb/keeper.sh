@@ -76,7 +76,7 @@ const createNonProgressHarness = (options: NonProgressHarnessOptions) => {
       state.epoch += 1;
       return Promise.resolve(state.epoch);
     },
-    recordTombstone: () => Promise.resolve({ id: "tombstone-1", priorAttempt: false }),
+    recordTombstone: () => Promise.resolve({ id: "tombstone-1", observedAt: new Date(), priorAttempt: false }),
     requestDeleteConfirmation: (_source, _destination, reason) => {
       confirmations.push({ reason });
       return Promise.resolve();

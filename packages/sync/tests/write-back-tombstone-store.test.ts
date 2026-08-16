@@ -39,13 +39,25 @@ interface TombstoneRow {
  * resolve the conflict can never record a second attempt for the same event. Modelling
  * that here is the only way a fake can observe the retry a crashed deletion depends on.
  */
-const readMappingId = (predicate: unknown): string => {
-  const chunks = (predicate as { queryChunks?: { value?: unknown }[] }).queryChunks ?? [];
-  const parameter = chunks.find(
-    (chunk) => chunk?.constructor?.name === "Param",
-  );
-  return String(parameter?.value ?? "");
+const findFirstParameter = (node: unknown): { value?: unknown } | null => {
+  if (!node || typeof node !== "object") {
+    return null;
+  }
+  if (node.constructor?.name === "Param") {
+    return node as { value?: unknown };
+  }
+  const chunks = (node as { queryChunks?: unknown[] }).queryChunks ?? [];
+  for (const chunk of chunks) {
+    const found = findFirstParameter(chunk);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
 };
+
+const readMappingId = (predicate: unknown): string =>
+  String(findFirstParameter(predicate)?.value ?? "");
 
 const createFakeDatabase = () => {
   const rows = new Map<string, TombstoneRow>();
@@ -154,8 +166,11 @@ describe("the record of a deletion survives the attempt that was interrupted", (
   it("lets the retry release a record an earlier attempt already abandoned", async () => {
     const { rows, store } = createStore();
 
-    await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
-    await store.abandonTombstone(rows.get(MAPPING_ID)?.id ?? "");
+    const first = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    await store.abandonTombstone({
+      observedAt: first.observedAt,
+      tombstoneId: rows.get(MAPPING_ID)?.id ?? "",
+    });
     const retry = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
 
     expect(retry.priorAttempt).toBe(false);

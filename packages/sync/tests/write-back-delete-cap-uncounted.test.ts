@@ -81,7 +81,7 @@ const createHarness = (options: { writeAnswerArrivesLate: boolean }) => {
   };
 
   const store: WriteBackStore = {
-    abandonTombstone: (tombstoneId) => {
+    abandonTombstone: ({ tombstoneId }) => {
       tombstones.set(tombstoneId, { appliedAt: null, state: "abandoned" });
       return Promise.resolve();
     },
@@ -113,7 +113,7 @@ const createHarness = (options: { writeAnswerArrivesLate: boolean }) => {
       const previous = tombstones.get(tombstoneId);
       const priorAttempt = isUnresolvedAttempt(previous);
       tombstones.set(tombstoneId, { appliedAt: null, state: "pending" });
-      return Promise.resolve({ id: tombstoneId, priorAttempt });
+      return Promise.resolve({ id: tombstoneId, observedAt: new Date(), priorAttempt });
     },
     requestDeleteConfirmation: () => Promise.resolve(),
     resolveWriter: () => Promise.resolve(writer),

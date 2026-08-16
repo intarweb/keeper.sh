@@ -109,7 +109,7 @@ const createHarness = () => {
   };
 
   const store: WriteBackStore = {
-    abandonTombstone: (tombstoneId) => {
+    abandonTombstone: ({ tombstoneId }) => {
       abandoned.push(tombstoneId);
       return Promise.resolve();
     },
@@ -128,7 +128,7 @@ const createHarness = () => {
     },
     recordTombstone: () => {
       tombstones.push("tombstone-1");
-      return Promise.resolve({ id: "tombstone-1", priorAttempt: false });
+      return Promise.resolve({ id: "tombstone-1", observedAt: new Date(), priorAttempt: false });
     },
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: (_sourceCalendarId, run) => run(locked),

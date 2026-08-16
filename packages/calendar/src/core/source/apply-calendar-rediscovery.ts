@@ -45,6 +45,7 @@ const readExistingCalendars = async (
   const rows = await transaction
     .select({
       calendarUrl: calendarsTable.calendarUrl,
+      capabilities: calendarsTable.capabilities,
       createdAt: calendarsTable.createdAt,
       externalCalendarId: calendarsTable.externalCalendarId,
       id: calendarsTable.id,
@@ -180,6 +181,19 @@ const applyCalendarRediscoveryPlan = (
         .update(calendarsTable)
         .set({ unavailableSince: input.now })
         .where(inArray(calendarsTable.id, plan.toMarkUnavailable));
+    }
+
+    /*
+     * A calendar the provider has since shared read-only keeps claiming it can be
+     * written to until this runs, and the write-back gate reads nothing else. The
+     * enumeration was already refused above if it came back empty, so this only ever
+     * restates an answer the provider actually gave.
+     */
+    for (const correction of plan.toUpdateCapabilities) {
+      await transaction
+        .update(calendarsTable)
+        .set({ capabilities: correction.capabilities })
+        .where(eq(calendarsTable.id, correction.id));
     }
 
     for (const retarget of plan.toRetargetUrl) {

@@ -34,9 +34,16 @@ describe("Google destination: confirming a copy is really gone", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reports absent when the calendar answers with no live match", async () => {
-    vi.stubGlobal("fetch", vi.fn(() =>
-      Promise.resolve(Response.json({ items: [] }, { status: OK_STATUS }))));
+  it("reports absent when no calendar of the account answers with a live match", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: URL | string) => {
+      if (input.toString().includes("users/me/calendarList")) {
+        return Promise.resolve(Response.json(
+          { items: [{ accessRole: "owner", id: "primary", summary: "Primary" }], kind: "calendar#calendarList" },
+          { status: OK_STATUS },
+        ));
+      }
+      return Promise.resolve(Response.json({ items: [] }, { status: OK_STATUS }));
+    }));
 
     await expect(probe()).resolves.toBe("absent");
   });

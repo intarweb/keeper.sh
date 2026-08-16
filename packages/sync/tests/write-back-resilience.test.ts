@@ -115,7 +115,7 @@ const createHarness = (options: ResilienceOptions = {}) => {
   };
 
   const store: WriteBackStore = {
-    abandonTombstone: (tombstoneId) => {
+    abandonTombstone: ({ tombstoneId }) => {
       for (const [mappingId, tombstone] of tombstonesByMapping) {
         if (tombstone.id === tombstoneId) {
           tombstonesByMapping.set(mappingId, { ...tombstone, state: "abandoned" });
@@ -145,7 +145,7 @@ const createHarness = (options: ResilienceOptions = {}) => {
       const previous = tombstonesByMapping.get(target.mappingId);
       const priorAttempt = isUnresolvedAttempt(previous);
       tombstonesByMapping.set(target.mappingId, { id, state: "pending" });
-      return Promise.resolve({ id, priorAttempt });
+      return Promise.resolve({ id, observedAt: new Date(), priorAttempt });
     },
     resolveWriter: options.resolveWriter ?? (() => Promise.resolve(writer)),
     withSourceLock: (_sourceCalendarId, run) => run(locked),

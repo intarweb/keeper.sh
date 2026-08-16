@@ -160,7 +160,7 @@ const createHarness = (options: HarnessOptions = {}) => {
   };
 
   const store: WriteBackStore = {
-    abandonTombstone: (tombstoneId) => {
+    abandonTombstone: ({ tombstoneId }) => {
       log.push("tombstone:abandon");
       const tombstone = tombstones.get(tombstoneId);
       if (tombstone) {
@@ -193,7 +193,7 @@ const createHarness = (options: HarnessOptions = {}) => {
       tombstoneCounter += 1;
       const id = `tombstone-${tombstoneCounter}`;
       tombstones.set(id, { snapshot, state: "pending" });
-      return Promise.resolve({ id, priorAttempt: false });
+      return Promise.resolve({ id, observedAt: new Date(), priorAttempt: false });
     },
     resolveWriter: () => Promise.resolve(writer),
     withSourceLock: async (_sourceCalendarId, run) => {

@@ -10,6 +10,7 @@ import { listUserCalendars as listOutlookCalendars } from "@keeper.sh/calendar/o
 import { resolveSourceCalendarCapabilities } from "@keeper.sh/data-schemas";
 import type { database as contextDatabase } from "@/context";
 import { spawnBackgroundJob } from "./background-task";
+import { widelog } from "./logging";
 import {
   createSourceCalendarInsertDependencies,
   insertSourceCalendars,
@@ -231,7 +232,14 @@ interface CreateOAuthSourceDependencies {
     userId: string;
     excludeFocusTime: boolean;
     excludeOutOfOffice: boolean;
+    writable: boolean;
   }) => Promise<{ id: string; name: string } | null>;
+  resolveWritability: (options: {
+    credentialId: string;
+    externalCalendarId: string;
+    provider: string;
+    userId: string;
+  }) => Promise<boolean>;
   createCalendarAccount: (payload: {
     displayName: string | null;
     email: string | null;
@@ -393,6 +401,81 @@ const hasExistingOAuthCalendar = async (
   return hasExistingOAuthCalendarWithDatabase(database, options);
 };
 
+const listCalendarsWithWritability = async (
+  provider: string,
+  accessToken: string,
+): Promise<{ externalId: string; name: string; writable: boolean }[]> => {
+  if (provider === "google") {
+    const calendars = await listGoogleCalendars(accessToken);
+    return calendars.map((calendar) => ({
+      externalId: calendar.id,
+      name: calendar.summary,
+      writable: GOOGLE_WRITABLE_ACCESS_ROLES.has(calendar.accessRole),
+    }));
+  }
+  if (provider === "outlook") {
+    const calendars = await listOutlookCalendars(accessToken);
+    return calendars.map((calendar) => ({
+      externalId: calendar.id,
+      name: calendar.name,
+      writable: calendar.canEdit === true,
+    }));
+  }
+  throw new Error(`No calendar listing support for provider: ${provider}`);
+};
+
+const refreshSourceAccessTokenFor = async (
+  provider: string,
+  credentialId: string,
+  refreshToken: string,
+): Promise<string> => {
+  const { refreshGoogleSourceAccessToken, refreshMicrosoftSourceAccessToken } =
+    await import("./oauth-refresh");
+  if (provider === "google") {
+    const { accessToken } = await refreshGoogleSourceAccessToken(credentialId, refreshToken);
+    return accessToken;
+  }
+  const { accessToken } = await refreshMicrosoftSourceAccessToken(credentialId, refreshToken);
+  return accessToken;
+};
+
+const resolveValidSourceAccessToken = (
+  provider: string,
+  credentialId: string,
+  credentials: { accessToken: string; expiresAt: Date; refreshToken: string },
+): Promise<string> => {
+  if (credentials.expiresAt < new Date()) {
+    return refreshSourceAccessTokenFor(provider, credentialId, credentials.refreshToken);
+  }
+  return Promise.resolve(credentials.accessToken);
+};
+
+/*
+ * What the calendar can do is the provider's answer, and the write-back gate reads
+ * nothing but the column this writes. An answer nobody could obtain is not a licence to
+ * assume the calendar is writable: the refusing value is the one that costs the user only
+ * a delay, because rediscovery restates it from the provider on its next pass.
+ */
+const resolveSourceWritability = async (
+  options: { credentialId: string; externalCalendarId: string; provider: string; userId: string },
+): Promise<boolean> => {
+  const { credentialId, externalCalendarId, provider, userId } = options;
+  try {
+    const credentials = await getOAuthSourceCredentials(userId, credentialId, provider);
+    const accessToken = await resolveValidSourceAccessToken(provider, credentialId, credentials);
+    const calendars = await listCalendarsWithWritability(provider, accessToken);
+    const match = calendars.find((calendar) => calendar.externalId === externalCalendarId);
+    if (!match) {
+      widelog.set("source.writability_unresolved", "not_listed");
+      return false;
+    }
+    return match.writable;
+  } catch (error) {
+    widelog.errorFields(error, { slug: "source-writability-unresolved" });
+    return false;
+  }
+};
+
 const createOAuthSourceRecordWithDatabase = async (
   databaseClient: OAuthSourceDatabase,
   payload: Parameters<CreateOAuthSourceDependencies["createSource"]>[0],
@@ -403,7 +486,7 @@ const createOAuthSourceRecordWithDatabase = async (
     [{
       accountId: payload.accountId,
       calendarType: OAUTH_CALENDAR_TYPE,
-      capabilities: resolveSourceCalendarCapabilities(false),
+      capabilities: resolveSourceCalendarCapabilities(payload.writable),
       excludeFocusTime: payload.excludeFocusTime,
       excludeOutOfOffice: payload.excludeOutOfOffice,
       externalCalendarId: payload.externalCalendarId,
@@ -477,6 +560,7 @@ const createDefaultCreateOAuthSourceDependencies = (): CreateOAuthSourceDependen
   },
   findExistingAccountId: findOAuthAccountId,
   hasExistingCalendar: hasExistingOAuthCalendar,
+  resolveWritability: resolveSourceWritability,
   triggerSync: (userId, provider) => {
     spawnBackgroundJob("oauth-source-push-enqueue", { userId, provider }, async () => {
       const { premiumService } = await import("@/context");
@@ -549,6 +633,13 @@ const createOAuthSourceWithDependencies = async (
     accountId = createdAccountId;
   }
 
+  const writable = await dependencies.resolveWritability({
+    credentialId: oauthCredentialId,
+    externalCalendarId,
+    provider,
+    userId,
+  });
+
   const source = await dependencies.createSource({
     accountId,
     excludeFocusTime,
@@ -558,6 +649,7 @@ const createOAuthSourceWithDependencies = async (
     originalName: name,
     provider,
     userId,
+    writable,
   });
 
   if (!source) {
@@ -578,6 +670,17 @@ const createOAuthSource = async (
   options: CreateOAuthSourceOptions,
 ): Promise<OAuthCalendarSource> => {
   const { database } = await import("@/context");
+
+  /*
+   * Asked before the transaction opens: this is an HTTP round trip to the provider, and
+   * the transaction below holds the user's account advisory lock for as long as it runs.
+   */
+  const writable = await resolveSourceWritability({
+    credentialId: options.oauthCredentialId,
+    externalCalendarId: options.externalCalendarId,
+    provider: options.provider,
+    userId: options.userId,
+  });
 
   return database.transaction(async (tx) => {
     await tx.execute(
@@ -608,6 +711,7 @@ const createOAuthSource = async (
         findCredentialEmailWithDatabase(tx, userId, oauthCredentialId),
       findExistingAccountId: (accountOptions) => findOAuthAccountIdWithDatabase(tx, accountOptions),
       hasExistingCalendar: (calendarOptions) => hasExistingOAuthCalendarWithDatabase(tx, calendarOptions),
+      resolveWritability: () => Promise.resolve(writable),
     });
   });
 };

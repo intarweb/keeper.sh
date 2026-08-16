@@ -154,7 +154,12 @@ interface LockedWriteBackStore {
 }
 
 interface WriteBackStore {
-  abandonTombstone: (tombstoneId: string) => Promise<void>;
+  /*
+   * `observedAt` is what claims the record. Two passes over the same mapping share one
+   * row, so a release names the version it wrote: a pass whose row another has since
+   * refreshed — or carried to a completed deletion — releases nothing.
+   */
+  abandonTombstone: (claim: { observedAt: Date; tombstoneId: string }) => Promise<void>;
   countRecentDeletes: (sourceCalendarId: string, since: Date) => Promise<number>;
   loadTarget: (mappingId: string) => Promise<WriteBackTarget | null>;
   /*
@@ -197,7 +202,7 @@ interface WriteBackStore {
   recordTombstone: (input: {
     snapshot: SourceEventSnapshot;
     target: WriteBackTarget;
-  }) => Promise<{ id: string; priorAttempt: boolean }>;
+  }) => Promise<{ id: string; observedAt: Date; priorAttempt: boolean }>;
   resolveWriter: (sourceCalendarId: string) => Promise<CalendarSourceWriter | null>;
   withSourceLock: <TResult>(
     sourceCalendarId: string,
@@ -539,12 +544,12 @@ const applyDelete = async (
     return "abandoned";
   }
   const tombstone = await input.store.recordTombstone({ snapshot: preSnapshot, target });
-  const { id: tombstoneId } = tombstone;
+  const { id: tombstoneId, observedAt } = tombstone;
   const releaseTombstone = async (): Promise<void> => {
     if (tombstone.priorAttempt) {
       return;
     }
-    await input.store.abandonTombstone(tombstoneId);
+    await input.store.abandonTombstone({ observedAt, tombstoneId });
   };
 
   const run = input.store.withSourceLock(

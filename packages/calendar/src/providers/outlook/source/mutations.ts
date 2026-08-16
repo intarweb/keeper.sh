@@ -220,6 +220,20 @@ const createOutlookSourceWriter = (
     return outlookEventWithAttendeesSchema.assert(await response.json());
   };
 
+  /*
+   * The token read refreshes the grant, so it fails the same ways the lookup does — a
+   * revoked grant, an unreachable token endpoint, a refresh lock that could not be taken —
+   * and every one of them happens before Graph is asked to change anything. It has to
+   * reach the caller as an answer for the same reason the lookup does.
+   */
+  const resolveAccessToken = async (): Promise<{ accessToken: string } | { error: string }> => {
+    try {
+      return { accessToken: await config.accessToken() };
+    } catch (error) {
+      return { error: describeLookupFailure(error) };
+    }
+  };
+
   const resolveEvent = async (
     accessToken: string,
     reference: { sourceEventId: string | null; sourceEventUid: string },
@@ -261,7 +275,11 @@ const createOutlookSourceWriter = (
     updates: SourceEventUpdate,
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
-    const accessToken = await config.accessToken();
+    const token = await resolveAccessToken();
+    if ("error" in token) {
+      return { error: token.error, success: false };
+    }
+    const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
@@ -301,7 +319,11 @@ const createOutlookSourceWriter = (
     reference: { sourceEventId: string | null; sourceEventUid: string },
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
-    const accessToken = await config.accessToken();
+    const token = await resolveAccessToken();
+    if ("error" in token) {
+      return { error: token.error, success: false };
+    }
+    const { accessToken } = token;
     const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };

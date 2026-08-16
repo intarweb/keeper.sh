@@ -129,6 +129,7 @@ describe("createOAuthSourceWithDependencies", () => {
         findCredentialEmail: () => Promise.resolve({ email: null, exists: true }),
         findExistingAccountId: () => Promise.resolve(null),
         hasExistingCalendar: () => Promise.resolve(false),
+        resolveWritability: () => Promise.resolve(true),
         triggerSync: (userId, provider) => {
           triggerSyncCalls.push({ provider, userId });
         },
@@ -175,6 +176,7 @@ describe("createOAuthSourceWithDependencies", () => {
         findCredentialEmail: () => Promise.resolve({ email: "person@example.com", exists: true }),
         findExistingAccountId: () => Promise.resolve("account-1"),
         hasExistingCalendar: () => Promise.resolve(false),
+        resolveWritability: () => Promise.resolve(true),
         triggerSync: (userId, provider) => {
           triggerSyncCalls.push({ provider, userId });
         },
@@ -223,6 +225,7 @@ describe("createOAuthSourceWithDependencies", () => {
           findCredentialEmail: () => Promise.resolve({ email: "person@example.com", exists: true }),
           findExistingAccountId: () => Promise.resolve(null),
           hasExistingCalendar: () => Promise.resolve(false),
+        resolveWritability: () => Promise.resolve(true),
           triggerSync: () => null,
         },
       ),

@@ -98,7 +98,7 @@ const createHarness = () => {
   };
 
   const store: WriteBackStore = {
-    abandonTombstone: (tombstoneId) => {
+    abandonTombstone: ({ tombstoneId }) => {
       tombstones.set(tombstoneId, { state: "abandoned" });
       return Promise.resolve();
     },
@@ -129,7 +129,7 @@ const createHarness = () => {
       const previous = tombstones.get(tombstoneId);
       const priorAttempt = isUnresolvedAttempt(previous);
       tombstones.set(tombstoneId, { state: "pending" });
-      return Promise.resolve({ id: tombstoneId, priorAttempt });
+      return Promise.resolve({ id: tombstoneId, observedAt: new Date(), priorAttempt });
     },
     requestDeleteConfirmation: () => Promise.resolve(),
     resolveWriter: () => Promise.resolve(writer),
