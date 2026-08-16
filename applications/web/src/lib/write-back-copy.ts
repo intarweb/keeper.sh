@@ -44,36 +44,42 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     + " delete the originals on {source} and is waiting for you to say what happened.",
   delete_probe_blocked:
     "Keeper.sh was asked to delete originals on {source}, but it can still see the copies"
-    + " on {destination}. Nothing was deleted.",
+    + " on {destination}. Nothing was deleted, two-way sync to {destination} is paused, and"
+    + " the copies go back to matching {source}.",
   delete_daily_cap:
     "Two-way sync to {destination} is paused: more originals on {source} were being"
-    + " deleted in a day than Keeper.sh will apply unattended.",
+    + " deleted in a day than Keeper.sh will apply unattended. The copies go back to"
+    + " matching {source}.",
   bulk_edit_breaker:
     "Copies on {destination} changed all at once, which reads as something moving the whole"
     + " calendar rather than as edits you made. Keeper.sh did not rewrite the originals on"
     + " {source} and paused two-way sync; the copies go back to matching {source}.",
-  plan_downgraded: "Two-way sync to {destination} is paused because the plan changed."
-    + " Pick the two-way option again to restart it.",
+  plan_downgraded: "Two-way sync to {destination} is paused because the plan changed, so"
+    + " the copies go back to matching {source}. Pick the two-way option again to restart it.",
   source_event_authored_by_someone_else:
     "A copy on {destination} was changed, but the original on {source} was created by"
     + " somebody else on a calendar shared with you. Keeper.sh will not rewrite or delete"
     + " another person's event, so two-way sync to {destination} is paused and nothing on"
-    + " {source} was touched.",
+    + " {source} was touched. The change on the copy is not kept: the copies go back to"
+    + " matching {source}.",
   source_event_rich_body:
-    "A copy on {destination} was changed, but the original on {source} has a formatted description — links, styling, or a meeting join block. Keeper.sh only ever reads it as plain text, so writing the change back would flatten it. Nothing on {source} was touched and two-way sync to {destination} is paused.",
+    "A copy on {destination} was changed, but the original on {source} has a formatted description — links, styling, or a meeting join block. Keeper.sh only ever reads it as plain text, so writing the change back would flatten it. Nothing on {source} was touched and two-way sync to {destination} is paused. The change on the copy is not kept: the copies go back to matching {source}.",
   source_event_has_attendees:
     "A copy on {destination} was changed, but the original on {source} is a meeting other"
     + " people are invited to. Keeper.sh will not cancel or move a meeting on their behalf,"
-    + " so two-way sync to {destination} is paused and nothing on {source} was touched.",
+    + " so two-way sync to {destination} is paused and nothing on {source} was touched. The"
+    + " change on the copy is not kept: the copies go back to matching {source}.",
   source_write_refused:
     "A copy on {destination} was changed, but {source} refused the change to the original."
-    + " Nothing on {source} was touched and two-way sync to {destination} is paused.",
+    + " Nothing on {source} was touched and two-way sync to {destination} is paused. The"
+    + " change on the copy is not kept: the copies go back to matching {source}.",
   runaway_write_back:
     "Two-way sync to {destination} is paused: the copies kept changing on their own, so"
-    + " Keeper.sh stopped writing to {source}.",
+    + " Keeper.sh stopped writing to {source}. The copies go back to matching {source}.",
   write_back_failing:
     "Keeper.sh could not write recent changes back to {source}, so two-way sync to"
-    + " {destination} is paused.",
+    + " {destination} is paused. The changes made on the copies are not kept: the copies go"
+    + " back to matching {source}.",
 };
 
 export {

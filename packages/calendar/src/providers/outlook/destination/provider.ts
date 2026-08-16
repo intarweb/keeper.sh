@@ -35,6 +35,7 @@ import {
   parseRetryAfterMs,
 } from "../shared/throttle";
 import { MICROSOFT_GRAPH_API, OUTLOOK_PAGE_SIZE } from "../shared/api";
+import { listUserCalendars } from "../source/utils/list-calendars";
 import { parseEventTime } from "../shared/date-time";
 import { normalizeOutlookEvent } from "./normalize-event";
 import { serializeOutlookEvent } from "./serialize-event";
@@ -413,16 +414,39 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
 
   /*
    * Graph scopes /me/events to the mailbox's default calendar, which is almost never the
-   * destination calendar, so the destination collection has to be asked first. The mailbox
-   * default is then asked as well: a copy the user dragged into another folder is still a
-   * copy, and any sighting of it has to block the deletion of the original.
+   * destination calendar, so the destination collection has to be asked first. A copy the
+   * user dragged into another folder is still a copy, and any sighting of it has to block
+   * the deletion of the original, so every calendar the mailbox lists is asked before the
+   * copy is called gone. A calendar list that cannot be read is refused, never assumed
+   * empty: listUserCalendars throws and the caller reads a throw as "do not delete".
    */
   const findEventByUid = async (uid: string): Promise<RemoteEventPresence> => {
     const inDestination = await findEventByUidIn(calendarEventsUrl, uid);
     if (inDestination === "present") {
       return inDestination;
     }
-    return findEventByUidIn(`${MICROSOFT_GRAPH_API}/me/events`, uid);
+    const inMailboxDefault = await findEventByUidIn(`${MICROSOFT_GRAPH_API}/me/events`, uid);
+    if (inMailboxDefault === "present") {
+      return inMailboxDefault;
+    }
+
+    const calendars = await listUserCalendars(
+      tokenState.accessToken,
+      config.signal,
+    );
+    for (const calendar of calendars) {
+      if (calendar.id === config.externalCalendarId) {
+        continue;
+      }
+      const elsewhere = await findEventByUidIn(
+        `${MICROSOFT_GRAPH_API}/me/calendars/${encodeURIComponent(calendar.id)}/events`,
+        uid,
+      );
+      if (elsewhere === "present") {
+        return elsewhere;
+      }
+    }
+    return "absent";
   };
 
   /*
