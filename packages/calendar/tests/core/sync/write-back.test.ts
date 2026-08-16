@@ -63,6 +63,7 @@ type TwoWayEventMapping = EventMapping & {
   recurrenceRule: string | null;
   writeBackEpoch: number;
   writeBackEpochWindowStart: Date | null;
+  writeBackLastAppliedAt?: Date | null;
 };
 
 type TwoWayReconciliationScope = ReconciliationScope & {
@@ -1334,10 +1335,15 @@ describe("classifyInboundChanges: a breached write-back budget stays breached", 
     });
   };
 
+  /*
+   * The budget these spent went on write-backs that reached the source, which is what the
+   * applier stamps writeBackLastAppliedAt with on every one of them.
+   */
   it("refuses a write-back once the budget is spent inside the window", () => {
     expect(classificationFor(quarantineInput({
       writeBackEpoch: 5,
       writeBackEpochWindowStart: new Date(NOW.getTime() - 10 * MINUTE_MS),
+      writeBackLastAppliedAt: new Date(NOW.getTime() - MINUTE_MS),
     }, NOW))).toMatchObject({ reason: "write_back_quarantined", type: "rejected" });
   });
 
@@ -1345,6 +1351,7 @@ describe("classifyInboundChanges: a breached write-back budget stays breached", 
     expect(classificationFor(quarantineInput({
       writeBackEpoch: 6,
       writeBackEpochWindowStart: new Date(NOW.getTime() - 2 * HOUR_MS),
+      writeBackLastAppliedAt: new Date(NOW.getTime() - HOUR_MS),
     }, NOW))).toMatchObject({ reason: "write_back_quarantined", type: "rejected" });
   });
 

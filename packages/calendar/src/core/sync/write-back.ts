@@ -42,6 +42,7 @@ const TWO_WAY_DELETE_ABSOLUTE_FLOOR = 5;
 const TWO_WAY_DELETE_RATIO = 0.2;
 const TWO_WAY_EDIT_RATIO = 0.5;
 const TWO_WAY_EPOCH_QUARANTINE_LIMIT = 5;
+const TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT = 30;
 const TWO_WAY_EPOCH_WINDOW_MS = 60 * MINUTE_MS;
 const FIRST_OBSERVATION = 1;
 const NO_OBSERVATIONS = 0;
@@ -264,6 +265,31 @@ const isRecurringMapping = (mapping: EventMapping): boolean =>
   || mapping.recurrenceId instanceof Date;
 
 /*
+ * One column counts two different things. A spend that reached a real calendar is what the
+ * runaway stop exists for, and five in a window is the most any mapping may ever land. A
+ * spend the provider rejected reached nothing: a throttle rejects for as long as it
+ * throttles, and the applier goes on retrying one for a budget far longer than five.
+ * Judging a rejected spend by the landed limit stops the classifier handing the applier the
+ * work while the applier is still waiting to escalate — leaving the event written back to
+ * nowhere, repaired from nowhere, and the pair reporting healthy, for good. So a budget
+ * spent on rejections alone is judged by the applier's failure limit. Only a rejection moves
+ * the window without stamping a landed write, so a stamp no older than the window means the
+ * spend landed and five stands — including the write that opened the window itself, which
+ * stamps both at once.
+ */
+const resolveEpochLimit = (mapping: EventMapping): number => {
+  const appliedAt = mapping.writeBackLastAppliedAt;
+  if (!(appliedAt instanceof Date)) {
+    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
+  }
+  const windowStart = mapping.writeBackEpochWindowStart;
+  if (windowStart instanceof Date && appliedAt.getTime() < windowStart.getTime()) {
+    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
+  }
+  return TWO_WAY_EPOCH_QUARANTINE_LIMIT;
+};
+
+/*
  * The window rolls, so a mapping that wrote back a few times an hour ago starts again from
  * zero. A mapping that reached the limit does not: a breach is sticky until a human clears
  * it, because otherwise a destination that varies on every read would be handed a fresh
@@ -271,7 +297,7 @@ const isRecurringMapping = (mapping: EventMapping): boolean =>
  */
 const resolveEffectiveEpoch = (mapping: EventMapping, now: Date): number => {
   const epoch = mapping.writeBackEpoch ?? NO_EPOCHS;
-  if (epoch >= TWO_WAY_EPOCH_QUARANTINE_LIMIT) {
+  if (epoch >= resolveEpochLimit(mapping)) {
     return epoch;
   }
   const windowStart = mapping.writeBackEpochWindowStart;
@@ -298,7 +324,7 @@ const resolveEffectiveDailyCount = (mapping: EventMapping, now: Date): number =>
 };
 
 const isBudgetSpent = (mapping: EventMapping, now: Date): boolean =>
-  resolveEffectiveEpoch(mapping, now) >= TWO_WAY_EPOCH_QUARANTINE_LIMIT
+  resolveEffectiveEpoch(mapping, now) >= resolveEpochLimit(mapping)
   || resolveEffectiveDailyCount(mapping, now) >= TWO_WAY_WRITE_BACK_DAILY_CAP;
 
 const createWitnessUpdate = (
@@ -1600,6 +1626,7 @@ export {
   TWO_WAY_EDIT_RATIO,
   TWO_WAY_EPOCH_QUARANTINE_LIMIT,
   TWO_WAY_EPOCH_WINDOW_MS,
+  TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
 };
 export type {
   DeleteConfirmationRequest,

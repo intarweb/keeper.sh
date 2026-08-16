@@ -18,6 +18,7 @@ const END_TIME = new Date("2027-05-11T15:00:00.000Z");
 const NOW = new Date("2027-05-01T12:00:00.000Z");
 const RENAMED_BY_THE_USER = "Weekly standup (moved to the cafe)";
 const QUARANTINE_LIMIT = 5;
+const MINUTE_MS = 60_000;
 
 const TEST_WINDOW = {
   timeMax: new Date("2100-01-01T00:00:00.000Z"),
@@ -209,7 +210,8 @@ describe("two-way sync: a copy the source can never adopt is put back, not kept"
     const event = createLocalEvent();
     const mapping = createWitnessedMapping(event, {
       writeBackEpoch: QUARANTINE_LIMIT,
-      writeBackEpochWindowStart: NOW,
+      writeBackEpochWindowStart: new Date(NOW.getTime() - MINUTE_MS),
+      writeBackLastAppliedAt: NOW,
     });
     const { classification, repairs } = runPass(event, mapping, SHOWS_EVERYTHING, "edits");
 

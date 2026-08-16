@@ -390,6 +390,7 @@ export {
   getDestinationDrift,
   TWO_WAY_EPOCH_QUARANTINE_LIMIT,
   TWO_WAY_EPOCH_WINDOW_MS,
+  TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
 } from "./core/sync/write-back";
 export type {
   DeleteConfirmationRequest,

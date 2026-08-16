@@ -33,6 +33,7 @@ interface EventMapping {
   writeBackDailyWindowStart?: Date | null;
   writeBackEpoch?: number;
   writeBackEpochWindowStart?: Date | null;
+  writeBackLastAppliedAt?: Date | null;
 }
 
 const requireMappingSyncEventId = (
@@ -93,6 +94,7 @@ const getEventMappingsForDestination = async (
       writeBackDailyWindowStart: eventMappingsTable.writeBackDailyWindowStart,
       writeBackEpoch: eventMappingsTable.writeBackEpoch,
       writeBackEpochWindowStart: eventMappingsTable.writeBackEpochWindowStart,
+      writeBackLastAppliedAt: eventMappingsTable.writeBackLastAppliedAt,
     })
     .from(eventMappingsTable)
     .leftJoin(eventStatesTable, eq(eventMappingsTable.eventStateId, eventStatesTable.id))

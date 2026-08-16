@@ -304,16 +304,25 @@ const createApplier = (source: SourceCalendarStore, mappings: MappingStore) => {
   const bumpEpoch = (
     mapping: Record<string, unknown>,
     now: Date,
-  ): { writeBackEpoch: number; writeBackEpochWindowStart: Date } => {
+  ): {
+    writeBackEpoch: number;
+    writeBackEpochWindowStart: Date;
+    writeBackLastAppliedAt: Date;
+  } => {
     const windowStart = mapping["writeBackEpochWindowStart"];
     const staleWindow = !(windowStart instanceof Date)
       || now.getTime() - windowStart.getTime() >= EPOCH_WINDOW_MS;
     if (staleWindow) {
-      return { writeBackEpoch: 1, writeBackEpochWindowStart: now };
+      return {
+        writeBackEpoch: 1,
+        writeBackEpochWindowStart: now,
+        writeBackLastAppliedAt: now,
+      };
     }
     return {
       writeBackEpoch: Number(mapping["writeBackEpoch"] ?? 0) + 1,
       writeBackEpochWindowStart: windowStart,
+      writeBackLastAppliedAt: now,
     };
   };
 

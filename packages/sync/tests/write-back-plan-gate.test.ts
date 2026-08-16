@@ -65,6 +65,7 @@ describe("write-back is refused at consumption when the plan does not carry it",
 
     expect(policies.size).toBe(0);
     expect(updates[0]).toEqual({
+      deleteConfirmationApprovedAt: null,
       writeBackState: "quarantined",
       writeBackStateReason: "plan_downgraded",
     });

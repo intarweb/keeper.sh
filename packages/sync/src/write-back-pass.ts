@@ -5,6 +5,7 @@ import {
   resolveIsAllDayEvent,
   resolveWriteBackPolicyState,
   TWO_WAY_EPOCH_QUARANTINE_LIMIT,
+  TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
 } from "@keeper.sh/calendar";
 import type {
   CalendarSourceWriter,
@@ -77,13 +78,12 @@ class SourceWriteRejectedError extends Error {
  * a budget long enough to outlast an ordinary throttle and short enough that a provider
  * which never recovers ends in a paused pair the user is told about rather than in a
  * silent loop: at the one-minute cadence a Pro mapping runs, this is about half an hour of
- * sustained rejection.
+ * sustained rejection. The limit is the classifier's own, because a mapping the classifier
+ * has stopped handing over is never retried again however long this budget still has to run.
  */
-const TWO_WAY_RETRYABLE_QUARANTINE_LIMIT = 30;
-
 const resolveQuarantineLimit = (error: unknown): number => {
   if (error instanceof SourceWriteRejectedError && error.retryable) {
-    return TWO_WAY_RETRYABLE_QUARANTINE_LIMIT;
+    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
   }
   return TWO_WAY_EPOCH_QUARANTINE_LIMIT;
 };

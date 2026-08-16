@@ -781,13 +781,27 @@ const resolveWriteBackPolicies = async (
   plan: Plan,
 ): Promise<Map<string, WriteBackPolicy>> => {
   if (plan !== "pro") {
+    /*
+     * A pair standing on a delete question is downgraded with the rest. The question is a
+     * two-way question — its destructive answer is refused without the plan, and the hold it
+     * installs lives in a policy this branch no longer returns — so leaving the state alone
+     * leaves the user reading that their copies are held while every one of them is rebuilt
+     * from the source, under two buttons that answer nothing. Saying the plan lapsed is the
+     * one thing that is true, and the rebuild it announces is the same thing the harmless
+     * answer would have done. A pair already quarantined keeps the reason it stopped for:
+     * paying for the plan is no answer to a safety stop about the calendars themselves.
+     */
     const downgraded = await database
       .update(sourceDestinationMappingsTable)
-      .set({ writeBackState: "quarantined", writeBackStateReason: "plan_downgraded" })
+      .set({
+        deleteConfirmationApprovedAt: null,
+        writeBackState: "quarantined",
+        writeBackStateReason: PLAN_DOWNGRADED_REASON,
+      })
       .where(and(
         eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
         ne(sourceDestinationMappingsTable.writeBackMode, "off"),
-        eq(sourceDestinationMappingsTable.writeBackState, "ok"),
+        ne(sourceDestinationMappingsTable.writeBackState, "quarantined"),
       ))
       .returning({ sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId });
     await clearDestinationWitnesses(
