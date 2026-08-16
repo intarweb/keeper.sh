@@ -16,7 +16,7 @@ type DeletionAuthority = (typeof deletionAuthorities)[number];
 
 type DeltaSupport =
   | { readonly kind: "none" }
-  | { readonly kind: "tokenized"; readonly windowBoundToCursor?: boolean };
+  | { readonly kind: "tokenized"; readonly windowBoundToCursor: boolean };
 
 interface RepresentableRange {
   readonly minimumSpanSeconds: number;
@@ -31,26 +31,21 @@ interface ThrottleSignal {
 }
 
 interface Capabilities<Provider extends ProviderId = ProviderId> {
-  readonly provider: Provider | ProviderId;
+  readonly provider: Provider;
   readonly delta: DeltaSupport;
   readonly deletionAuthority: DeletionAuthority;
-  readonly removalsAreAmbiguous?: boolean;
+  readonly removalsAreAmbiguous: boolean;
   readonly precondition: PreconditionKind;
   readonly provenanceChannel: ProvenanceChannel;
   readonly quotaScope: QuotaScope;
   readonly throttleSignals: readonly ThrottleSignal[];
-  readonly representableRange?: RepresentableRange;
+  readonly representableRange: RepresentableRange;
   readonly allDay: AllDayRepresentation;
   readonly recurrenceWrite: RecurrenceWriteSupport;
   readonly echoesWrites: boolean;
 }
 
-export {
-  allDayRepresentations,
-  deletionAuthorities,
-  provenanceChannels,
-  recurrenceWriteSupports,
-};
+export { allDayRepresentations, deletionAuthorities, provenanceChannels, recurrenceWriteSupports };
 export type {
   AllDayRepresentation,
   Capabilities,

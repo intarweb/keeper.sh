@@ -1,5 +1,5 @@
 const assertNever = (value: never): never => {
-  throw new Error(`unimplemented: ${typeof value}`);
+  throw new Error(`unreachable variant: ${JSON.stringify(value)}`);
 };
 
 export { assertNever };

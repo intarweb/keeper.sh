@@ -36,6 +36,7 @@ declare const acceptSnapshotEnumeration: (
 
 describe("a listing may only authorise what it proved", () => {
   test("a partial listing can never carry removals", () => {
+    // @ts-expect-error a truncated read must never delete the user's events
     acceptListing({
       kind: "partial",
       scope,
@@ -43,12 +44,12 @@ describe("a listing may only authorise what it proved", () => {
       withheld,
       continuation,
       diagnostics,
-      // @ts-expect-error a truncated read must never delete the user's events
       removals,
     });
   });
 
   test("a partial listing carries neither a cursor nor a coverage window", () => {
+    // @ts-expect-error advancing a token over a dropped page strands every event it named
     acceptListing({
       kind: "partial",
       scope,
@@ -56,9 +57,9 @@ describe("a listing may only authorise what it proved", () => {
       withheld,
       continuation,
       diagnostics,
-      // @ts-expect-error advancing a token over a dropped page strands every event it named
       cursor,
     });
+    // @ts-expect-error a truncated read proves no coverage
     acceptListing({
       kind: "partial",
       scope,
@@ -66,7 +67,6 @@ describe("a listing may only authorise what it proved", () => {
       withheld,
       continuation,
       diagnostics,
-      // @ts-expect-error a truncated read proves no coverage
       coverage,
     });
   });
@@ -80,32 +80,32 @@ describe("a listing may only authorise what it proved", () => {
   });
 
   test("a cursorLost listing carries no events, no removals, no cursor and no coverage", () => {
+    // @ts-expect-error a post-410 resync carries no tombstones, so its events prove nothing
     acceptListing({
       kind: "cursorLost",
       scope,
       diagnostics,
-      // @ts-expect-error a post-410 resync carries no tombstones, so its events prove nothing
       events,
     });
+    // @ts-expect-error a lost cursor cannot name what was removed while it was lost
     acceptListing({
       kind: "cursorLost",
       scope,
       diagnostics,
-      // @ts-expect-error a lost cursor cannot name what was removed while it was lost
       removals,
     });
+    // @ts-expect-error the token that was lost cannot be carried forward
     acceptListing({
       kind: "cursorLost",
       scope,
       diagnostics,
-      // @ts-expect-error the token that was lost cannot be carried forward
       cursor,
     });
+    // @ts-expect-error a lost cursor proves no coverage
     acceptListing({
       kind: "cursorLost",
       scope,
       diagnostics,
-      // @ts-expect-error a lost cursor proves no coverage
       coverage,
     });
   });

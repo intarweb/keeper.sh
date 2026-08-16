@@ -1,7 +1,19 @@
+import type { EditableContent } from "./remote-event";
+
 interface FingerprintContract {
-  readonly canonicalisation: string;
+  readonly canonicalisation: "rfc8785";
+  readonly comparableFields: readonly (keyof EditableContent)[];
 }
 
-type ProviderConformanceSuite = Record<string, () => void>;
+type ConformanceObligation = () => void;
+
+interface ProviderConformanceSuite {
+  readonly leaseReleasedOnThrow: ConformanceObligation;
+  readonly followerRejectsWhenLeaderFails: ConformanceObligation;
+  readonly deadlineOnNeverResolvingStub: ConformanceObligation;
+  readonly abortMidFlightCleansUp: ConformanceObligation;
+  readonly retryCeilingProven: ConformanceObligation;
+  readonly concurrentSameKeyDoesNotDeadlock: ConformanceObligation;
+}
 
 export type { FingerprintContract, ProviderConformanceSuite };

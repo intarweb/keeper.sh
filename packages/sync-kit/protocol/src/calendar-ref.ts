@@ -1,10 +1,12 @@
-import type { AccountId, CalendarId, ZoneId } from "./handles";
 import type { Continuation } from "./change-listing";
+import type { AccountId, CalendarId, ProviderId, ZoneId } from "./handles";
 
 const calendarAccessKinds = ["readOnly", "readWrite"] as const;
 type CalendarAccess = (typeof calendarAccessKinds)[number];
 
 interface CalendarKey {
+  readonly provider: ProviderId;
+  readonly account: AccountId;
   readonly calendar: CalendarId;
 }
 
@@ -20,13 +22,13 @@ type CalendarEnumeration =
       readonly kind: "snapshot";
       readonly account: AccountId;
       readonly calendars: readonly CalendarRef[];
-      readonly continuation?: Continuation;
+      readonly continuation?: never;
     }
   | {
       readonly kind: "partial";
       readonly account: AccountId;
       readonly calendars: readonly CalendarRef[];
-      readonly continuation?: Continuation;
+      readonly continuation: Continuation;
     };
 
 export { calendarAccessKinds };

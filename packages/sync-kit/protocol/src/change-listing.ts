@@ -1,60 +1,75 @@
-import type { EventUid, RemoteEventId } from "./handles";
 import type { CalendarKey } from "./calendar-ref";
-import type { CoverageWindow, TimeWindow } from "./time";
-import type { RemoteEvent } from "./remote-event";
 import type { ListingDiagnostics, WithheldEvent } from "./diagnostics";
+import type { EventUid, RemoteEventId } from "./handles";
+import type { RemoteEvent } from "./remote-event";
+import type { CoverageWindow, TimeWindow } from "./time";
 
 interface ListingScope {
   readonly calendar: CalendarKey;
   readonly window: TimeWindow;
-  readonly expandRecurrences?: boolean;
+  readonly expandRecurrences: boolean;
 }
 
 interface SyncCursor {
-  readonly kind: string;
+  readonly kind: "syncCursor";
   readonly value: string;
-  readonly scope?: ListingScope;
+  readonly scope: ListingScope;
 }
 
 interface Continuation {
-  readonly kind: string;
+  readonly kind: "continuation";
   readonly value: string;
-  readonly scope?: ListingScope;
-}
-
-interface Removal {
-  readonly kind: "deleted";
-  readonly id: RemoteEventId;
-  readonly uid: EventUid;
-}
-
-interface LooseListing {
   readonly scope: ListingScope;
-  readonly coverage?: CoverageWindow;
-  readonly events?: readonly RemoteEvent[];
-  readonly removals?: readonly Removal[];
-  readonly withheld?: readonly WithheldEvent[];
-  readonly cursor?: SyncCursor;
-  readonly continuation?: Continuation;
-  readonly diagnostics: ListingDiagnostics;
 }
 
-interface SnapshotListing extends LooseListing {
-  readonly kind: "snapshot";
-}
+type Removal =
+  | { readonly kind: "deleted"; readonly id: RemoteEventId; readonly uid: EventUid }
+  | { readonly kind: "outOfScope"; readonly id: RemoteEventId };
 
-interface DeltaListing extends LooseListing {
-  readonly kind: "delta";
-}
-
-interface PartialListing extends LooseListing {
-  readonly kind: "partial";
-}
-
-interface CursorLostListing extends LooseListing {
-  readonly kind: "cursorLost";
-}
-
-type ChangeListing = SnapshotListing | DeltaListing | PartialListing | CursorLostListing;
+type ChangeListing =
+  | {
+      readonly kind: "snapshot";
+      readonly scope: ListingScope;
+      readonly coverage: CoverageWindow;
+      readonly events: readonly RemoteEvent[];
+      readonly withheld: readonly WithheldEvent[];
+      readonly cursor: SyncCursor | null;
+      readonly diagnostics: ListingDiagnostics;
+      readonly removals?: never;
+      readonly continuation?: never;
+    }
+  | {
+      readonly kind: "delta";
+      readonly scope: ListingScope;
+      readonly coverage: CoverageWindow;
+      readonly events: readonly RemoteEvent[];
+      readonly removals: readonly Removal[];
+      readonly withheld: readonly WithheldEvent[];
+      readonly cursor: SyncCursor;
+      readonly diagnostics: ListingDiagnostics;
+      readonly continuation?: never;
+    }
+  | {
+      readonly kind: "partial";
+      readonly scope: ListingScope;
+      readonly events: readonly RemoteEvent[];
+      readonly withheld: readonly WithheldEvent[];
+      readonly continuation: Continuation;
+      readonly diagnostics: ListingDiagnostics;
+      readonly coverage?: never;
+      readonly removals?: never;
+      readonly cursor?: never;
+    }
+  | {
+      readonly kind: "cursorLost";
+      readonly scope: ListingScope;
+      readonly diagnostics: ListingDiagnostics;
+      readonly coverage?: never;
+      readonly events?: never;
+      readonly withheld?: never;
+      readonly removals?: never;
+      readonly cursor?: never;
+      readonly continuation?: never;
+    };
 
 export type { ChangeListing, Continuation, ListingScope, Removal, SyncCursor };

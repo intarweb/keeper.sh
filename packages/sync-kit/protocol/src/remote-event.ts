@@ -1,3 +1,4 @@
+import type { CalendarKey } from "./calendar-ref";
 import type {
   DeleteHandle,
   EventUid,
@@ -7,7 +8,6 @@ import type {
   RemoteVersion,
   Revision,
 } from "./handles";
-import type { CalendarKey } from "./calendar-ref";
 import type { EventTime } from "./time";
 
 const availabilityKinds = ["busy", "free"] as const;
@@ -35,11 +35,7 @@ interface EditableContent {
   readonly recurrence: RecurrencePayload | null;
 }
 
-type Provenance =
-  | { readonly kind: "foreign" }
-  | { readonly kind: "ours"; readonly installation: InstallationId };
-
-interface RemoteEvent {
+interface RemoteEventFacts {
   readonly id: RemoteEventId;
   readonly deleteHandle: DeleteHandle;
   readonly uid: EventUid;
@@ -48,13 +44,23 @@ interface RemoteEvent {
   readonly version: RemoteVersion;
   readonly content: EditableContent;
   readonly fingerprint: Fingerprint;
-  readonly provenance: Provenance;
 }
 
-type ForeignEvent = RemoteEvent;
-type OwnEvent = RemoteEvent;
-type IndeterminateEvent = RemoteEvent;
-type MirrorSource = RemoteEvent;
+type ForeignEvent = RemoteEventFacts & {
+  readonly provenance: { readonly kind: "foreign" };
+};
+
+type OwnEvent = RemoteEventFacts & {
+  readonly provenance: { readonly kind: "ours"; readonly installation: InstallationId };
+};
+
+type IndeterminateEvent = RemoteEventFacts & {
+  readonly provenance: { readonly kind: "indeterminate" };
+};
+
+type RemoteEvent = ForeignEvent | OwnEvent | IndeterminateEvent;
+type Provenance = RemoteEvent["provenance"];
+type MirrorSource = ForeignEvent;
 
 export { availabilityKinds, recurrenceDialects, visibilityKinds };
 export type {

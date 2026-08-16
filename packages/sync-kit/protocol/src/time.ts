@@ -1,18 +1,29 @@
-import type { Instant, ZoneId } from "./handles";
+import type { CalendarKey } from "./calendar-ref";
+import type { CalendarDate, Instant, ZoneId } from "./handles";
 
 interface TimeWindow {
   readonly start: Instant;
   readonly end: Instant;
 }
 
-type CoverageWindow = TimeWindow;
-
-interface EventTime {
-  readonly isAllDay: boolean;
-  readonly start: Instant;
-  readonly end: Instant;
-  readonly zone: ZoneId | null;
+interface CoverageWindow {
+  readonly coveredFrom: Instant;
+  readonly coveredTo: Instant;
+  readonly calendar: CalendarKey;
 }
+
+type EventTime =
+  | {
+      readonly kind: "timed";
+      readonly start: Instant;
+      readonly end: Instant;
+      readonly zone: ZoneId | null;
+    }
+  | {
+      readonly kind: "allDay";
+      readonly startDate: CalendarDate;
+      readonly endDateExclusive: CalendarDate;
+    };
 
 type WindowMembership = (window: TimeWindow, time: EventTime) => boolean;
 

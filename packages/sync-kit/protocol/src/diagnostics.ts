@@ -1,6 +1,9 @@
 import type { EventUid, RemoteEventId } from "./handles";
 
-type BoundedSample = readonly string[];
+interface BoundedSample {
+  readonly sample: readonly string[];
+  readonly total: number;
+}
 
 const withholdReasons = [
   "unparseable",
@@ -19,8 +22,9 @@ interface WithheldEvent {
 
 interface ListingDiagnostics {
   readonly withheld: BoundedSample;
+  readonly selfAuthored: BoundedSample;
   readonly unrepresentable: BoundedSample;
-  readonly pagesFetched?: number;
+  readonly pagesFetched: number;
 }
 
 export { withholdReasons };

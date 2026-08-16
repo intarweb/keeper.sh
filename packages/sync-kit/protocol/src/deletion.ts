@@ -1,26 +1,28 @@
-import type { RemoteEventId } from "./handles";
 import type { CalendarEnumeration, CalendarKey } from "./calendar-ref";
-import type { ChangeListing } from "./change-listing";
+import type { ChangeListing, Removal } from "./change-listing";
+import type { RemoteEventId } from "./handles";
+import type { CoverageWindow } from "./time";
 
-type SnapshotListing = ChangeListing;
-type DeltaListing = ChangeListing;
+type SnapshotListing = Extract<ChangeListing, { kind: "snapshot" }>;
+type DeltaListing = Extract<ChangeListing, { kind: "delta" }>;
 
 interface KnownEvents {
+  readonly calendar: CalendarKey;
   readonly ids: ReadonlySet<string>;
 }
 
 type DeriveSnapshotRemovals = (
-  listing: ChangeListing,
+  listing: SnapshotListing,
+  coverage: CoverageWindow,
   known: KnownEvents,
 ) => readonly RemoteEventId[];
 
 type DeriveDeltaRemovals = (
-  listing: ChangeListing,
-  known: KnownEvents,
-) => readonly RemoteEventId[];
+  listing: DeltaListing,
+) => readonly Extract<Removal, { kind: "deleted" }>[];
 
 type DeriveCalendarRetirements = (
-  enumeration: CalendarEnumeration,
+  enumeration: Extract<CalendarEnumeration, { kind: "snapshot" }>,
   known: readonly CalendarKey[],
 ) => readonly CalendarKey[];
 

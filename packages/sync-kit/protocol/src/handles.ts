@@ -7,12 +7,35 @@ type CalendarDate = string;
 type ZoneId = string;
 type Revision = number;
 
-type RemoteEventId = string;
-type DeleteHandle = string;
-type EventUid = string;
-type RemoteVersion = string;
-type Fingerprint = string;
-type IdempotencyKey = string;
+interface RemoteEventId {
+  readonly kind: "remoteEventId";
+  readonly value: string;
+}
+
+interface DeleteHandle {
+  readonly kind: "deleteHandle";
+  readonly value: string;
+}
+
+interface EventUid {
+  readonly kind: "eventUid";
+  readonly value: string;
+}
+
+interface RemoteVersion {
+  readonly kind: "remoteVersion";
+  readonly value: string;
+}
+
+interface Fingerprint {
+  readonly kind: "fingerprint";
+  readonly value: string;
+}
+
+interface IdempotencyKey {
+  readonly kind: "idempotencyKey";
+  readonly value: string;
+}
 
 export type {
   AccountId,
