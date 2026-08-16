@@ -1,6 +1,4 @@
 import {
-  caldavCredentialsTable,
-  calendarAccountsTable,
   calendarsTable,
   eventMappingsTable,
   sourceDestinationMappingsTable,
@@ -16,11 +14,12 @@ import { enqueuePushSync } from "./enqueue-push-sync";
 import { spawnBackgroundJob } from "./background-task";
 import { assertAllIdsOwned } from "./owned-ids";
 import {
-  DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
+  describeNotApplicable,
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
   resolveConfirmationDisposition,
 } from "./delete-confirmation-policy";
 import { resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
+import { TWO_WAY_DELETE_APPROVAL_TTL_MS } from "@keeper.sh/constants";
 const EMPTY_LIST_COUNT = 0;
 const SINGLE_ROW = 1;
 const NO_PENDING_DELETES = 0;
@@ -569,8 +568,6 @@ const getWriteBackModesForSource = async (
 
   const mappings = await database
     .select({
-      accountEmail: calendarAccountsTable.email,
-      caldavUsername: caldavCredentialsTable.username,
       calendarType: calendarsTable.calendarType,
       capabilities: calendarsTable.capabilities,
       destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
@@ -581,14 +578,6 @@ const getWriteBackModesForSource = async (
     .innerJoin(
       calendarsTable,
       eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
-    )
-    .leftJoin(
-      calendarAccountsTable,
-      eq(calendarsTable.accountId, calendarAccountsTable.id),
-    )
-    .leftJoin(
-      caldavCredentialsTable,
-      eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
     )
     .where(and(
       eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
@@ -609,21 +598,55 @@ const getWriteBackModesForSource = async (
           calendarType: mapping.calendarType,
           capabilities: mapping.capabilities,
           disabled: mapping.disabled,
-          writeBackIdentity: mapping.accountEmail ?? mapping.caldavUsername,
         }),
       ]),
   );
 };
 
+interface BlankReadGateObservations {
+  copiesMissingObservedAt: Date | null;
+  deleteConfirmationApprovedAt: Date | null;
+  lastHealthyReadAt: Date | null;
+}
+
+/*
+ * What "Delete the originals" is offered on after a read that returned nothing at all: a
+ * read that came back with at least one copy AFTER the copies were first found missing.
+ * That proves the credential still works and that the calendar id still points at the
+ * calendar the copies were in — reconnecting on its own proves only the first. An approval
+ * still inside its half-hour lifetime carries the tail of a batch through, matching what
+ * the sync pass already exempts under the same window.
+ */
+const resolveDeletesUnlocked = (
+  observations: BlankReadGateObservations,
+  now: Date,
+): boolean => {
+  const approvedAt = observations.deleteConfirmationApprovedAt;
+  if (approvedAt && now.getTime() - approvedAt.getTime() < TWO_WAY_DELETE_APPROVAL_TTL_MS) {
+    return true;
+  }
+  const { copiesMissingObservedAt, lastHealthyReadAt } = observations;
+  if (!copiesMissingObservedAt || !lastHealthyReadAt) {
+    return false;
+  }
+  return lastHealthyReadAt.getTime() > copiesMissingObservedAt.getTime();
+};
+
 const getWriteBackStatesForSource = async (
   userId: string,
   sourceCalendarId: string,
-): Promise<Record<string, { reason: string | null; state: string }>> => {
+): Promise<
+  Record<string, { deletesUnlocked: boolean; reason: string | null; state: string }>
+> => {
   const { database } = await import("@/context");
 
   const mappings = await database
     .select({
+      copiesMissingObservedAt: sourceDestinationMappingsTable.copiesMissingObservedAt,
+      deleteConfirmationApprovedAt:
+        sourceDestinationMappingsTable.deleteConfirmationApprovedAt,
       destinationCalendarId: sourceDestinationMappingsTable.destinationCalendarId,
+      lastHealthyReadAt: sourceDestinationMappingsTable.lastHealthyReadAt,
       writeBackState: sourceDestinationMappingsTable.writeBackState,
       writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
     })
@@ -637,9 +660,16 @@ const getWriteBackStatesForSource = async (
       eq(calendarsTable.userId, userId),
     ));
 
+  const now = new Date();
   return Object.fromEntries(
-    mappings.map(({ destinationCalendarId, writeBackState, writeBackStateReason }) =>
-      [destinationCalendarId, { reason: writeBackStateReason, state: writeBackState }]),
+    mappings.map((mapping) => [
+      mapping.destinationCalendarId,
+      {
+        deletesUnlocked: resolveDeletesUnlocked(mapping, now),
+        reason: mapping.writeBackStateReason,
+        state: mapping.writeBackState,
+      },
+    ]),
   );
 };
 
@@ -830,13 +860,6 @@ const resolveWriteBackEnabledAt = (writeBackMode: string): Date | null => {
   return new Date();
 };
 
-/*
- * A CalDAV account is stored without an email, so the login the credential was created
- * with is the only address the account is known by — and on a server that authenticates by
- * username it is not an address at all. The authorship guard has nothing to weigh an
- * ORGANIZER against without it, so the identity travels with the capabilities and the mode
- * is refused rather than accepted and quarantined on the first organized event.
- */
 const sourceSupportsWriteBack = async (
   userId: string,
   sourceCalendarId: string,
@@ -844,21 +867,11 @@ const sourceSupportsWriteBack = async (
   const { database } = await import("@/context");
   const [source] = await database
     .select({
-      accountEmail: calendarAccountsTable.email,
       calendarType: calendarsTable.calendarType,
       capabilities: calendarsTable.capabilities,
-      caldavUsername: caldavCredentialsTable.username,
       disabled: calendarsTable.disabled,
     })
     .from(calendarsTable)
-    .leftJoin(
-      calendarAccountsTable,
-      eq(calendarsTable.accountId, calendarAccountsTable.id),
-    )
-    .leftJoin(
-      caldavCredentialsTable,
-      eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
-    )
     .where(and(
       eq(calendarsTable.id, sourceCalendarId),
       eq(calendarsTable.userId, userId),
@@ -877,7 +890,6 @@ const sourceSupportsWriteBack = async (
     calendarType: source.calendarType,
     capabilities: source.capabilities,
     disabled: source.disabled,
-    writeBackIdentity: source.accountEmail ?? source.caldavUsername,
   }) !== "off";
 };
 
@@ -994,8 +1006,12 @@ const resolveDeleteConfirmation = async (
   let approved = false;
 
   await database.transaction(async (transactionClient) => {
-    const [pending] = await transactionClient
+    const [observed] = await transactionClient
       .select({
+        copiesMissingObservedAt: sourceDestinationMappingsTable.copiesMissingObservedAt,
+        deleteConfirmationApprovedAt:
+          sourceDestinationMappingsTable.deleteConfirmationApprovedAt,
+        lastHealthyReadAt: sourceDestinationMappingsTable.lastHealthyReadAt,
         writeBackState: sourceDestinationMappingsTable.writeBackState,
         writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
       })
@@ -1006,16 +1022,20 @@ const resolveDeleteConfirmation = async (
       ))
       .limit(SINGLE_ROW);
 
-    if (!pending) {
+    if (!observed) {
       throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
     }
 
+    const pending = {
+      ...observed,
+      deletesUnlocked: resolveDeletesUnlocked(observed, new Date()),
+    };
     const disposition = resolveConfirmationDisposition(decision, pending);
     if (disposition === "not_pending") {
       throw new Error(NO_DELETE_CONFIRMATION_PENDING_MESSAGE);
     }
     if (disposition === "not_applicable") {
-      throw new Error(DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE);
+      throw new Error(describeNotApplicable(pending));
     }
     if (disposition === "ignore") {
       return;

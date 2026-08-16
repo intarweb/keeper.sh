@@ -198,7 +198,6 @@ const resolveOAuthSourceWriter = async (
   const [credentials] = await config.database
     .select({
       accessToken: oauthCredentialsTable.accessToken,
-      accountEmail: calendarAccountsTable.email,
       accountId: calendarAccountsTable.id,
       credentialId: oauthCredentialsTable.id,
       expiresAt: oauthCredentialsTable.expiresAt,
@@ -227,11 +226,10 @@ const resolveOAuthSourceWriter = async (
   if (provider === "google") {
     return createGoogleSourceWriter({
       accessToken,
-      accountEmail: credentials.accountEmail,
       externalCalendarId: credentials.externalCalendarId,
     });
   }
-  return createOutlookSourceWriter({ accessToken, accountEmail: credentials.accountEmail });
+  return createOutlookSourceWriter({ accessToken });
 };
 
 /*
@@ -256,7 +254,6 @@ const resolveCalDAVSourceWriter = async (
 ): Promise<CalendarSourceWriter | null> => {
   const [credentials] = await config.database
     .select({
-      accountEmail: calendarAccountsTable.email,
       authMethod: caldavCredentialsTable.authMethod,
       calendarUrl: calendarsTable.calendarUrl,
       encryptedPassword: caldavCredentialsTable.encryptedPassword,
@@ -282,8 +279,6 @@ const resolveCalDAVSourceWriter = async (
   );
   const { calendarUrl } = credentials;
   return createCalDAVSourceWriter({
-    accountEmail: credentials.accountEmail,
-    accountUsername: credentials.username,
     calendarUrl,
     client: () => {
       /*
@@ -493,8 +488,6 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
   readPairWriteBack: async ({ destinationCalendarId, sourceCalendarId }) => {
     const [row] = await locked
       .select({
-        accountEmail: calendarAccountsTable.email,
-        caldavUsername: caldavCredentialsTable.username,
         calendarType: calendarsTable.calendarType,
         capabilities: calendarsTable.capabilities,
         disabled: calendarsTable.disabled,
@@ -506,14 +499,6 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
       .innerJoin(
         calendarsTable,
         eq(sourceDestinationMappingsTable.sourceCalendarId, calendarsTable.id),
-      )
-      .leftJoin(
-        calendarAccountsTable,
-        eq(calendarsTable.accountId, calendarAccountsTable.id),
-      )
-      .leftJoin(
-        caldavCredentialsTable,
-        eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
       )
       .where(and(
         eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
@@ -538,7 +523,6 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
         calendarType: row.calendarType,
         capabilities: row.capabilities,
         disabled: row.disabled,
-        writeBackIdentity: row.accountEmail ?? row.caldavUsername,
       }),
       writeBackState: row.writeBackState,
     };

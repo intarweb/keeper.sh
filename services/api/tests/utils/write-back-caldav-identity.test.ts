@@ -79,20 +79,19 @@ beforeEach(async () => {
 /*
  * Nothing in the CalDAV connect flow asks for an email (services/api/src/utils/
  * caldav-sources.ts), so the login is the only address the account is known by — and on
- * Nextcloud, Radicale, Baikal, Synology or Zimbra it is not an address at all. The
- * authorship guard in packages/calendar/src/providers/caldav/source/mutations.ts then
- * refuses every event carrying an ORGANIZER, the user's own included, and the first one
- * quarantines the pair: the mode reverts to one-way and the edit that triggered it is
- * rebuilt away. Refusing the mode up front costs the user nothing they were going to keep.
+ * Nextcloud, Radicale, Baikal, Synology or Zimbra it is not an address at all. The API
+ * used to refuse the mode on exactly that, because the writer refused every event
+ * carrying an ORGANIZER it could not place. No write is decided on who wrote the event
+ * any more, so the mode has nothing left to withhold: this is where that reaches the user.
  */
 describe("a CalDAV source whose account names no address", () => {
-  it("is refused two-way sync when the login is a bare username", async () => {
+  it("is offered two-way sync when the login is a bare username", async () => {
     const sourceCalendarId = await insertCalDAVCalendar("nextcloud-admin");
 
-    expect(await sourceSupportsWriteBack(USER_ID, sourceCalendarId)).toBe(false);
+    expect(await sourceSupportsWriteBack(USER_ID, sourceCalendarId)).toBe(true);
   });
 
-  it("still admits a CalDAV source whose login is an address", async () => {
+  it("is offered two-way sync when the login is an address", async () => {
     const sourceCalendarId = await insertCalDAVCalendar("me@fastmail.com");
 
     expect(await sourceSupportsWriteBack(USER_ID, sourceCalendarId)).toBe(true);

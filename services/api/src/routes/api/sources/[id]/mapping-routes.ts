@@ -7,9 +7,20 @@ import {
 import { idParamSchema } from "@/utils/request-query";
 import { MAPPING_LIMIT_ERROR_MESSAGE } from "@/utils/source-destination-mappings";
 import {
+  BLANK_READ_NOT_APPLICABLE_MESSAGE,
   DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
 } from "@/utils/delete-confirmation-policy";
+
+/*
+ * Both are the same answer to the caller — the pair is not in a position to be told to
+ * delete originals — and they differ only in which evidence is missing, so each is
+ * reported in its own words rather than flattened into one.
+ */
+const NOT_APPLICABLE_MESSAGES: ReadonlySet<string> = new Set([
+  BLANK_READ_NOT_APPLICABLE_MESSAGE,
+  DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
+]);
 
 const TWO_WAY_PRO_ERROR_MESSAGE = "Two-way sync requires a Pro plan.";
 const MAPPING_NOT_FOUND_ERROR_MESSAGE = "Mapping not found";
@@ -313,11 +324,8 @@ const handlePatchDeleteConfirmationRoute = async (
     if (error instanceof Error && error.message === MAPPING_NOT_FOUND_ERROR_MESSAGE) {
       return ErrorResponse.notFound().toResponse();
     }
-    if (
-      error instanceof Error
-      && error.message === DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE
-    ) {
-      return ErrorResponse.conflict(DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE).toResponse();
+    if (error instanceof Error && NOT_APPLICABLE_MESSAGES.has(error.message)) {
+      return ErrorResponse.conflict(error.message).toResponse();
     }
     if (
       error instanceof Error

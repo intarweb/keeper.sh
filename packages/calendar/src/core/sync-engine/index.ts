@@ -723,6 +723,12 @@ interface SyncCalendarOptions {
     input: ApplyInboundChangesInput,
   ) => Promise<ApplyInboundChangesResult>;
   requestDeleteConfirmation?: (request: DeleteConfirmationRequest) => Promise<void>;
+  /*
+   * A read that came back with copies is the only thing that releases "Delete the
+   * originals" after a read that returned nothing at all, and it has to outlive the pass
+   * that observed it, so it is handed out to be recorded rather than kept in the counters.
+   */
+  recordHealthyRead?: (sourceCalendarIds: string[]) => Promise<void>;
   holdWriteBack?: (request: WriteBackHoldRequest) => Promise<void>;
   now?: () => Date;
   onSyncEvent?: (event: Record<string, unknown>) => void;
@@ -944,6 +950,16 @@ const reportDeleteConfirmation = async (
   await report(request);
 };
 
+const reportHealthyRead = async (
+  sourceCalendarIds: string[],
+  report?: (sourceCalendarIds: string[]) => Promise<void>,
+): Promise<void> => {
+  if (sourceCalendarIds.length === 0 || !report) {
+    return;
+  }
+  await report(sourceCalendarIds);
+};
+
 const reportWriteBackHold = async (
   request: WriteBackHoldRequest | null,
   report?: (request: WriteBackHoldRequest) => Promise<void>,
@@ -1023,6 +1039,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     flush,
     applyInboundChanges,
     requestDeleteConfirmation,
+    recordHealthyRead,
     holdWriteBack,
     now,
     onSyncEvent,
@@ -1096,6 +1113,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
      * re-creates the copies the question is about and strands their pending state, while the
      * question keeps the mode and writes nothing anywhere until a human answers.
      */
+    await reportHealthyRead(inbound.healthyReadSourceCalendarIds, recordHealthyRead);
     await reportWriteBackHold(inbound.writeBackHold, holdWriteBack);
     await reportDeleteConfirmation(inbound.deleteConfirmation, requestDeleteConfirmation);
     const inboundMappingUpdates = collectInboundMappingUpdates(inbound.classifications);

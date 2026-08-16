@@ -13,6 +13,18 @@ const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
  */
 const PROBE_BLOCKED_REASON = "delete_probe_blocked";
 
+/*
+ * A read that returned nothing at all has two causes and Keeper.sh cannot tell them apart:
+ * the copies were deleted, or the connection, the calendar id or the provider is broken.
+ * "Delete the originals" answers only the first and authorises irreversible deletions on a
+ * real calendar, so it is not offered while a blank read is the only evidence. What clears
+ * the bar is a read that came back with at least one copy since they went missing, which
+ * the server decides and reports here. A breaker trip is deliberately not gated: it is
+ * observed against a read that returned items, and it is the route out for a destination
+ * the user really did empty.
+ */
+const COPIES_MISSING_REASON = "all_copies_missing";
+
 const resolveDeleteConfirmationAnswers = (
   status: WriteBackStatus | null,
 ): DeleteConfirmationAnswer[] => {
@@ -20,6 +32,9 @@ const resolveDeleteConfirmationAnswers = (
     return [];
   }
   if (status.reason === PROBE_BLOCKED_REASON) {
+    return ["decline"];
+  }
+  if (status.reason === COPIES_MISSING_REASON && !status.deletesUnlocked) {
     return ["decline"];
   }
   return ["apply", "decline"];

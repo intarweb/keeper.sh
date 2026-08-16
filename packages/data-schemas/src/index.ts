@@ -612,35 +612,11 @@ const resolveWriteBackFieldNames = (
  */
 const UNWRITABLE_SOURCE_CALENDAR_TYPE = "ical";
 
-/*
- * Two-way sync refuses to rewrite or delete a source event somebody else organized, and
- * the only thing it can weigh an ORGANIZER against is an address the account is known by.
- * A CalDAV account is stored without an email — nothing in the connect flow asks for one —
- * so the login the credential was created with is that address on the servers that
- * authenticate by email and nothing at all on the servers that do not. With nothing to
- * compare, the writer refuses every event carrying an ORGANIZER, the user's own included,
- * and the pair quarantines on the first one: the mode reverts to one-way and the edit that
- * triggered it is rebuilt away. Not offering the mode is the outcome that loses nothing.
- */
-const IDENTIFIED_BY_LOGIN_CALENDAR_TYPE = "caldav";
-const EMAIL_SEPARATOR = "@";
-
-const hasWriteBackAuthorshipIdentity = (
-  source: { calendarType: string; writeBackIdentity?: string | null },
-): boolean => {
-  if (source.calendarType !== IDENTIFIED_BY_LOGIN_CALENDAR_TYPE) {
-    return true;
-  }
-  return typeof source.writeBackIdentity === "string"
-    && source.writeBackIdentity.includes(EMAIL_SEPARATOR);
-};
-
 const isWriteBackCapableSource = (
   source:
     | {
       calendarType: string;
       capabilities: readonly string[];
-      writeBackIdentity?: string | null;
     }
     | null,
 ): boolean => {
@@ -649,8 +625,7 @@ const isWriteBackCapableSource = (
   }
   return source.calendarType !== UNWRITABLE_SOURCE_CALENDAR_TYPE
     && source.capabilities.includes("pull")
-    && source.capabilities.includes("push")
-    && hasWriteBackAuthorshipIdentity(source);
+    && source.capabilities.includes("push");
 };
 
 /*

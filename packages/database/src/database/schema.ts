@@ -424,6 +424,16 @@ const eventMappingsTable = pgTable(
 const sourceDestinationMappingsTable = pgTable(
   "source_destination_mappings",
   {
+    /*
+     * The two observations "Delete the originals" is offered on. A read that returned
+     * nothing at all cannot tell an emptied destination from a broken connection, so the
+     * answer is withheld until a read has come back with at least one copy since the
+     * copies were first found missing. Both are plain observations rather than derived
+     * state, and both are per pair because that is where the question is asked and the
+     * answer recorded. Nullable: every pair that exists today has neither, and a pair
+     * with neither is not unlocked.
+     */
+    copiesMissingObservedAt: timestamp(),
     createdAt: timestamp().notNull().defaultNow(),
     /*
      * The consent that lets deletions past the bulk breaker. Time bounded rather than a
@@ -431,6 +441,7 @@ const sourceDestinationMappingsTable = pgTable(
      * cannot leave the breaker disarmed.
      */
     deleteConfirmationApprovedAt: timestamp(),
+    lastHealthyReadAt: timestamp(),
     destinationCalendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),

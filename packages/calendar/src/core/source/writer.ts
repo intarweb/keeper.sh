@@ -13,7 +13,6 @@ interface SourceEventUpdate {
  * was declined because applying it would reach past the user, and no retry can change that.
  */
 type SourceWriteRefusal =
-  | "event_authored_by_someone_else"
   | "event_body_is_rich_text"
   | "event_has_attendees";
 
@@ -89,14 +88,27 @@ const ATTENDEE_REFUSAL: SourceWriteResult = {
 };
 
 /*
- * A calendar shared with write access carries other people's events, and a provider will
- * happily let the grant destroy one. Nobody but its author can put it back and its author
- * is never told, so an event this account did not create is not a mirror to reconcile.
+ * The one refusal on this path that is irreversible for somebody other than the user:
+ * moving or cancelling a meeting mails everyone invited, and no answer afterwards recalls
+ * that. Every other write is the user's own data and the provider's grant is what decides
+ * it — the server already answered whether this account may write here, and every native
+ * client acts on that answer.
+ *
+ * It is decided on the attendees the writer can see, and it deliberately does not ask who
+ * organizes the event. A CalDAV server that signs the user in by a bare username gives no
+ * address to weigh an ORGANIZER against, so that question has no answer there — and a
+ * question that cannot be answered must never itself become a refusal, which is what
+ * withheld two-way sync from those servers entirely. Which entries count as "other" is
+ * read from what each provider reports; this rule is stated once so the three cannot
+ * drift apart under it again.
  */
-const AUTHORSHIP_REFUSAL: SourceWriteResult = {
-  error: "Keeper.sh does not write to a source event someone else created.",
-  refused: "event_authored_by_someone_else",
-  success: false,
+const refuseWhenOthersAreInvited = (
+  event: { hasOtherAttendees: boolean },
+): SourceWriteResult | null => {
+  if (event.hasOtherAttendees) {
+    return ATTENDEE_REFUSAL;
+  }
+  return null;
 };
 
 /*
@@ -112,9 +124,8 @@ const RICH_BODY_REFUSAL: SourceWriteResult = {
 };
 
 export {
-  ATTENDEE_REFUSAL,
-  AUTHORSHIP_REFUSAL,
   isRetryableWriteStatus,
+  refuseWhenOthersAreInvited,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 };

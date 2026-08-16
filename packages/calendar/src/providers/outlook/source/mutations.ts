@@ -8,9 +8,8 @@ import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constan
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { instantToWallTime } from "../../../ics/utils/timezone-instant";
 import {
-  ATTENDEE_REFUSAL,
-  AUTHORSHIP_REFUSAL,
   isRetryableWriteStatus,
+  refuseWhenOthersAreInvited,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 } from "../../../core/source/writer";
@@ -23,6 +22,13 @@ import type {
 const MICROSOFT_GRAPH_API = "https://graph.microsoft.com/v1.0";
 const SINGLE_RESULT = "1";
 
+/*
+ * The address the account is known by is accepted and deliberately not read. No write here
+ * is decided on who an event names as its organizer: the provider's grant already answered
+ * whether this account may write to the calendar, and on the CalDAV servers that sign a
+ * user in by bare username there is no address to weigh an organizer against at all.
+ * Refusals are decided on the attendees the writer can see, which need no identity.
+ */
 interface OutlookSourceWriterConfig {
   accessToken: () => Promise<string>;
   accountEmail?: string | null;
@@ -73,28 +79,6 @@ const describeLookupFailure = (error: unknown): { error: string; retryable: bool
  */
 const hasAttendees = (event: OutlookEventWithAttendees): boolean =>
   (event.attendees ?? []).length > 0;
-
-const isSameAddress = (first: string, second: string): boolean =>
-  first.trim().toLowerCase() === second.trim().toLowerCase();
-
-/*
- * A mailbox a colleague shared with write access carries their events, and Graph lets the
- * grant delete one. Only positive evidence that somebody else owns the event refuses; an
- * event Graph describes too thinly to place still writes, behind the attendee guard.
- */
-const isAuthoredBySomeoneElse = (
-  event: OutlookEventWithAttendees,
-  accountEmail: string | null | undefined,
-): boolean => {
-  if (event.isOrganizer === false) {
-    return true;
-  }
-  const organizerAddress = event.organizer?.emailAddress?.address;
-  if (!accountEmail || !organizerAddress) {
-    return false;
-  }
-  return !isSameAddress(organizerAddress, accountEmail);
-};
 
 const HTML_BODY_CONTENT_TYPE = "html";
 const MARKUP_PATTERN = /<[^>]*>/gu;
@@ -298,11 +282,9 @@ const createOutlookSourceWriter = (
     if (!event) {
       return { eventId: null };
     }
-    if (hasAttendees(event)) {
-      return { refusal: ATTENDEE_REFUSAL };
-    }
-    if (isAuthoredBySomeoneElse(event, config.accountEmail)) {
-      return { refusal: AUTHORSHIP_REFUSAL };
+    const refusal = refuseWhenOthersAreInvited({ hasOtherAttendees: hasAttendees(event) });
+    if (refusal) {
+      return { refusal };
     }
     if (writesDescription && carriesUnreadableMarkup(event)) {
       return { refusal: RICH_BODY_REFUSAL };

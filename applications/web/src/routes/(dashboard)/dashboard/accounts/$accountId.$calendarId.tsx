@@ -60,8 +60,8 @@ import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 import { resolveDeleteConfirmationAnswers, resolveModeSelection } from "@/lib/write-back-answers";
 import {
   resolveUnwritableSourceCopy,
+  resolveWriteBackStateCopy,
   supportsWriteBack,
-  WRITE_BACK_STATE_COPY,
 } from "@/lib/write-back-copy";
 import { buildWriteBackFieldSummary } from "@/features/dashboard/components/write-back-summary";
 import type { DeleteConfirmationAnswer } from "@/lib/write-back-answers";
@@ -756,8 +756,10 @@ function WriteBackStatusLine({
   if (!status || status.state === "ok") {
     return null;
   }
-  const template = (status.reason && WRITE_BACK_STATE_COPY[status.reason])
-    ?? `Two-way sync to ${destinationName} is paused.`;
+  const template = resolveWriteBackStateCopy(
+    status,
+    `Two-way sync to ${destinationName} is paused.`,
+  );
   const answers = resolveDeleteConfirmationAnswers(status);
 
   return (

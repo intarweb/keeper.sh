@@ -8,9 +8,8 @@ import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constan
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
 import {
-  ATTENDEE_REFUSAL,
-  AUTHORSHIP_REFUSAL,
   isRetryableWriteStatus,
+  refuseWhenOthersAreInvited,
   RICH_BODY_REFUSAL,
   toWriteFailure,
 } from "../../../core/source/writer";
@@ -23,6 +22,13 @@ import type {
 const DEFAULT_GOOGLE_CALENDAR_ID = "primary";
 const ISO_DATE_LENGTH = 10;
 
+/*
+ * The address the account is known by is accepted and deliberately not read. No write here
+ * is decided on who an event names as its organizer: the provider's grant already answered
+ * whether this account may write to the calendar, and on the CalDAV servers that sign a
+ * user in by bare username there is no address to weigh an organizer against at all.
+ * Refusals are decided on the attendees the writer can see, which need no identity.
+ */
 interface GoogleSourceWriterConfig {
   accessToken: () => Promise<string>;
   accountEmail?: string | null;
@@ -75,30 +81,6 @@ const describeLookupFailure = (error: unknown): { error: string; retryable: bool
  */
 const hasOtherAttendees = (event: GoogleEventWithAttendees): boolean =>
   (event.attendees ?? []).some((attendee) => attendee.self !== true);
-
-const isSameAddress = (first: string, second: string): boolean =>
-  first.trim().toLowerCase() === second.trim().toLowerCase();
-
-/*
- * A source calendar can be one a colleague shared with write access, and Google lets the
- * writer role delete events the colleague created on it. Only positive evidence that
- * somebody else owns the event refuses, so an event Google describes as this account's
- * own — or describes too thinly to place — still writes: the attendee guard and the
- * probe are what stand behind this one.
- */
-const isAuthoredBySomeoneElse = (
-  event: GoogleEventWithAttendees,
-  accountEmail: string | null | undefined,
-): boolean => {
-  if (event.organizer?.self === false || event.creator?.self === false) {
-    return true;
-  }
-  const creatorEmail = event.creator?.email;
-  if (!accountEmail || !creatorEmail) {
-    return false;
-  }
-  return !isSameAddress(creatorEmail, accountEmail);
-};
 
 const MARKUP_PATTERN = /<[a-z!/][^>]*>/iu;
 const HTML_ENTITY_PATTERN = /&[a-z]+;|&#\d+;/iu;
@@ -304,11 +286,11 @@ const createGoogleSourceWriter = (
     if (!event) {
       return { eventId: null };
     }
-    if (hasOtherAttendees(event)) {
-      return { refusal: ATTENDEE_REFUSAL };
-    }
-    if (isAuthoredBySomeoneElse(event, config.accountEmail)) {
-      return { refusal: AUTHORSHIP_REFUSAL };
+    const refusal = refuseWhenOthersAreInvited({
+      hasOtherAttendees: hasOtherAttendees(event),
+    });
+    if (refusal) {
+      return { refusal };
     }
     if (writesDescription && carriesUnreadableMarkup(event)) {
       return { refusal: RICH_BODY_REFUSAL };

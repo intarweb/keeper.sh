@@ -1,5 +1,4 @@
 import {
-  caldavCredentialsTable,
   calendarAccountsTable,
   calendarsTable,
 } from "@keeper.sh/database/schema";
@@ -57,22 +56,9 @@ const GET = withWideEvent(
         paused: calendarsTable.disabled,
         createdAt: calendarsTable.createdAt,
         updatedAt: calendarsTable.updatedAt,
-        /*
-         * The address this account is known by, which is what two-way sync weighs an
-         * event's ORGANIZER against before it rewrites or deletes it. A CalDAV account is
-         * stored without an email, so the login stands in for it — and on a server that
-         * authenticates by username it is not an address at all. The dashboard needs it to
-         * decide whether the mode can be offered, against the same rule the API applies.
-         */
-        accountEmail: calendarAccountsTable.email,
-        caldavUsername: caldavCredentialsTable.username,
       })
       .from(calendarsTable)
       .innerJoin(calendarAccountsTable, eq(calendarsTable.accountId, calendarAccountsTable.id))
-      .leftJoin(
-        caldavCredentialsTable,
-        eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
-      )
       .where(
         and(
           eq(calendarsTable.id, id),
@@ -90,13 +76,10 @@ const GET = withWideEvent(
       getSourcesForDestination(userId, id),
     ]);
 
-    const { accountEmail, caldavUsername, ...calendar } = source;
-
     return Response.json({
-      ...withProviderMetadata(calendar),
+      ...withProviderMetadata(source),
       destinationIds,
       sourceIds,
-      writeBackIdentity: accountEmail ?? caldavUsername,
     });
   }),
 );

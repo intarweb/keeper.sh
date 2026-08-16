@@ -22,7 +22,6 @@ const supportsWriteBack = (
     calendarType: source.calendarType,
     capabilities: source.capabilities,
     disabled: source.paused ?? false,
-    writeBackIdentity: source.writeBackIdentity,
   }) !== "off";
 };
 
@@ -34,20 +33,7 @@ const READ_ONLY_SOURCE_COPY =
   "This calendar is shared with you without permission to change it, so Keeper.sh can"
   + " only read it. Two-way sync needs a calendar it can write to.";
 
-/*
- * Two-way sync will not rewrite or delete an event somebody else organized, and the only
- * thing it can weigh an event's organizer against is an address the account is known by.
- * A CalDAV account is stored without an email, so the login stands in for it — and a
- * server that signs the user in by username gives Keeper.sh no address at all. Offering
- * the mode there means refusing the user's own events one at a time.
- */
-const UNIDENTIFIED_SOURCE_COPY =
-  "Keeper.sh signs in to this calendar with a username rather than an email address, so it"
-  + " cannot tell which events on it you created. Two-way sync will not change or delete an"
-  + " event somebody else made, so it is not offered here.";
-
 const LINK_SOURCE_CALENDAR_TYPE = "ical";
-const IDENTIFIED_BY_LOGIN_CALENDAR_TYPE = "caldav";
 
 /*
  * Nothing is read from a paused calendar, so the stored copy two-way sync would weigh a
@@ -60,10 +46,9 @@ const PAUSED_SOURCE_COPY =
   + " while the calendar is paused. Resume the calendar to turn it on.";
 
 /*
- * The four ways a source can be unwritable read differently to the person holding it: a
- * calendar they paused, a subscription they added, a calendar someone else owns, and a
- * server that never told Keeper.sh who they are. Naming the wrong one sends them looking
- * for a setting that is not theirs to change.
+ * The three ways a source can be unwritable read differently to the person holding it: a
+ * calendar they paused, a subscription they added, and a calendar someone else owns.
+ * Naming the wrong one sends them looking for a setting that is not theirs to change.
  */
 const resolveUnwritableSourceCopy = (
   source: {
@@ -79,12 +64,6 @@ const resolveUnwritableSourceCopy = (
   if (source?.calendarType === LINK_SOURCE_CALENDAR_TYPE) {
     return UNWRITABLE_SOURCE_COPY;
   }
-  if (
-    source?.calendarType === IDENTIFIED_BY_LOGIN_CALENDAR_TYPE
-    && !source.writeBackIdentity?.includes("@")
-  ) {
-    return UNIDENTIFIED_SOURCE_COPY;
-  }
   return READ_ONLY_SOURCE_COPY;
 };
 
@@ -99,10 +78,20 @@ const HELD_WHILE_WAITING =
   " Until you answer, two-way sync to {destination} is paused: changes you make to copies"
   + " are not written back to {source}, and the copies are left as they are.";
 
+/*
+ * A reading that came back with nothing at all has two causes and Keeper.sh cannot tell
+ * them apart: the copies were deleted, or the connection to the destination is broken.
+ * Stating only the first tells the user their copies are gone and then asks them to
+ * authorise deleting real events on that footing, so both are named.
+ */
 const WRITE_BACK_STATE_COPY: Record<string, string> = {
   all_copies_missing:
-    "Every copy on {destination} is gone. Keeper.sh has not deleted the originals on"
-    + " {source} and is waiting for you to say what happened."
+    "A reading of {destination} came back with none of the copies on it. That is what"
+    + " deleting every copy looks like, and it is also what a broken connection to"
+    + " {destination} looks like — a sign-in that no longer works, a calendar that is no"
+    + " longer there, or the provider answering with nothing — and Keeper.sh cannot tell"
+    + " the two apart. It has not deleted the originals on {source} and is waiting for you"
+    + " to say what happened."
     + HELD_WHILE_WAITING,
   delete_breaker_tripped:
     "A large number of copies on {destination} disappeared at once, so Keeper.sh did not"
@@ -131,12 +120,6 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
   plan_downgraded: "Two-way sync to {destination} is paused because the plan changed, so"
     + " the copies go back to matching {source}. It starts again on its own once the plan"
     + " covers two-way sync; to keep it off, pick One-way.",
-  source_event_authored_by_someone_else:
-    "A copy on {destination} was changed, but the original on {source} was created by"
-    + " somebody else on a calendar shared with you. Keeper.sh will not rewrite or delete"
-    + " another person's event, so two-way sync to {destination} is paused and nothing on"
-    + " {source} was touched. The change on the copy is not kept: the copies go back to"
-    + " matching {source}.",
   source_event_rich_body:
     "A copy on {destination} was changed, but the original on {source} has a formatted description — links, styling, or a meeting join block. Keeper.sh only ever reads it as plain text, so writing the change back would flatten it. Nothing on {source} was touched and two-way sync to {destination} is paused. The change on the copy is not kept: the copies go back to matching {source}.",
   source_event_has_attendees:
@@ -165,11 +148,33 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     + " back to matching {source}.",
 };
 
+/*
+ * Why the deletion is not among the answers. Without it the user is left with one button
+ * and no account of where the other went, which reads as a fault rather than as the
+ * product declining to act on a reading it cannot trust.
+ */
+const BLANK_READ_LOCKED_COPY =
+  " Deleting the originals is not offered until a reading of {destination} comes back with"
+  + " at least one copy on it. If you emptied {destination} yourself, put the copies back,"
+  + " let Keeper.sh re-create them, then delete them again and answer the question that"
+  + " follows.";
+
+const resolveWriteBackStateCopy = (
+  status: { deletesUnlocked?: boolean; reason: string | null },
+  fallback: string,
+): string => {
+  const stated = (status.reason && WRITE_BACK_STATE_COPY[status.reason]) ?? fallback;
+  if (status.reason === "all_copies_missing" && !status.deletesUnlocked) {
+    return stated + BLANK_READ_LOCKED_COPY;
+  }
+  return stated;
+};
+
 export {
   READ_ONLY_SOURCE_COPY,
   resolveUnwritableSourceCopy,
+  resolveWriteBackStateCopy,
   supportsWriteBack,
-  UNIDENTIFIED_SOURCE_COPY,
   UNWRITABLE_SOURCE_COPY,
   WRITE_BACK_STATE_COPY,
 };

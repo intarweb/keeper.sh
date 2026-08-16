@@ -60,11 +60,14 @@ Only **Two-way, including deletions** deletes anything, and only after Keeper.sh
 
 Two situations stop the deletions and ask you instead:
 
-- Every copy on the receiving calendar is gone at once.
+- A reading of the receiving calendar came back with none of the copies on it.
 - More than 5 copies disappeared between two readings, however large the calendar is — counted for one calendar on its own, and again across every calendar copied into the receiving calendar.
-- A large number of copies disappeared at once.
 
 While Keeper.sh waits for your answer, the whole connection holds: nothing is written back, and no copy is rebuilt. Your answer is good for 30 minutes.
+
+A reading that came back with nothing at all is the one case where **Delete the originals** is not offered straight away. It looks the same as a broken connection — a sign-in that stopped working, a calendar that is no longer there, a provider answering with nothing — and Keeper.sh cannot tell that from copies you deleted. The answer is offered once a reading that comes back with at least one copy has landed since they went missing, which proves both that the sign-in works and that Keeper.sh is still looking at the right calendar. Until then the answer offered is to put the copies back.
+
+If you emptied the receiving calendar yourself, that is the way through: put the copies back, let Keeper.sh re-create them on the next pass, then delete them again. That removal is seen against a calendar Keeper.sh can read, so it asks the ordinary question and your answer covers the rest of the batch. The other route is to switch the connection to one-way and delete the originals yourself.
 
 There is also a ceiling of 50 deleted originals per source calendar per day. Past it, two-way sync pauses and the copies go back to matching the original.
 

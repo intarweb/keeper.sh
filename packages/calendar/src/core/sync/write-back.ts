@@ -173,6 +173,14 @@ interface InboundClassificationResult {
   counters: InboundCounters;
   deleteBreakerTripped: boolean;
   deleteConfirmation: DeleteConfirmationRequest | null;
+  /*
+   * The source calendars a read that came back with copies covered. "Delete the originals"
+   * is only ever asked after a read that returned nothing at all, and that read cannot
+   * tell an emptied destination from a broken connection, so the answer is withheld until
+   * a read has returned something since. The classifier is the only place that fact
+   * exists, and it does not survive the pass, so it is reported here to be recorded.
+   */
+  healthyReadSourceCalendarIds: string[];
   readHealth: ReadHealth;
   suppressedMappingIds: string[];
   writeBackHold: WriteBackHoldRequest | null;
@@ -590,6 +598,23 @@ const couldDeleteSourceEvents = (
   policy.writeBackMode === "edits_and_deletes"
   && !isApprovedDisappearance(mapping, policy)
   && isWitnessRecorded(mapping);
+
+/*
+ * Only a read that came back with at least one copy says anything: it proves the
+ * credential still works AND that the calendar id still points at the calendar the copies
+ * were in, which reconnecting on its own does not. A listing that carried items but none
+ * of ours is a live calendar emptied of copies — not the ambiguous case, but no evidence
+ * the copies are readable either, so it clears nothing.
+ */
+const resolveHealthyReadSourceCalendarIds = (
+  readHealth: ReadHealth,
+  eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
+): string[] => {
+  if (readHealth !== "healthy") {
+    return [];
+  }
+  return [...new Set(eligible.flatMap(({ mapping }) => mapping.sourceCalendarId ?? []))];
+};
 
 const resolveHeldSourceCalendarIds = (
   readHealth: ReadHealth,
@@ -1508,6 +1533,7 @@ const classifyInboundChanges = (
       counters,
       deleteBreakerTripped: false,
       deleteConfirmation: null,
+      healthyReadSourceCalendarIds: [],
       readHealth,
       suppressedMappingIds,
       writeBackHold: null,
@@ -1520,6 +1546,10 @@ const classifyInboundChanges = (
    * proceeds: each of its deletions is still confirmed against the copy itself before
    * anything on the source is touched, which is the check that distinguishes the two cases.
    */
+  const healthyReadSourceCalendarIds = resolveHealthyReadSourceCalendarIds(
+    readHealth,
+    eligible,
+  );
   const heldSourceCalendarIds = resolveHeldSourceCalendarIds(readHealth, eligible);
   const heldEligible = eligible.filter(({ mapping }) =>
     mapping.sourceCalendarId !== null && heldSourceCalendarIds.has(mapping.sourceCalendarId));
@@ -1606,6 +1636,7 @@ const classifyInboundChanges = (
     deleteBreakerTripped,
     deleteConfirmation: emptyReadConfirmation
       ?? createBreakerConfirmation(trippedSourceCalendarIds),
+    healthyReadSourceCalendarIds,
     readHealth,
     suppressedMappingIds,
     writeBackHold: createWriteBackHold(editBreaker.trippedSourceCalendarIds),

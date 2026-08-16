@@ -710,6 +710,43 @@ const createWriteBackHoldRecorder = (
     ));
 };
 
+/*
+ * A read that came back with at least one copy proves the credential still works and that
+ * the calendar id still points at the calendar the copies were in. It is stamped on every
+ * pair the read covered, and it is what "Delete the originals" is offered on once the
+ * copies have been observed missing.
+ */
+const createHealthyReadRecorder = (
+  database: BunSQLDatabase,
+  destinationCalendarId: string,
+) => async (sourceCalendarIds: string[]): Promise<void> => {
+  if (sourceCalendarIds.length === 0) {
+    return;
+  }
+  await database
+    .update(sourceDestinationMappingsTable)
+    .set({ lastHealthyReadAt: new Date() })
+    .where(and(
+      eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      inArray(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarIds),
+    ));
+};
+
+const COPIES_MISSING_REASON = "all_copies_missing";
+
+/*
+ * Only the blank read is stamped as a disappearance. The breaker trips on a read that
+ * returned items, so it carries its own evidence that the destination is readable and is
+ * not gated on a later read — which is also the route out for a destination the user
+ * really did empty.
+ */
+const buildDisappearanceObservation = (reason: string): { copiesMissingObservedAt: Date } | null => {
+  if (reason !== COPIES_MISSING_REASON) {
+    return null;
+  }
+  return { copiesMissingObservedAt: new Date() };
+};
+
 const createDeleteConfirmationRecorder = (
   database: BunSQLDatabase,
   destinationCalendarId: string,
@@ -720,6 +757,7 @@ const createDeleteConfirmationRecorder = (
   await database
     .update(sourceDestinationMappingsTable)
     .set({
+      ...buildDisappearanceObservation(request.reason),
       writeBackState: "delete_confirmation_required",
       writeBackStateReason: request.reason,
     })
@@ -1066,6 +1104,7 @@ const syncDestinationsForUser = async (
             database,
             destination.calendarId,
           ),
+          recordHealthyRead: createHealthyReadRecorder(database, destination.calendarId),
           holdWriteBack: createWriteBackHoldRecorder(database, destination.calendarId),
           onProgress: callbacks?.onProgress,
           onSyncEvent: (event) => {
@@ -1166,6 +1205,7 @@ const syncDestinationsForUser = async (
 export {
   createAggregateAuthorityWindow,
   createDeleteConfirmationRecorder,
+  createHealthyReadRecorder,
   createDestinationAttemptWideEventFields,
   createDestinationReconciliationScope,
   createDestinationReconciliationWideEventFields,

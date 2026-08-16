@@ -34,9 +34,11 @@ create table calendars (
 );
 create table source_destination_mappings (
   "id" uuid primary key default gen_random_uuid(),
+  "copiesMissingObservedAt" timestamp,
   "createdAt" timestamp not null default now(),
   "deleteConfirmationApprovedAt" timestamp,
   "destinationCalendarId" uuid not null,
+  "lastHealthyReadAt" timestamp,
   "sourceCalendarId" uuid not null,
   "writeBackEnabledAt" timestamp,
   "writeBackMode" text not null default 'off',
@@ -99,6 +101,15 @@ const insertCalendar = async (): Promise<string> => {
   return id;
 };
 
+/*
+ * A reading that came back with at least one copy since they went missing is what makes
+ * the deletion answerable at all, so a pair asking about copies that vanished is seeded
+ * with one. Without it the approval is refused on its own account, which is the blank-read
+ * gate's own test rather than this file's subject.
+ */
+const MISSING_OBSERVED_AT = new Date("2027-05-11T14:00:00.000Z");
+const HEALTHY_READ_AT = new Date("2027-05-11T15:00:00.000Z");
+
 const seedPair = async (state: {
   writeBackMode: string;
   writeBackState: string;
@@ -107,14 +118,17 @@ const seedPair = async (state: {
   await client.query(
     `insert into source_destination_mappings
        ("destinationCalendarId", "sourceCalendarId", "writeBackMode",
-        "writeBackState", "writeBackStateReason")
-     values ($1, $2, $3, $4, $5)`,
+        "writeBackState", "writeBackStateReason",
+        "copiesMissingObservedAt", "lastHealthyReadAt")
+     values ($1, $2, $3, $4, $5, $6, $7)`,
     [
       destinationCalendarId,
       sourceCalendarId,
       state.writeBackMode,
       state.writeBackState,
       state.writeBackStateReason,
+      MISSING_OBSERVED_AT,
+      HEALTHY_READ_AT,
     ],
   );
 };

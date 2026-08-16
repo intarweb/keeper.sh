@@ -17,6 +17,13 @@ export const selectWriteBackMode = (destinationId: string) =>
   );
 
 export interface WriteBackStatus {
+  /*
+   * Whether a read has come back with at least one copy since the copies went missing,
+   * decided by the server. Absent on a payload written before the gate existed, and read
+   * as locked: withholding the deletion costs an extra pass, offering it on evidence that
+   * was never established costs real events.
+   */
+  deletesUnlocked?: boolean;
   reason: string | null;
   state: string;
 }
