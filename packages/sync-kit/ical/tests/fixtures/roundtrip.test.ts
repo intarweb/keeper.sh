@@ -15,26 +15,20 @@ const canonicalise = (body: string): readonly CanonicalEvent[] => {
     body,
     scope: testScope,
     previousContentHash: null,
-    options: testOptions(),
+    options: testOptions({ selfAuthored: "includeForRoundTrip" }),
   });
   if (!projection.ok) {
     return [];
   }
-  return projection.value.listing.events.flatMap((event) => {
-    const canonical = projectCanonicalEvent(
-      {
-        identity: { kind: "master", uid: event.uid },
-        content: event.content,
-        revision: { sequence: null, lastModified: null, stamp: null, created: null },
-        cancelled: false,
-      },
-      testOptions(),
-    );
-    if (canonical.kind !== "projected") {
-      return [];
-    }
-    return [canonical.event];
-  });
+  return projection.value.listing.events.flatMap((event) => [
+    projectCanonicalEvent({
+      identity: { kind: "master", uid: event.uid },
+      content: event.content,
+      revision: { sequence: null, lastModified: null, stamp: null, created: null },
+      cancelled: false,
+      provenance: { kind: "foreign" },
+    }),
+  ]);
 };
 
 const reserialise = (events: readonly CanonicalEvent[]): readonly string[] =>

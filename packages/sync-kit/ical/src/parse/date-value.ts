@@ -3,7 +3,7 @@ import { assertNever } from "@keeper.sh/sync-protocol";
 import { parameterValue } from "../text/property-line";
 import type { PropertyLine } from "../text/property-line";
 import { isIanaAuthoritative } from "../zone/authority";
-import { millisecondsInMinute, padded } from "../zone/offset";
+import { millisecondsInMinute, padded, utcMillisecondsOf } from "../zone/offset";
 import { resolveZoneIdentifier } from "../zone/resolve-zone-identifier";
 import type { DeclaredObservance, DeclaredZoneRules } from "../zone/vtimezone";
 import { instantOf, resolveWallTime } from "../zone/wall-time";
@@ -19,7 +19,6 @@ type DateValue =
 
 const absolutePattern = /^(\d{8})T(\d{6})Z$/u;
 const floatingPattern = /^(\d{8})T(\d{6})$/u;
-const datePattern = /^\d{8}$/u;
 
 const wallTimeOf = (value: string): WallTime => ({ kind: "wallTime", value });
 
@@ -28,10 +27,25 @@ const calendarDateOf = (value: string): CalendarDate => ({
   value: `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`,
 });
 
-const utcInstantOf = (value: string): Instant => {
+const hoursInDay = 24;
+const minutesInHourBound = 60;
+const leapSecondBound = 61;
+
+const isRealClockTime = (time: string): boolean =>
+  Number(time.slice(0, 2)) < hoursInDay &&
+  Number(time.slice(2, 4)) < minutesInHourBound &&
+  Number(time.slice(4, 6)) < leapSecondBound;
+
+const isRealWallTime = (value: string): boolean =>
+  isRealCalendarDate(value.slice(0, 8)) && isRealClockTime(value.slice(9, 15));
+
+const utcInstantOf = (value: string): Instant | null => {
   const [, date, time] = absolutePattern.exec(value) ?? [];
   if (!date || !time) {
-    return instantOf(Number.NaN);
+    return null;
+  }
+  if (!isRealCalendarDate(date) || !isRealClockTime(time)) {
+    return null;
   }
   return instantOf(
     Date.UTC(
@@ -59,14 +73,14 @@ const declaredInstant = (rules: DeclaredZoneRules, wall: WallTime): Instant | nu
   if (!observance) {
     return null;
   }
-  const localMs = Date.UTC(
-    Number(wall.value.slice(0, 4)),
-    Number(wall.value.slice(4, 6)) - 1,
-    Number(wall.value.slice(6, 8)),
-    Number(wall.value.slice(9, 11)),
-    Number(wall.value.slice(11, 13)),
-    Number(wall.value.slice(13, 15)),
-  );
+  const localMs = utcMillisecondsOf({
+    year: Number(wall.value.slice(0, 4)),
+    month: Number(wall.value.slice(4, 6)),
+    day: Number(wall.value.slice(6, 8)),
+    hour: Number(wall.value.slice(9, 11)),
+    minute: Number(wall.value.slice(11, 13)),
+    second: Number(wall.value.slice(13, 15)),
+  });
   return instantOf(localMs - observance.offsetToMinutes * millisecondsInMinute);
 };
 
@@ -80,7 +94,7 @@ const anchorWallTime = (
     return { kind: "unresolved", reason: "unresolvableTimeZone" };
   }
   const declared = document.declaredZones.find((zone) => zone.declaredId === identifier) ?? null;
-  const resolution = resolveZoneIdentifier(identifier, document.declaredZones, zones);
+  const resolution = resolveZoneIdentifier(identifier, document.declaredZones);
   if (resolution.kind === "resolved" && isIanaAuthoritative(declared, resolution.zone)) {
     return {
       kind: "instant",
@@ -140,13 +154,14 @@ const resolveDateValue = (
     return { kind: "date", date: calendarDateOf(trimmed) };
   }
   if (absolutePattern.test(trimmed)) {
-    return { kind: "instant", instant: utcInstantOf(trimmed), zone: null };
+    const instant = utcInstantOf(trimmed);
+    if (!instant) {
+      return { kind: "unresolved", reason: "unparseable" };
+    }
+    return { kind: "instant", instant, zone: null };
   }
-  if (floatingPattern.test(trimmed)) {
+  if (floatingPattern.test(trimmed) && isRealWallTime(trimmed)) {
     return resolveFloating(trimmed, property, eventZone, document, zones);
-  }
-  if (datePattern.test(trimmed)) {
-    return { kind: "unresolved", reason: "unparseable" };
   }
   return { kind: "unresolved", reason: "unparseable" };
 };

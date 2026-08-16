@@ -37,6 +37,7 @@ const representativeArguments: Record<string, readonly unknown[]> = {
     { kind: "zoneId", value: "Europe/Berlin" },
     testScope.window,
     surface.createZoneCache(),
+    testLimits(),
   ],
   readDeclaredZones: [body, testLimits()],
   isIanaAuthoritative: [null, { kind: "zoneId", value: "Europe/Berlin" }],
@@ -49,7 +50,7 @@ const representativeArguments: Record<string, readonly unknown[]> = {
   detectEventLevelRecurrenceDates: [body, testLimits()],
   detectRecurrenceRangeOverrides: [body, testLimits()],
   toPlainTextDescription: ["hello", testLimits()],
-  canonicalizeRecurrenceRule: ["FREQ=WEEKLY"],
+  canonicalizeRecurrenceRule: ["FREQ=WEEKLY", surface.utcUntilAnchor],
   withinTimeWindow: [
     testScope.window,
     {

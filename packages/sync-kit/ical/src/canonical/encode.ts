@@ -7,6 +7,9 @@ const fieldSeparator = String.fromCodePoint(0);
 const absentSentinel = String.fromCodePoint(1);
 const partSeparator = String.fromCodePoint(31);
 
+const sortedDistinct = (values: readonly string[]): string =>
+  [...new Set(values)].toSorted().join(",");
+
 const encodedText = (value: string | null): string => {
   if (value === null) {
     return absentSentinel;
@@ -37,7 +40,7 @@ const encodedRecurrence = (recurrence: RecurrencePayload | null | undefined): st
   if (!recurrence) {
     return absentSentinel;
   }
-  return [recurrence.dialect, recurrence.value, [...recurrence.exceptions].toSorted().join(",")].join(
+  return [recurrence.dialect, recurrence.value, sortedDistinct(recurrence.exceptions)].join(
     partSeparator,
   );
 };
@@ -85,7 +88,7 @@ const encodeCanonicalEvent = (event: CanonicalEvent): string => {
     time: encodedTime(event.content.time),
     recurrence: encodedRecurrence(event.content.recurrence),
     anchor: encodedAnchor(event.content.anchor),
-    cancellations: event.cancellations.map((instant) => instant.value).join(","),
+    cancellations: sortedDistinct(event.cancellations.map((instant) => instant.value)),
   } satisfies Record<(typeof canonicalFieldOrder)[number], string>;
   return canonicalFieldOrder.map((field) => fields[field]).join(fieldSeparator);
 };

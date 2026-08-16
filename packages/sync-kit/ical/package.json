@@ -10,8 +10,7 @@
     "test": "TZ=UTC bun x --bun vitest run"
   },
   "dependencies": {
-    "@keeper.sh/sync-protocol": "workspace:*",
-    "ts-ics": "^2.4.6"
+    "@keeper.sh/sync-protocol": "workspace:*"
   },
   "devDependencies": {
     "@keeper.sh/fixtures": "workspace:*",

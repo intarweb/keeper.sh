@@ -38,6 +38,25 @@ const underDeclaredIdentifier = (text: string, identifier: string): readonly str
     return `TZID:${identifier}`;
   });
 
+const datedProperty = /^(?:DTSTART|DTEND|RECURRENCE-ID|EXDATE|RDATE)[^:]*:(\d{4})\d{4}/u;
+
+const declaredYears = (lines: readonly string[]): readonly number[] =>
+  lines.flatMap((line) => {
+    const matched = datedProperty.exec(line);
+    if (!matched?.[1]) {
+      return [];
+    }
+    return [Number(matched[1])];
+  });
+
+const earliestReferencedYear = (lines: readonly string[]): number | null => {
+  const years = declaredYears(lines);
+  if (years.length === 0) {
+    return null;
+  }
+  return Math.min(...years);
+};
+
 const insertionIndex = (lines: readonly string[]): number => {
   const firstEvent = lines.indexOf("BEGIN:VEVENT");
   if (firstEvent !== -1) {
@@ -54,12 +73,19 @@ const synthesizeMissingVtimezones = (body: string, options: IcsOptions): string 
   const lines = body.split(contentLineBreak);
   const declared = declaredZoneIdentifiers(lines);
   const missing = referencedZones(lines).filter((identifier) => !declared.has(identifier));
+  const referenceYear = earliestReferencedYear(lines);
+  if (referenceYear === null) {
+    return body;
+  }
   const synthesised = missing.flatMap((identifier) => {
     const normalized = normalizeZoneIdentifier(identifier);
     if (!normalized) {
       return [];
     }
-    const block = buildVtimezone({ kind: "zoneId", value: normalized }, 2026, options);
+    const block = buildVtimezone({ kind: "zoneId", value: normalized }, referenceYear, options);
+    if (block.kind === "unresolvableZone") {
+      return [];
+    }
     return [...underDeclaredIdentifier(block.text, identifier)];
   });
   if (synthesised.length === 0) {

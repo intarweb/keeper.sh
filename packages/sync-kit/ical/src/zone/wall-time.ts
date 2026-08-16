@@ -1,5 +1,12 @@
 import type { Instant, ZoneId } from "@keeper.sh/sync-protocol";
-import { millisecondsInMinute, offsetMinutesAt, padded, wallClockFieldsAt } from "./offset";
+import { IcsInternalDataError } from "../errors";
+import {
+  millisecondsInMinute,
+  offsetMinutesAt,
+  padded,
+  utcMillisecondsOf,
+  wallClockFieldsAt,
+} from "./offset";
 import type { ZoneCache } from "./zone-cache";
 
 interface WallTime {
@@ -20,10 +27,17 @@ const instantOf = (atMs: number): Instant => ({ kind: "instant", value: new Date
 const wallTimeMs = (wall: WallTime): number => {
   const matched = wallTimePattern.exec(wall.value);
   if (!matched) {
-    return Number.NaN;
+    throw new IcsInternalDataError(`a wall time was built in an unreadable shape: ${wall.value}`);
   }
   const [, year, month, day, hour, minute, second] = matched;
-  return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  return utcMillisecondsOf({
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour: Number(hour),
+    minute: Number(minute),
+    second: Number(second),
+  });
 };
 
 const formatWallTime = (fields: {

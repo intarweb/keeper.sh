@@ -1,4 +1,5 @@
 import type { Instant, TimeWindow, ZoneId } from "@keeper.sh/sync-protocol";
+import type { IcsLimits } from "../options";
 import { millisecondsInMinute, offsetMinutesAt } from "./offset";
 import { instantOf } from "./wall-time";
 import type { ZoneCache } from "./zone-cache";
@@ -23,9 +24,20 @@ const transitionBetween = (zones: ZoneCache, zone: ZoneId, beforeMs: number, aft
   return high;
 };
 
-const findZoneTransitions = (zone: ZoneId, window: TimeWindow, zones: ZoneCache): readonly Instant[] => {
+const clampedEndMs = (startMs: number, endMs: number, limits: IcsLimits): number => {
+  const at = new Date(startMs);
+  at.setUTCFullYear(at.getUTCFullYear() + limits.zoneProjectionYears);
+  return Math.min(endMs, at.getTime());
+};
+
+const findZoneTransitions = (
+  zone: ZoneId,
+  window: TimeWindow,
+  zones: ZoneCache,
+  limits: IcsLimits,
+): readonly Instant[] => {
   const startMs = Date.parse(window.start.value);
-  const endMs = Date.parse(window.end.value);
+  const endMs = clampedEndMs(startMs, Date.parse(window.end.value), limits);
   const found: Instant[] = [];
   let cursor = startMs;
   let carriedOffset = offsetMinutesAt(zones, zone.value, startMs);

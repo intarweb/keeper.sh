@@ -1,26 +1,11 @@
 import type { IcsLimits } from "../options";
 
-const entityReplacements = [
-  ["&amp;", "&"],
-  ["&lt;", "<"],
-  ["&gt;", ">"],
-  ["&quot;", '"'],
-  ["&#39;", "'"],
-  ["&nbsp;", " "],
-] as const;
+const doubleEncodedEntity = /&amp;(amp|lt|gt|quot|nbsp|#\d+);/gu;
 
-const doubleEncodedEntity = /&amp;(amp|lt|gt|quot|nbsp|#\d+);/u;
+const decodedOnce = (text: string): string => text.replaceAll(doubleEncodedEntity, "&$1;");
 
-const decodedOnce = (text: string): string => {
-  if (!doubleEncodedEntity.test(text)) {
-    return text;
-  }
-  let decoded = text;
-  for (const [encoded, plain] of entityReplacements) {
-    decoded = decoded.replaceAll(encoded, plain);
-  }
-  return decoded;
-};
+const escapedMarkup = (tag: string): string =>
+  tag.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 const tagAt = (text: string, index: number): number => {
   const closing = text.indexOf(">", index);
@@ -57,7 +42,7 @@ const withoutMarkup = (text: string, maxDepth: number): string => {
       index = closing + 1;
       continue;
     }
-    result = `${result}${text.slice(index, closing + 1)}`;
+    result = `${result}${escapedMarkup(text.slice(index, closing + 1))}`;
     index = closing + 1;
   }
   return result;

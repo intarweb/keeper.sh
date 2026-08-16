@@ -9,6 +9,7 @@ interface ZoneCounters {
 interface ZoneCache {
   readonly kind: "zoneCache";
   readonly wallClockFormatters: Map<string, Intl.DateTimeFormat>;
+  readonly weekdayFormatters: Map<string, Intl.DateTimeFormat>;
   readonly vtimezones: Map<string, VtimezoneBlock>;
   readonly counters: ZoneCounters;
 }
@@ -22,6 +23,7 @@ interface ZoneCacheStatistics {
 const createZoneCache = (): ZoneCache => ({
   kind: "zoneCache",
   wallClockFormatters: new Map(),
+  weekdayFormatters: new Map(),
   vtimezones: new Map(),
   counters: { offsetProbes: 0, formatterConstructions: 0, projectedYears: 0 },
 });
@@ -60,8 +62,15 @@ const wallClockFormatter = (zones: ZoneCache, zoneValue: string): Intl.DateTimeF
   return created;
 };
 
-const weekdayFormatter = (zones: ZoneCache, zoneValue: string): Intl.DateTimeFormat =>
-  countedFormatter(zones, "en-US", { timeZone: zoneValue, weekday: "short" });
+const weekdayFormatter = (zones: ZoneCache, zoneValue: string): Intl.DateTimeFormat => {
+  const cached = zones.weekdayFormatters.get(zoneValue);
+  if (cached) {
+    return cached;
+  }
+  const created = countedFormatter(zones, "en-US", { timeZone: zoneValue, weekday: "short" });
+  zones.weekdayFormatters.set(zoneValue, created);
+  return created;
+};
 
 export { countedFormatter, createZoneCache, wallClockFormatter, weekdayFormatter, zoneCacheStatistics };
 export type { ZoneCache, ZoneCacheStatistics };

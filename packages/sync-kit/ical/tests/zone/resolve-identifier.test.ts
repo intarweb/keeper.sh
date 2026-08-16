@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { createZoneCache, resolveZoneIdentifier } from "../../src/index";
+import { resolveZoneIdentifier } from "../../src/index";
 import type { DeclaredZone } from "../../src/index";
 
 const resolve = (identifier: string, declared: readonly DeclaredZone[] = []) =>
-  resolveZoneIdentifier(identifier, declared, createZoneCache());
+  resolveZoneIdentifier(identifier, declared);
 
 describe("the zone resolution ladder", () => {
   test("ICAL-I18: an IANA identifier resolves on the first rung", () => {

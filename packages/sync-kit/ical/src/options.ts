@@ -5,7 +5,7 @@ import type { ZoneCache } from "./zone/zone-cache";
 interface IcsLimits {
   readonly maxBytes: number;
   readonly maxContentLines: number;
-  readonly maxComponents: number;
+  readonly maxComponentDepth: number;
   readonly maxPropertyValues: number;
   readonly maxExceptionDates: number;
   readonly maxDescriptionDepth: number;
@@ -16,7 +16,7 @@ interface IcsLimits {
 const defaultIcsLimits: IcsLimits = {
   maxBytes: 8_000_000,
   maxContentLines: 200_000,
-  maxComponents: 32,
+  maxComponentDepth: 32,
   maxPropertyValues: 2000,
   maxExceptionDates: 750,
   maxDescriptionDepth: 64,

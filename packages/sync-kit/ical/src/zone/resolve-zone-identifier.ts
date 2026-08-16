@@ -2,7 +2,6 @@ import type { ZoneId } from "@keeper.sh/sync-protocol";
 import { isKnownToPlatform, windowsMapping } from "./normalize-zone-id";
 import { minutesInHour } from "./offset";
 import type { DeclaredZone } from "./vtimezone";
-import type { ZoneCache } from "./zone-cache";
 
 const zoneResolutionRungs = [
   "ianaDirect",
@@ -69,7 +68,6 @@ const fromDeclaredZone = (declared: DeclaredZone): ZoneResolution => {
 const resolveZoneIdentifier = (
   identifier: string,
   declared: readonly DeclaredZone[],
-  _zones: ZoneCache,
 ): ZoneResolution => {
   const trimmed = identifier.trim();
   if (isKnownToPlatform(trimmed)) {

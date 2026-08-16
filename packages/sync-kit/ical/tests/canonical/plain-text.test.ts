@@ -27,6 +27,14 @@ describe("projecting a description to plain text", () => {
     expect(toPlainTextDescription(once, limits)).toBe(once);
   });
 
+  test("ICAL-L10: a nest deeper than the bound strips the same on a re-poll", () => {
+    const limits = testLimits({ maxDescriptionDepth: 4 });
+    const once = toPlainTextDescription(depthBomb(16), limits);
+
+    expect(toPlainTextDescription(once, limits)).toBe(once);
+    expect(once).toContain("payload");
+  });
+
   test("ICAL-I36: an entity is decoded exactly once, never twice", () => {
     const limits = testLimits();
     const once = toPlainTextDescription("a &amp;amp; b", limits);

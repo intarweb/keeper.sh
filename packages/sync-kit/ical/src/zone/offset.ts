@@ -5,7 +5,7 @@ import { wallClockFormatter } from "./zone-cache";
 
 const millisecondsInMinute = 60_000;
 const minutesInHour = 60;
-const renderedWallClock = /^(\d{4})-(\d{2})-(\d{2})[ ,T]+(\d{2}):(\d{2}):(\d{2})$/u;
+const renderedWallClock = /^(-?\d{1,6})-(\d{2})-(\d{2})[ ,T]+(\d{2}):(\d{2}):(\d{2})$/u;
 
 interface WallClockFields {
   readonly year: number;
@@ -54,11 +54,18 @@ const readWallClock = (rendered: string): WallClockFields => {
 const wallClockFieldsAt = (zones: ZoneCache, zoneValue: string, atMs: number): WallClockFields =>
   readWallClock(wallClockFormatter(zones, zoneValue).format(atMs));
 
+const utcMillisecondsOf = (fields: WallClockFields): number => {
+  const at = new Date(0);
+  at.setUTCFullYear(fields.year, fields.month - 1, fields.day);
+  at.setUTCHours(fields.hour, fields.minute, fields.second, 0);
+  return at.getTime();
+};
+
 const offsetMinutesAt = (zones: ZoneCache, zoneValue: string, atMs: number): number => {
   zones.counters.offsetProbes += 1;
-  const fields = wallClockFieldsAt(zones, zoneValue, atMs);
-  const asUtc = Date.UTC(fields.year, fields.month - 1, fields.day, fields.hour, fields.minute, fields.second);
-  return Math.round((asUtc - atMs) / millisecondsInMinute);
+  return Math.round(
+    (utcMillisecondsOf(wallClockFieldsAt(zones, zoneValue, atMs)) - atMs) / millisecondsInMinute,
+  );
 };
 
 const zoneOffsetMinutes = (instant: Instant, zone: ZoneId, zones: ZoneCache): number =>
@@ -92,5 +99,15 @@ const parseUtcOffset = (text: string): number | null => {
   return magnitude;
 };
 
-export { formatUtcOffset, millisecondsInMinute, minutesInHour, offsetMinutesAt, padded, parseUtcOffset, wallClockFieldsAt, zoneOffsetMinutes };
+export {
+  formatUtcOffset,
+  millisecondsInMinute,
+  minutesInHour,
+  offsetMinutesAt,
+  padded,
+  parseUtcOffset,
+  utcMillisecondsOf,
+  wallClockFieldsAt,
+  zoneOffsetMinutes,
+};
 export type { WallClockFields };

@@ -3,6 +3,8 @@ import type {
   EditableContent,
   EventUid,
   Instant,
+  OccurrenceDuration,
+  RecurrenceAnchor,
   RepresentabilityConstraint,
   ZoneId,
 } from "@keeper.sh/sync-protocol";
@@ -10,7 +12,9 @@ import { assertNever } from "@keeper.sh/sync-protocol";
 import type { CanonicalEvent } from "../canonical/canonical-event";
 import type { IcsOptions } from "../options";
 import { buildVtimezone } from "../zone/build-vtimezone";
+import { normalizeZoneIdentifier } from "../zone/normalize-zone-id";
 import { contentLineBreak, foldContentLine } from "../text/fold";
+import { provenanceStamp } from "../parse/self-authored";
 import { escapeTextValue } from "./escape";
 import { renderZonedDate, utcText } from "./zoned-date";
 
@@ -76,11 +80,18 @@ const timedLines = (
   return [renderZonedDate(name, instant, zone, options.zones).text];
 };
 
-const durationMilliseconds = (duration: { readonly kind: string; readonly seconds?: number; readonly days?: number }): number => {
-  if (duration.kind === "exact") {
-    return (duration.seconds ?? 0) * millisecondsInSecond;
+const durationMilliseconds = (duration: OccurrenceDuration): number => {
+  switch (duration.kind) {
+    case "exact": {
+      return duration.seconds * millisecondsInSecond;
+    }
+    case "nominal": {
+      return duration.days * millisecondsInDay;
+    }
+    default: {
+      return assertNever(duration);
+    }
   }
-  return (duration.days ?? 0) * millisecondsInDay;
 };
 
 const singleOccurrenceLines = (content: EditableContent, options: IcsOptions): readonly string[] => {
@@ -107,21 +118,40 @@ const singleOccurrenceLines = (content: EditableContent, options: IcsOptions): r
   }
 };
 
+const utcDateOf = (value: string): string => value.slice(0, 8);
+
+const exceptionLines = (
+  exceptions: readonly string[],
+  anchor: RecurrenceAnchor,
+): readonly string[] => {
+  switch (anchor.kind) {
+    case "timed": {
+      return exceptions.map((value) => `EXDATE:${value}`);
+    }
+    case "allDay": {
+      return exceptions.map((value) => `EXDATE;VALUE=DATE:${utcDateOf(value)}`);
+    }
+    default: {
+      return assertNever(anchor);
+    }
+  }
+};
+
 const recurringLines = (content: EditableContent, options: IcsOptions): readonly string[] => {
   const { anchor, recurrence } = content;
   if (!anchor || !recurrence) {
     return [];
   }
   const rule = [`RRULE:${recurrence.value}`];
-  const exceptions = recurrence.exceptions.map((value) => `EXDATE:${value}`);
+  const exceptions = exceptionLines(recurrence.exceptions, anchor);
   switch (anchor.kind) {
     case "timed": {
       const endMs = Date.parse(anchor.start.value) + durationMilliseconds(anchor.duration);
       return [
-      ...timedLines("DTSTART", anchor.start, anchor.zone, options),
-      ...timedLines("DTEND", { kind: "instant", value: new Date(endMs).toISOString() }, anchor.zone, options),
-      ...rule,
-      ...exceptions,
+        ...timedLines("DTSTART", anchor.start, anchor.zone, options),
+        ...timedLines("DTEND", { kind: "instant", value: new Date(endMs).toISOString() }, anchor.zone, options),
+        ...rule,
+        ...exceptions,
       ];
     }
     case "allDay": {
@@ -138,7 +168,6 @@ const recurringLines = (content: EditableContent, options: IcsOptions): readonly
   }
 };
 
-
 const recurrenceIdLine = (event: CanonicalEvent, options: IcsOptions): readonly string[] => {
   if (event.identity.kind !== "override") {
     return [];
@@ -150,6 +179,7 @@ const eventLines = (event: CanonicalEvent, uid: EventUid, options: IcsOptions): 
   "BEGIN:VEVENT",
   `UID:${uid.value}`,
   "DTSTAMP:19700101T000000Z",
+  `${provenanceStamp}:${options.installation.value}`,
   ...recurrenceIdLine(event, options),
   ...describedLines(event.content),
   ...singleOccurrenceLines(event.content, options),
@@ -180,6 +210,119 @@ const uniqueZones = (set: RecurrenceSet): readonly ZoneId[] => {
   });
 };
 
+const startOfDay = (date: CalendarDate): Instant => ({
+  kind: "instant",
+  value: `${date.value}T00:00:00.000Z`,
+});
+
+const anchorStartOf = (anchor: RecurrenceAnchor): Instant => {
+  switch (anchor.kind) {
+    case "timed": {
+      return anchor.start;
+    }
+    case "allDay": {
+      return startOfDay(anchor.startDate);
+    }
+    default: {
+      return assertNever(anchor);
+    }
+  }
+};
+
+const startInstantOf = (content: EditableContent): Instant => {
+  if (!content.time) {
+    return anchorStartOf(content.anchor);
+  }
+  switch (content.time.kind) {
+    case "timed": {
+      return content.time.start;
+    }
+    case "allDay": {
+      return startOfDay(content.time.startDate);
+    }
+    default: {
+      return assertNever(content.time);
+    }
+  }
+};
+
+const referenceYearOf = (set: RecurrenceSet): number => {
+  const starts = [set.master, ...set.overrides].map((event) =>
+    Date.parse(startInstantOf(event.content).value),
+  );
+  return new Date(Math.min(...starts)).getUTCFullYear();
+};
+
+const normalisedZone = (zone: ZoneId): ZoneId | null => {
+  const normalised = normalizeZoneIdentifier(zone.value);
+  if (!normalised) {
+    return null;
+  }
+  return { kind: "zoneId", value: normalised };
+};
+
+const normalisedTime = (content: EditableContent): EditableContent | null => {
+  if (!content.time || content.time.kind !== "timed" || !content.time.zone) {
+    return content;
+  }
+  const zone = normalisedZone(content.time.zone);
+  if (!zone) {
+    return null;
+  }
+  return { ...content, time: { ...content.time, zone } };
+};
+
+const normalisedContent = (content: EditableContent): EditableContent | null => {
+  if (!content.recurrence || !content.anchor || content.anchor.kind !== "timed") {
+    return normalisedTime(content);
+  }
+  const zone = normalisedZone(content.anchor.zone);
+  if (!zone) {
+    return null;
+  }
+  return { ...content, anchor: { ...content.anchor, zone } };
+};
+
+const normalisedEvents = (set: RecurrenceSet): RecurrenceSet | null => {
+  const master = normalisedContent(set.master.content);
+  if (!master) {
+    return null;
+  }
+  const overrides: CanonicalEvent[] = [];
+  for (const override of set.overrides) {
+    const content = normalisedContent(override.content);
+    if (!content) {
+      return null;
+    }
+    overrides.push({ ...override, content });
+  }
+  return { master: { ...set.master, content: master }, overrides };
+};
+
+const foldedLines = (lines: readonly string[]): readonly string[] =>
+  lines.flatMap((line) => [...foldContentLine(line)]);
+
+const foldedText = (lines: readonly string[]): string =>
+  foldedLines(lines)
+    .map((line) => `${line}${contentLineBreak}`)
+    .join("");
+
+const zoneBlockLines = (
+  zones: readonly ZoneId[],
+  referenceYear: number,
+  options: IcsOptions,
+): readonly string[] | null => {
+  const lines: string[] = [];
+  for (const zone of zones) {
+    const block = buildVtimezone(zone, referenceYear, options);
+    if (block.kind === "unresolvableZone") {
+      return null;
+    }
+    lines.push(...block.text.split(contentLineBreak));
+  }
+  return lines;
+};
+
 const serialiseCalendarResource = (set: RecurrenceSet, options: IcsOptions): SerialisedResource => {
   const mismatch = mismatchedOverride(set);
   if (mismatch) {
@@ -192,25 +335,27 @@ const serialiseCalendarResource = (set: RecurrenceSet, options: IcsOptions): Ser
   if ([set.master, ...set.overrides].some((event) => invertedRange(event.content))) {
     return { kind: "refused", constraint: "invertedRange" };
   }
-  const { uid } = set.master.identity;
-  const zones = uniqueZones(set);
-  const referenceYear = new Date(
-    Date.parse(set.master.cancellations.at(0)?.value ?? "2026-01-01T00:00:00.000Z"),
-  ).getUTCFullYear();
+  const normalised = normalisedEvents(set);
+  if (!normalised) {
+    return { kind: "refused", constraint: "zoneIdentifier" };
+  }
+  const referenceYear = referenceYearOf(normalised);
+  const { uid } = normalised.master.identity;
+  const zones = uniqueZones(normalised);
+  const zoneLines = zoneBlockLines(zones, referenceYear, options);
+  if (!zoneLines) {
+    return { kind: "refused", constraint: "zoneIdentifier" };
+  }
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//keeper.sh//sync-ical//EN",
-    ...zones.flatMap((zone) => buildVtimezone(zone, referenceYear, options).text.split(contentLineBreak)),
-    ...eventLines(set.master, uid, options),
-    ...set.overrides.flatMap((override) => [...eventLines(override, uid, options)]),
+    ...zoneLines,
+    ...eventLines(normalised.master, uid, options),
+    ...normalised.overrides.flatMap((override) => [...eventLines(override, uid, options)]),
     "END:VCALENDAR",
   ];
-  return {
-    kind: "resource",
-    text: lines.flatMap((line) => [...foldContentLine(line)]).map((line) => `${line}${contentLineBreak}`).join(""),
-    zones,
-  };
+  return { kind: "resource", text: foldedText(lines), zones };
 };
 
 export { serialiseCalendarResource };

@@ -12,7 +12,7 @@ const identityOfOutcome = (outcome: VeventOutcome): readonly EventIdentity[] => 
     }
     case "withheld": {
       if (!outcome.identity.uid) {
-      return [];
+        return [];
       }
       return [{ kind: "master", uid: outcome.identity.uid }];
     }

@@ -1,5 +1,5 @@
 import type { Instant } from "@keeper.sh/sync-protocol";
-import { canonicalOf } from "../canonical/project";
+import { projectCanonicalEvent } from "../canonical/project";
 import { encodeCanonicalEvent } from "../canonical/encode";
 import type { ParsedVevent } from "./parse-vevent";
 
@@ -44,7 +44,9 @@ const compareEventRevisions = (left: ParsedVevent, right: ParsedVevent): number 
   if (byCreated !== 0) {
     return byCreated;
   }
-  return encodeCanonicalEvent(canonicalOf(left)).localeCompare(encodeCanonicalEvent(canonicalOf(right)));
+  return encodeCanonicalEvent(projectCanonicalEvent(left)).localeCompare(
+    encodeCanonicalEvent(projectCanonicalEvent(right)),
+  );
 };
 
 export { compareEventRevisions };

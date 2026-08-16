@@ -86,6 +86,38 @@ describe("a feed carrying our own provenance", () => {
     expect(projection.value.listing.diagnostics.selfAuthored.total).toBe(0);
   });
 
+  test("ICAL-O13: a self-authored event is named on the listing a deletion is derived from", () => {
+    const projection = project(purelySelfAuthoredFeed);
+
+    expect(projection.ok).toBe(true);
+    if (!projection.ok) {
+      return;
+    }
+    expect(projection.value.listing.withheld).toHaveLength(3);
+    expect(projection.value.listing.withheld.every((entry) => entry.reason === "selfAuthored")).toBe(
+      true,
+    );
+  });
+
+  test("ICAL-I37: an event carrying our provenance is emitted as ours, never laundered into foreign", () => {
+    const projection = projectIcsFeed({
+      body: purelySelfAuthoredFeed,
+      scope: testScope,
+      previousContentHash: null,
+      options: testOptions({ selfAuthored: "includeForRoundTrip" }),
+    });
+
+    expect(projection.ok).toBe(true);
+    if (!projection.ok) {
+      return;
+    }
+    expect(projection.value.listing.events.map((event) => event.provenance.kind)).toEqual([
+      "ours",
+      "ours",
+      "ours",
+    ]);
+  });
+
   test("ICAL-I37: includeForRoundTrip makes our own events usable without changing presence", () => {
     const projection = projectIcsFeed({
       body: purelySelfAuthoredFeed,

@@ -105,19 +105,14 @@ describe("a publisher that collapses distinct revisions onto one UID", () => {
     if (!survivor) {
       return;
     }
-    const reprojected = projectCanonicalEvent(
-      {
-        identity: { kind: "master", uid: survivor.uid },
-        content: survivor.content,
-        revision: { sequence: 0, lastModified: null, stamp: null, created: null },
-        cancelled: false,
-      },
-      testOptions(),
-    );
-    expect(reprojected.kind).toBe("projected");
-    if (reprojected.kind !== "projected") {
-      return;
-    }
-    expect(canonicalEventFingerprint(reprojected.event).value).toBe(survivor.fingerprint.value);
+    const reprojected = projectCanonicalEvent({
+      identity: { kind: "master", uid: survivor.uid },
+      content: survivor.content,
+      revision: { sequence: 0, lastModified: null, stamp: null, created: null },
+      cancelled: false,
+      provenance: { kind: "foreign" },
+    });
+
+    expect(canonicalEventFingerprint(reprojected).value).toBe(survivor.fingerprint.value);
   });
 });

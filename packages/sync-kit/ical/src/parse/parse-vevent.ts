@@ -3,7 +3,9 @@ import type {
   EditableContent,
   EventTime,
   EventUid,
+  InstallationId,
   Instant,
+  Provenance,
   RecurrenceAnchor,
   Visibility,
   WithheldIdentity,
@@ -11,14 +13,20 @@ import type {
   ZoneId,
 } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
-import { canonicalizeRecurrenceRule } from "../canonical/recurrence-rule";
+import { reanchorRecurrenceIdentities } from "../canonical/all-day";
 import { toPlainTextDescription } from "../canonical/plain-text";
+import { canonicalizeRecurrenceRule, utcUntilAnchor } from "../canonical/recurrence-rule";
+import type { UntilAnchor } from "../canonical/recurrence-rule";
+import { IcsInternalDataError } from "../errors";
 import type { IcsOptions } from "../options";
+import { unescapeTextValue } from "../serialise/escape";
 import { parameterValue } from "../text/property-line";
 import type { PropertyLine } from "../text/property-line";
-import { unescapeTextValue } from "../serialise/escape";
-import { dateAsInstant, icsUtcOf, instantOfDateValue, resolveDateValue } from "./date-value";
+import type { ZoneCache } from "../zone/zone-cache";
+import { dateAsInstant, icsUtcOf, instantOfDateValue, resolveDateValue, utcInstantOf } from "./date-value";
 import { eventZoneOf, propertyNamed, resolveEventTime } from "./event-time";
+import type { EventTimeResolution } from "./event-time";
+import { anchorFloatingValue } from "./floating";
 import type { EventIdentity } from "./identity";
 import type { IcsDocument, VeventComponent } from "./parse-calendar";
 import { isSelfAuthored } from "./self-authored";
@@ -35,6 +43,7 @@ interface ParsedVevent {
   readonly content: EditableContent;
   readonly revision: EventRevision;
   readonly cancelled: boolean;
+  readonly provenance: Provenance;
 }
 
 type VeventOutcome =
@@ -88,19 +97,7 @@ const instantAtProperty = (component: VeventComponent, name: string): Instant | 
   if (!/^\d{8}T\d{6}Z?$/u.test(value)) {
     return null;
   }
-  return {
-    kind: "instant",
-    value: new Date(
-      Date.UTC(
-        Number(value.slice(0, 4)),
-        Number(value.slice(4, 6)) - 1,
-        Number(value.slice(6, 8)),
-        Number(value.slice(9, 11)),
-        Number(value.slice(11, 13)),
-        Number(value.slice(13, 15)),
-      ),
-    ).toISOString(),
-  };
+  return utcInstantOf(`${value.replace(/Z$/u, "")}Z`);
 };
 
 const sequenceOf = (component: VeventComponent): number | null => {
@@ -108,7 +105,11 @@ const sequenceOf = (component: VeventComponent): number | null => {
   if (!declared) {
     return null;
   }
-  return Number.parseInt(declared.value.trim(), 10);
+  const parsed = Number.parseInt(declared.value.trim(), 10);
+  if (!Number.isInteger(parsed)) {
+    return null;
+  }
+  return parsed;
 };
 
 const revisionOf = (component: VeventComponent): EventRevision => ({
@@ -198,6 +199,7 @@ const contentOf = (
   component: VeventComponent,
   time: EventTime,
   exceptions: readonly string[],
+  anchorUntil: UntilAnchor,
   options: IcsOptions,
 ): EditableContent => {
   const described = {
@@ -215,7 +217,7 @@ const contentOf = (
     ...described,
     recurrence: {
       dialect: "rfc5545",
-      value: canonicalizeRecurrenceRule(rule.value.trim()),
+      value: canonicalizeRecurrenceRule(rule.value.trim(), anchorUntil),
       exceptions,
     },
     anchor: anchorOf(time, spanSecondsOf(time)),
@@ -274,6 +276,101 @@ const recurrenceInstantOf = (
   );
 };
 
+const untilAnchorFor = (
+  component: VeventComponent,
+  time: EventTime,
+  document: IcsDocument,
+  options: IcsOptions,
+): UntilAnchor => {
+  if (time.kind === "allDay") {
+    return utcUntilAnchor;
+  }
+  return (floating) => {
+    const anchored = anchorFloatingValue(floating, component, document, options);
+    if (anchored.kind !== "anchored") {
+      return utcUntilAnchor(floating);
+    }
+    return icsUtcOf(anchored.instant);
+  };
+};
+
+const provenanceOf = (selfAuthored: boolean, installation: InstallationId): Provenance => {
+  if (selfAuthored) {
+    return { kind: "ours", installation };
+  }
+  return { kind: "foreign" };
+};
+
+const declaresRecurrenceDates = (component: VeventComponent): boolean =>
+  component.properties.some((property) => property.name === "RDATE");
+
+interface RecurrenceIdentities {
+  readonly exceptions: readonly string[];
+  readonly recurrenceInstant: Instant | null;
+}
+
+const parsedException = (value: string): Instant => {
+  const instant = utcInstantOf(value);
+  if (!instant) {
+    throw new IcsInternalDataError(`a resolved exception date is not a UTC instant: ${value}`);
+  }
+  return instant;
+};
+
+const overrideInstantsOf = (recurrenceInstant: Instant | null): readonly Instant[] => {
+  if (!recurrenceInstant) {
+    return [];
+  }
+  return [recurrenceInstant];
+};
+
+const reanchoredToFullDays = (
+  identities: RecurrenceIdentities,
+  start: Instant,
+  zone: ZoneId,
+  zones: ZoneCache,
+): RecurrenceIdentities => {
+  const reanchored = reanchorRecurrenceIdentities(
+    {
+      start,
+      exceptions: identities.exceptions.map((value) => parsedException(value)),
+      overrideInstants: overrideInstantsOf(identities.recurrenceInstant),
+      until: null,
+    },
+    zone,
+    zones,
+  );
+  return {
+    exceptions: reanchored.exceptions.map((instant) => icsUtcOf(instant)),
+    recurrenceInstant: reanchored.overrideInstants.at(0) ?? null,
+  };
+};
+
+const startInstantOf = (time: EventTime): Instant => {
+  switch (time.kind) {
+    case "timed": {
+      return time.start;
+    }
+    case "allDay": {
+      return dateAsInstant(time.startDate);
+    }
+    default: {
+      return assertNever(time);
+    }
+  }
+};
+
+const fullDayIdentities = (
+  identities: RecurrenceIdentities,
+  time: EventTimeResolution,
+  zones: ZoneCache,
+): RecurrenceIdentities => {
+  if (time.kind === "withheld" || !time.fullDayZone) {
+    return identities;
+  }
+  return reanchoredToFullDays(identities, startInstantOf(time.time), time.fullDayZone, zones);
+};
+
 const parseVevent = (
   component: VeventComponent,
   document: IcsDocument,
@@ -290,11 +387,15 @@ const parseVevent = (
   }
   const uid: EventUid = { kind: "eventUid", value: uidValue };
   const withheldIdentity: WithheldIdentity = { uid, id: null };
-  if (options.selfAuthored === "exclude" && isSelfAuthored(component, options.installation)) {
+  const selfAuthored = isSelfAuthored(component, options.installation);
+  if (selfAuthored && options.selfAuthored === "exclude") {
     return { kind: "selfAuthored", identity: { kind: "master", uid } };
   }
   if (isThisAndFuture(component)) {
     return { kind: "withheld", identity: withheldIdentity, reason: "unsupportedRecurrenceRange" };
+  }
+  if (declaresRecurrenceDates(component)) {
+    return { kind: "withheld", identity: withheldIdentity, reason: "unsupportedRecurrenceDates" };
   }
   if (exceptionPropertiesOf(component).length > options.limits.maxExceptionDates) {
     return { kind: "withheld", identity: withheldIdentity, reason: "recurrenceBudgetExceeded" };
@@ -312,13 +413,25 @@ const parseVevent = (
   if (recurrenceProperty && !recurrenceInstant) {
     return { kind: "withheld", identity: withheldIdentity, reason: "unparseable" };
   }
+  const identities = fullDayIdentities(
+    { exceptions: exceptions.exceptions, recurrenceInstant },
+    time,
+    options.zones,
+  );
   return {
     kind: "parsed",
     event: {
-      identity: identityOf(component, uid, time.time, recurrenceInstant),
-      content: contentOf(component, time.time, exceptions.exceptions, options),
+      identity: identityOf(component, uid, time.time, identities.recurrenceInstant),
+      content: contentOf(
+        component,
+        time.time,
+        identities.exceptions,
+        untilAnchorFor(component, time.time, document, options),
+        options,
+      ),
       revision: revisionOf(component),
       cancelled: textOf(component, "STATUS")?.trim().toUpperCase() === "CANCELLED",
+      provenance: provenanceOf(selfAuthored, options.installation),
     },
   };
 };

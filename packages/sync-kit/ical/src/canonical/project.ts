@@ -1,16 +1,13 @@
-import type { EditableContent, Instant, WithholdReason } from "@keeper.sh/sync-protocol";
-import type { IcsOptions } from "../options";
-import type { EventIdentity } from "../parse/identity";
+import type { EditableContent, Instant } from "@keeper.sh/sync-protocol";
+import { IcsInternalDataError } from "../errors";
 import type { ParsedVevent } from "../parse/parse-vevent";
 import type { CanonicalEvent } from "./canonical-event";
 
-type CanonicalProjection =
-  | { readonly kind: "projected"; readonly event: CanonicalEvent }
-  | { readonly kind: "withheld"; readonly identity: EventIdentity; readonly reason: WithholdReason };
+const utcExceptionValue = /^\d{8}T\d{6}Z$/u;
 
-const exceptionInstant = (value: string): Instant | null => {
-  if (!/^\d{8}T\d{6}Z$/u.test(value)) {
-    return null;
+const exceptionInstant = (value: string): Instant => {
+  if (!utcExceptionValue.test(value)) {
+    throw new IcsInternalDataError(`a canonical exception date is not a UTC instant: ${value}`);
   }
   return {
     kind: "instant",
@@ -31,25 +28,13 @@ const cancellationsOf = (content: EditableContent): readonly Instant[] => {
   if (!content.recurrence) {
     return [];
   }
-  return content.recurrence.exceptions.flatMap((value) => {
-    const instant = exceptionInstant(value);
-    if (!instant) {
-      return [];
-    }
-    return [instant];
-  });
+  return content.recurrence.exceptions.map((value) => exceptionInstant(value));
 };
 
-const canonicalOf = (event: ParsedVevent): CanonicalEvent => ({
+const projectCanonicalEvent = (event: ParsedVevent): CanonicalEvent => ({
   identity: event.identity,
   content: event.content,
   cancellations: cancellationsOf(event.content),
 });
 
-const projectCanonicalEvent = (event: ParsedVevent, _options: IcsOptions): CanonicalProjection => ({
-  kind: "projected",
-  event: canonicalOf(event),
-});
-
-export { canonicalOf, projectCanonicalEvent };
-export type { CanonicalProjection };
+export { projectCanonicalEvent };

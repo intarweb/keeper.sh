@@ -104,7 +104,9 @@ describe("what the fingerprint deliberately cannot see", () => {
     if (serialised.kind !== "resource") {
       return;
     }
-    expect(soleFingerprint(serialised.text)).toBe(canonicalEventFingerprint(canonical).value);
+    expect(
+      soleFingerprint(serialised.text, testOptions({ selfAuthored: "includeForRoundTrip" })),
+    ).toBe(canonicalEventFingerprint(canonical).value);
   });
 
   test("ICAL-I33: the encoding is one field per canonical slot, with a separator no value can contain", () => {

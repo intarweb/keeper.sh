@@ -45,7 +45,7 @@ const walkComponents = (body: string, limits: IcsLimits): ComponentWalk => {
       const siblings = parent?.siblings ?? rootSiblings;
       const name = property.value.trim().toUpperCase();
       open.push({ name, instance: nextInstance(siblings, name), siblings: new Map() });
-      if (open.length > limits.maxComponents) {
+      if (open.length > limits.maxComponentDepth) {
         return { kind: "refused", reason: "limitExceeded" };
       }
       continue;

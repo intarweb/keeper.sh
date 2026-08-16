@@ -1,4 +1,5 @@
 import type { Instant, ZoneId } from "@keeper.sh/sync-protocol";
+import { IcsInternalDataError } from "../errors";
 import type { IcsOptions } from "../options";
 import { normalizeZoneIdentifier } from "./normalize-zone-id";
 import { formatUtcOffset, millisecondsInMinute, offsetMinutesAt, padded } from "./offset";
@@ -9,7 +10,8 @@ import { weekdayFormatter } from "./zone-cache";
 
 type VtimezoneBlock =
   | { readonly kind: "annualRule"; readonly text: string }
-  | { readonly kind: "explicitObservances"; readonly text: string };
+  | { readonly kind: "explicitObservances"; readonly text: string }
+  | { readonly kind: "unresolvableZone"; readonly identifier: string };
 
 interface ProjectedObservance {
   readonly month: number;
@@ -29,6 +31,17 @@ const weekdayCodes: Record<string, string> = {
   Thu: "TH",
   Fri: "FR",
   Sat: "SA",
+};
+
+const millisecondsInSecond = 1000;
+
+const weekdayCodeOf = (weekdays: Intl.DateTimeFormat, atMs: number): string => {
+  const rendered = weekdays.format(new Date(atMs));
+  const code = weekdayCodes[rendered];
+  if (!code) {
+    throw new IcsInternalDataError(`the platform rendered an unreadable weekday: ${rendered}`);
+  }
+  return code;
 };
 
 const daysInMonth = (year: number, month: number): number =>
@@ -57,7 +70,7 @@ const observanceAt = (
   const time = `${padded(local.getUTCHours(), 2)}${padded(local.getUTCMinutes(), 2)}${padded(local.getUTCSeconds(), 2)}`;
   return {
     month,
-    weekday: weekdayCodes[weekdays.format(new Date(atMs - 1000))] ?? "SU",
+    weekday: weekdayCodeOf(weekdays, atMs - millisecondsInSecond),
     ordinal: ordinalOf(year, month, day),
     time,
     wallStart: `${padded(year, 4)}${padded(month, 2)}${padded(day, 2)}T${time}`,
@@ -154,6 +167,7 @@ const projectVtimezone = (
     { kind: "zoneId", value: zoneValue },
     projectionWindow(referenceYear, years),
     zones,
+    options.limits,
   );
   const baseline = baselineObservance(zones, zoneValue, referenceYear);
   const observances = transitions.map((transition) =>
@@ -183,7 +197,10 @@ const projectVtimezone = (
 };
 
 const buildVtimezone = (zone: ZoneId, referenceYear: number, options: IcsOptions): VtimezoneBlock => {
-  const zoneValue = normalizeZoneIdentifier(zone.value) ?? "UTC";
+  const zoneValue = normalizeZoneIdentifier(zone.value);
+  if (!zoneValue) {
+    return { kind: "unresolvableZone", identifier: zone.value };
+  }
   const years = options.limits.zoneProjectionYears;
   options.zones.counters.projectedYears = years;
   const key = `${zoneValue}|${referenceYear}|${years}`;

@@ -1,8 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { buildVtimezone, createZoneCache, resolveWallTime, zoneCacheStatistics } from "../../src/index";
+import type { VtimezoneBlock } from "../../src/index";
 import { testOptions } from "../support/options";
 
 const berlin = { kind: "zoneId", value: "Europe/Berlin" } as const;
+
+const textOf = (block: VtimezoneBlock): string => {
+  if (block.kind === "unresolvableZone") {
+    return "";
+  }
+  return block.text;
+};
 
 describe("the injected zone cache", () => {
   test("ICAL-L9: a second projection for the same zone and reference year does no further Intl work", () => {
@@ -17,11 +25,20 @@ describe("the injected zone cache", () => {
 
   test("ICAL-L9: a different reference year is a different memo entry, not a stale hit", () => {
     const options = testOptions();
+    const current = buildVtimezone(berlin, 2026, options);
+    const historic = buildVtimezone(berlin, 1996, options);
+
+    expect(textOf(historic)).not.toBe(textOf(current));
+    expect(textOf(historic)).toContain("1996");
+  });
+
+  test("ICAL-L9: the weekday formatter is memoised too, so a second projection builds none", () => {
+    const options = testOptions();
     buildVtimezone(berlin, 2026, options);
     const afterFirst = zoneCacheStatistics(options.zones).formatterConstructions;
     buildVtimezone(berlin, 1996, options);
 
-    expect(zoneCacheStatistics(options.zones).formatterConstructions).toBeGreaterThan(afterFirst);
+    expect(zoneCacheStatistics(options.zones).formatterConstructions).toBe(afterFirst);
   });
 
   test("ICAL-L9: the formatter for a zone is constructed once across many wall-time resolutions", () => {

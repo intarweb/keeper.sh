@@ -127,20 +127,15 @@ describe("STATUS:CANCELLED", () => {
     if (!survivor) {
       return;
     }
-    const canonical = projectCanonicalEvent(
-      {
-        identity: { kind: "master", uid: survivor.uid },
-        content: survivor.content,
-        revision: { sequence: null, lastModified: null, stamp: null, created: null },
-        cancelled: false,
-      },
-      testOptions(),
-    );
-    expect(canonical.kind).toBe("projected");
-    if (canonical.kind !== "projected") {
-      return;
-    }
-    expect(canonical.event.cancellations.map((instant) => instant.value)).toEqual([
+    const canonical = projectCanonicalEvent({
+      identity: { kind: "master", uid: survivor.uid },
+      content: survivor.content,
+      revision: { sequence: null, lastModified: null, stamp: null, created: null },
+      cancelled: false,
+      provenance: { kind: "foreign" },
+    });
+
+    expect(canonical.cancellations.map((instant) => instant.value)).toEqual([
       "2026-03-09T09:00:00.000Z",
     ]);
   });

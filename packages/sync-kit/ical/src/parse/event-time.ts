@@ -10,10 +10,15 @@ import type { DateValue } from "./date-value";
 import { parseIcsDuration } from "./duration";
 import type { IcsDocument, VeventComponent } from "./parse-calendar";
 
-type EventTimeResolution =
+type TimeResolution =
   | { readonly kind: "resolved"; readonly time: EventTime }
   | { readonly kind: "withheld"; readonly reason: WithholdReason };
 
+type EventTimeResolution =
+  | { readonly kind: "resolved"; readonly time: EventTime; readonly fullDayZone: ZoneId | null }
+  | { readonly kind: "withheld"; readonly reason: WithholdReason };
+
+const millisecondsInSecond = 1000;
 const millisecondsInDay = 24 * 60 * millisecondsInMinute;
 
 const propertyNamed = (component: VeventComponent, name: string): PropertyLine | undefined =>
@@ -41,7 +46,7 @@ const durationOf = (component: VeventComponent): { readonly text: string } | nul
   return { text: declared.value.trim() };
 };
 
-const allDayEnd = (component: VeventComponent, start: CalendarDate, end: DateValue | null): EventTimeResolution => {
+const allDayEnd = (component: VeventComponent, start: CalendarDate, end: DateValue | null): TimeResolution => {
   if (end && end.kind === "date") {
     if (end.date.value < start.value) {
       return { kind: "withheld", reason: "unrepresentableTime" };
@@ -73,7 +78,7 @@ const timedEnd = (
   start: Instant,
   zone: ZoneId | null,
   end: DateValue | null,
-): EventTimeResolution => {
+): TimeResolution => {
   const startMs = Date.parse(start.value);
   if (end && end.kind === "instant") {
     if (Date.parse(end.instant.value) < startMs) {
@@ -103,7 +108,7 @@ const timedEnd = (
   }
   return {
     kind: "resolved",
-    time: { kind: "timed", start, end: instantOf(startMs + parsed.seconds * 1000), zone },
+    time: { kind: "timed", start, end: instantOf(startMs + parsed.seconds * millisecondsInSecond), zone },
   };
 };
 
@@ -130,15 +135,25 @@ const asFullDays = (
   return { kind: "allDay", startDate, endDateExclusive: endDate };
 };
 
-const interpretedTime = (resolution: EventTimeResolution, zones: ZoneCache): EventTimeResolution => {
-  if (resolution.kind !== "resolved" || resolution.time.kind !== "timed") {
+const interpretedTime = (resolution: TimeResolution, zones: ZoneCache): EventTimeResolution => {
+  if (resolution.kind === "withheld") {
     return resolution;
+  }
+  if (resolution.time.kind !== "timed") {
+    return { kind: "resolved", time: resolution.time, fullDayZone: null };
   }
   const fullDays = asFullDays(resolution.time, zones);
   if (!fullDays) {
+    return { kind: "resolved", time: resolution.time, fullDayZone: null };
+  }
+  return { kind: "resolved", time: fullDays, fullDayZone: resolution.time.zone };
+};
+
+const withoutReanchoring = (resolution: TimeResolution): EventTimeResolution => {
+  if (resolution.kind === "withheld") {
     return resolution;
   }
-  return { kind: "resolved", time: fullDays };
+  return { kind: "resolved", time: resolution.time, fullDayZone: null };
 };
 
 const endValueOf = (
@@ -170,7 +185,7 @@ const resolveEventTime = (
   const endProperty = propertyNamed(component, "DTEND");
   const end = endValueOf(endProperty, eventZone, document, options);
   if (start.kind === "date") {
-    return allDayEnd(component, start.date, end);
+    return withoutReanchoring(allDayEnd(component, start.date, end));
   }
   return interpretedTime(timedEnd(component, start.instant, start.zone, end), options.zones);
 };

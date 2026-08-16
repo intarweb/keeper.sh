@@ -14,7 +14,7 @@ describe("finding the transitions inside a projection window", () => {
   test("ICAL-L6: the search makes O(log window) probes per transition, not O(window)", () => {
     const years = testLimits().zoneProjectionYears;
     const zones = createZoneCache();
-    const transitions = findZoneTransitions(berlin, projectionWindow(years), zones);
+    const transitions = findZoneTransitions(berlin, projectionWindow(years), zones, testLimits());
     const probes = zoneCacheStatistics(zones).offsetProbes;
 
     expect(transitions.length).toBe(years * 2);
@@ -23,11 +23,11 @@ describe("finding the transitions inside a projection window", () => {
 
   test("ICAL-L6: doubling the window does not square the probe count", () => {
     const narrowZones = createZoneCache();
-    findZoneTransitions(berlin, projectionWindow(10), narrowZones);
+    findZoneTransitions(berlin, projectionWindow(10), narrowZones, testLimits());
     const narrowProbes = zoneCacheStatistics(narrowZones).offsetProbes;
 
     const wideZones = createZoneCache();
-    findZoneTransitions(berlin, projectionWindow(20), wideZones);
+    findZoneTransitions(berlin, projectionWindow(20), wideZones, testLimits());
     const wideProbes = zoneCacheStatistics(wideZones).offsetProbes;
 
     expect(wideProbes).toBeLessThan(narrowProbes * 3);
@@ -36,13 +36,19 @@ describe("finding the transitions inside a projection window", () => {
   test("ICAL-L6: a fixed-offset zone finds no transitions and still terminates", () => {
     const zones = createZoneCache();
 
-    expect(findZoneTransitions({ kind: "zoneId", value: "UTC" }, projectionWindow(400), zones)).toEqual([]);
+    expect(findZoneTransitions({ kind: "zoneId", value: "UTC" }, projectionWindow(400), zones, testLimits())).toEqual([]);
   });
 
   test("ICAL-L6: the whole projection window is searched inside a scheduler tick", () => {
     const startedAt = performance.now();
-    findZoneTransitions(berlin, projectionWindow(400), createZoneCache());
+    findZoneTransitions(berlin, projectionWindow(400), createZoneCache(), testLimits());
 
     expect(performance.now() - startedAt).toBeLessThan(2000);
+  });
+
+  test("ICAL-L6: a caller-supplied window wider than the projection ceiling is clamped, not scanned", () => {
+    const clamped = findZoneTransitions(berlin, projectionWindow(4000), createZoneCache(), testLimits());
+
+    expect(clamped.length).toBe(testLimits().zoneProjectionYears * 2);
   });
 });
