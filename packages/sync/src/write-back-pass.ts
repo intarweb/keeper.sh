@@ -741,11 +741,9 @@ const applyDelete = async (
     target.sourceCalendarId,
     async (locked): Promise<Outcome> => {
       if (!await isPairStillAuthorized(locked, classification, target)) {
-        await releaseTombstone();
         return "withheld";
       }
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
-        await releaseTombstone();
         return "abandoned";
       }
 
@@ -772,8 +770,18 @@ const applyDelete = async (
    * of the day's slots, and enough of them would refuse the real deletions that follow —
    * telling the user their originals were being deleted in bulk when none of them were.
    * The record itself survives: an abandoned row keeps its snapshot, it is only uncounted.
+   *
+   * The release runs once the lock's transaction has ended, never from inside it: it is a
+   * pool query, so a delete that turned back while still holding the lock would need a
+   * second connection to give the first one back, and enough of them at once would hold
+   * every connection the process has while each waits for one to appear.
    */
-  return run.catch(async (error: unknown) => {
+  return run.then(async (outcome: Outcome): Promise<Outcome> => {
+    if (outcome !== "applied") {
+      await releaseTombstone();
+    }
+    return outcome;
+  }, async (error: unknown) => {
     const answer = asUnreachedSource(attempt, error);
     if (answer instanceof SourceWriteRefusedError) {
       await releaseTombstone();

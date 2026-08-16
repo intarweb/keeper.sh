@@ -162,7 +162,7 @@ const createRawRefresher = (
   return (refreshToken) => refresh(refreshToken);
 };
 
-const createOAuthAccessTokenReader = (
+const createOAuthAccessTokenReader = async (
   config: WriteBackApplierConfig,
   provider: string,
   sourceCalendarId: string,
@@ -173,7 +173,7 @@ const createOAuthAccessTokenReader = (
     expiresAt: Date;
     refreshToken: string;
   },
-): () => Promise<string> => {
+): Promise<() => Promise<string>> => {
   const refresh = createCoordinatedRefresher({
     calendarAccountId: credentials.accountId,
     database: config.database,
@@ -182,12 +182,29 @@ const createOAuthAccessTokenReader = (
     refreshLockStore: config.refreshLockStore ?? null,
   });
 
-  return async () => {
-    if (credentials.expiresAt.getTime() > Date.now() + TOKEN_REFRESH_MARGIN_MS) {
-      return credentials.accessToken;
+  if (credentials.expiresAt.getTime() > Date.now() + TOKEN_REFRESH_MARGIN_MS) {
+    return () => Promise.resolve(credentials.accessToken);
+  }
+
+  /*
+   * A refresh writes the new token back through the pool, and the writer it is for is
+   * called from inside the source lock's transaction: refreshing there needs a second
+   * connection while the first one is still held, and enough writes at once hold every
+   * connection the process has while each waits for one to appear. So the refresh is
+   * finished here, where the writer is resolved and no lock is held. Its failure is
+   * carried rather than thrown, so that it still reaches the caller at the write it would
+   * have failed and is judged as the write-back failure it has always been.
+   */
+  const settled = await refresh(credentials.refreshToken).then(
+    (refreshed) => ({ accessToken: refreshed.access_token }),
+    (error: unknown) => ({ error }),
+  );
+
+  return () => {
+    if ("error" in settled) {
+      return Promise.reject(settled.error);
     }
-    const refreshed = await refresh(credentials.refreshToken);
-    return refreshed.access_token;
+    return Promise.resolve(settled.accessToken);
   };
 };
 
@@ -219,7 +236,7 @@ const resolveOAuthSourceWriter = async (
     return null;
   }
 
-  const accessToken = createOAuthAccessTokenReader(
+  const accessToken = await createOAuthAccessTokenReader(
     config,
     provider,
     sourceCalendarId,

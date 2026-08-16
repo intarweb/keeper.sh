@@ -79,7 +79,9 @@ Deleting the original removes it from every other calendar it is copied to, beca
 
 ## When it pauses
 
-Two-way sync reverts a connection to one-way whenever it meets something it will not do unattended, and the calendar's page says which one. Switching it back on is a matter of picking the two-way option again. In every paused state the copies go back to matching the original, which means an edit made on a copy that was not written back is not kept.
+Two-way sync reverts a connection to one-way whenever it meets something it will not do unattended, and the calendar's page says which one. Switching one of those back on is a matter of picking the two-way option again, and the copies then go back to matching the original, which means an edit made on a copy that was not written back is not kept.
+
+One hold works differently. When Keeper.sh has not been able to read the original calendar recently, it will not change an original it has no up-to-date copy of, so it waits. The connection is still set to two-way and there is nothing to switch back on — picking the two-way option again does nothing. Your edits to the copies are left exactly as you made them and are written back once the original calendar is read again, so there is nothing to redo and nothing to do but wait.
 
 ## Where to go next
 
