@@ -8,6 +8,7 @@ import {
   readEventAudience,
 } from "./patch-ics";
 import {
+  attemptSourceWrite,
   isRetryableWriteStatus,
   refuseWhenOthersAreInvited,
   toWriteFailure,
@@ -323,9 +324,14 @@ const createCalDAVSourceWriter = (
       };
     }
 
-    const status = readWriteStatus(await client.updateCalendarObject({
-      calendarObject: { data, url: object.url },
-    }));
+    const sent = await attemptSourceWrite(
+      () => client.updateCalendarObject({ calendarObject: { data, url: object.url } }),
+      "The edit on the CalDAV server never got an answer.",
+    );
+    if ("failure" in sent) {
+      return sent.failure;
+    }
+    const status = readWriteStatus(sent.sent);
     if (!isSuccessfulStatus(status)) {
       return toWriteFailure(
         `The CalDAV server refused the edit with status ${status}.`,
@@ -357,15 +363,22 @@ const createCalDAVSourceWriter = (
       return refusal;
     }
 
-    const status = await client
-      .deleteCalendarObject({ calendarObject: { url: object.url } })
-      .then(readWriteStatus)
-      .catch((error: unknown) => {
-        if (isNotFoundError(error)) {
-          return NOT_FOUND_STATUS;
-        }
-        throw error;
-      });
+    const removed = await attemptSourceWrite(
+      () => client
+        .deleteCalendarObject({ calendarObject: { url: object.url } })
+        .then(readWriteStatus)
+        .catch((error: unknown) => {
+          if (isNotFoundError(error)) {
+            return NOT_FOUND_STATUS;
+          }
+          throw error;
+        }),
+      "The deletion on the CalDAV server never got an answer.",
+    );
+    if ("failure" in removed) {
+      return removed.failure;
+    }
+    const status = removed.sent;
     if (!isSuccessfulStatus(status) && status !== NOT_FOUND_STATUS) {
       return toWriteFailure(
         `The CalDAV server refused the deletion with status ${status}.`,

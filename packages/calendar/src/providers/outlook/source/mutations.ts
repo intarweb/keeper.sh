@@ -8,6 +8,7 @@ import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constan
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { instantToWallTime } from "../../../ics/utils/timezone-instant";
 import {
+  attemptSourceWrite,
   isRetryableWriteStatus,
   refuseWhenOthersAreInvited,
   resolveAudience,
@@ -334,12 +335,23 @@ const createOutlookSourceWriter = (
       ...buildScheduleFields(updates),
     };
 
-    const response = await fetchWithTimeout(
-      new URL(`${MICROSOFT_GRAPH_API}/me/events/${eventId}`),
-      { body: JSON.stringify(patch), headers: buildHeaders(accessToken), method: "PATCH" },
-      TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
-      signal,
+    const sent = await attemptSourceWrite(
+      () => fetchWithTimeout(
+        new URL(`${MICROSOFT_GRAPH_API}/me/events/${eventId}`),
+        {
+          body: JSON.stringify(patch),
+          headers: buildHeaders(accessToken),
+          method: "PATCH",
+        },
+        TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
+        signal,
+      ),
+      "The edit to Outlook never got an answer.",
     );
+    if ("failure" in sent) {
+      return sent.failure;
+    }
+    const response = sent.sent;
     if (!response.ok) {
       return toWriteFailure(
         await readErrorMessage(response),
@@ -372,12 +384,19 @@ const createOutlookSourceWriter = (
       return { success: true };
     }
 
-    const response = await fetchWithTimeout(
-      new URL(`${MICROSOFT_GRAPH_API}/me/events/${eventId}`),
-      { headers: buildHeaders(accessToken), method: "DELETE" },
-      TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
-      signal,
+    const sent = await attemptSourceWrite(
+      () => fetchWithTimeout(
+        new URL(`${MICROSOFT_GRAPH_API}/me/events/${eventId}`),
+        { headers: buildHeaders(accessToken), method: "DELETE" },
+        TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
+        signal,
+      ),
+      "The deletion on Outlook never got an answer.",
     );
+    if ("failure" in sent) {
+      return sent.failure;
+    }
+    const response = sent.sent;
     if (!response.ok && response.status !== HTTP_STATUS.NOT_FOUND) {
       return toWriteFailure(
         await readErrorMessage(response),

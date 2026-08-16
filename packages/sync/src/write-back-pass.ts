@@ -60,11 +60,19 @@ class SourceWriteRefusedError extends Error {
  * not be recorded as a source event Keeper.sh deleted today.
  */
 class SourceWriteRejectedError extends Error {
+  /*
+   * The request left and no status came back, so what the provider did with it is not
+   * known. A deletion answered this way may already have destroyed the real event, and
+   * its record must not be released as one that destroyed nothing.
+   */
+  readonly indeterminate: boolean;
+
   readonly retryable: boolean;
 
-  constructor(message: string, retryable: boolean) {
+  constructor(message: string, retryable: boolean, indeterminate: boolean) {
     super(message);
     this.name = "SourceWriteRejectedError";
+    this.indeterminate = indeterminate;
     this.retryable = retryable;
   }
 }
@@ -98,6 +106,7 @@ const resolveQuarantineReason = (refusal: string): string =>
 
 const assertWriteAccepted = (written: {
   error?: string;
+  indeterminate?: boolean;
   refused?: string;
   retryable?: boolean;
   success: boolean;
@@ -109,6 +118,7 @@ const assertWriteAccepted = (written: {
     throw new SourceWriteRejectedError(
       written.error ?? fallback,
       written.retryable === true,
+      written.indeterminate === true,
     );
   }
 };
@@ -667,7 +677,13 @@ const applyDelete = async (
       await releaseTombstone();
       return quarantineRefusal(input, target, error);
     }
-    if (error instanceof SourceWriteRejectedError) {
+    /*
+     * Only an answer that says what happened releases the record. A write that never got
+     * one may have deleted the event, so its record stands and the user can read what was
+     * on it; the next pass finds the event gone and completes the deletion, or finds it
+     * there and deletes it then.
+     */
+    if (error instanceof SourceWriteRejectedError && !error.indeterminate) {
       await releaseTombstone();
     }
     throw error;

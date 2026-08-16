@@ -18,6 +18,13 @@ type SourceWriteRefusal =
 
 interface SourceWriteResult {
   error?: string;
+  /*
+   * The request left, and no answer came back. Every status the provider can return says
+   * what it did with the write; a socket that dies mid-flight says nothing, so a delete
+   * reported this way may already have destroyed the real event. The record of it must
+   * stand until a later read settles it.
+   */
+  indeterminate?: boolean;
   refused?: SourceWriteRefusal;
   retryable?: boolean;
   success: boolean;
@@ -68,6 +75,37 @@ const toWriteFailure = (error: string, retryable: boolean): SourceWriteResult =>
   ...(retryable && { retryable: true }),
   success: false,
 });
+
+/*
+ * A connection reset, a DNS blip, a read that timed out on this side: the write was sent
+ * and no status came back. It is the same "not right now" a 503 is — the difference is
+ * only that the provider never got to say it — so it must be answered the same way, and
+ * never thrown. An exception out of a writer is spent as a permanent defect: five of them
+ * revert the pair to one-way, discard the edits the user made on the copies, and nothing
+ * retries once the pair is off. It is marked indeterminate as well as retryable, because
+ * unlike a status this answer cannot say whether the source event survived.
+ */
+const toTransportWriteFailure = (error: unknown, fallback: string): SourceWriteResult => ({
+  error: (error instanceof Error && error.message) || fallback,
+  indeterminate: true,
+  retryable: true,
+  success: false,
+});
+
+/*
+ * Stated once so the three writers cannot drift apart under it: the final write is the
+ * one call whose exception nothing else on the path can interpret.
+ */
+const attemptSourceWrite = async <T>(
+  send: () => Promise<T>,
+  fallback: string,
+): Promise<{ failure: SourceWriteResult } | { sent: T }> => {
+  try {
+    return { sent: await send() };
+  } catch (error) {
+    return { failure: toTransportWriteFailure(error, fallback) };
+  }
+};
 
 interface CalendarSourceWriter {
   deleteEvent: (
@@ -180,11 +218,13 @@ const RICH_BODY_REFUSAL: SourceWriteResult = {
 };
 
 export {
+  attemptSourceWrite,
   isRetryableWriteStatus,
   normalizeAttendeeAddress,
   refuseWhenOthersAreInvited,
   resolveAudience,
   RICH_BODY_REFUSAL,
+  toTransportWriteFailure,
   toWriteFailure,
 };
 export type {
