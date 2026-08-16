@@ -592,6 +592,25 @@ const resolveWriteBackFieldNames = (
       .map(({ field }) => field),
   ]);
 
+/*
+ * Two-way sync writes to the source calendar, so the account must hold the same write
+ * capability every other write path requires — a calendar shared read-only carries "pull"
+ * alone and would reject every write-back at the provider. The rule is declared once so
+ * the dashboard cannot offer a control the API refuses, or the reverse.
+ */
+const UNWRITABLE_SOURCE_CALENDAR_TYPE = "ical";
+
+const isWriteBackCapableSource = (
+  source: { calendarType: string; capabilities: readonly string[] } | null,
+): boolean => {
+  if (!source) {
+    return false;
+  }
+  return source.calendarType !== UNWRITABLE_SOURCE_CALENDAR_TYPE
+    && source.capabilities.includes("pull")
+    && source.capabilities.includes("push");
+};
+
 const describeWriteBackFields = (exclusions: WriteBackFieldExclusions): string[] => {
   const eligible = resolveWriteBackFieldNames(exclusions);
   return WRITE_BACK_DISCLOSURE_ORDER
@@ -665,6 +684,7 @@ export {
   graphNotificationSchema,
   pushChannelStateSchema,
   describeWriteBackFields,
+  isWriteBackCapableSource,
   resolveWriteBackFieldNames,
   WRITE_BACK_DISCLOSURE_ORDER,
   WRITE_BACK_FIELD_LABELS,

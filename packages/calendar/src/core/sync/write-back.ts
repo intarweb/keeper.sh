@@ -523,12 +523,29 @@ const createWriteBackHold = (
  * whose copy Keeper has never observed alive is in the same position as the answer that
  * put it back: its absence predates any consent, so it belongs to the re-create path and
  * asking about it again would never end.
+ *
+ * An answer speaks for the disappearances it was shown and for no later one. A copy that
+ * was still there when the human answered and is absent now went missing under a read
+ * that returned nothing at all — the case the hold exists for — so it is asked about
+ * again rather than deleted on the strength of an answer to a different question.
  */
+const isApprovedDisappearance = (
+  mapping: EventMapping,
+  policy: WriteBackPolicy,
+): boolean => {
+  const approvedAt = policy.deleteApprovedAt;
+  const firstObservedAt = mapping.missingFirstObservedAt;
+  return policy.deleteApproved
+    && approvedAt instanceof Date
+    && firstObservedAt instanceof Date
+    && firstObservedAt.getTime() <= approvedAt.getTime();
+};
+
 const couldDeleteSourceEvents = (
   { mapping, policy }: { mapping: EventMapping; policy: WriteBackPolicy },
 ): boolean =>
   policy.writeBackMode === "edits_and_deletes"
-  && !policy.deleteApproved
+  && !isApprovedDisappearance(mapping, policy)
   && isWitnessRecorded(mapping);
 
 const resolveHeldSourceCalendarIds = (
@@ -689,6 +706,33 @@ const classifyMissingMirror = (context: MappingContext): MappingOutcome => {
     return { pendingDelete: pending, suppress: true };
   }
   return { classification: createDeleteCandidate(pending), suppress: true };
+};
+
+/*
+ * Withholding the deletion is not the same as forgetting what the read showed. The clock
+ * is what a later answer is measured against: without it, every disappearance would look
+ * newer than the approval that was given for it and the question could never be settled.
+ * Recording is not acting — nothing is written to either calendar from here.
+ */
+const recordHeldDisappearance = (
+  context: MappingContext,
+): InboundClassification | null => {
+  const { localEvent, mapping, now } = context;
+  const undeletable = isRecurringMapping(mapping)
+    || isDeletionRefused(context)
+    || !isWitnessRecorded(mapping)
+    || mapping.syncEventHash !== createSyncEventContentHash(localEvent);
+  if (undeletable) {
+    return null;
+  }
+  return createDeleteCandidate({
+    deleteApproved: context.policy.deleteApproved,
+    localEvent,
+    mapping,
+    missingFirstObservedAt: mapping.missingFirstObservedAt ?? now,
+    missingObservationCount: (mapping.missingObservationCount ?? NO_OBSERVATIONS)
+      + FIRST_OBSERVATION,
+  });
 };
 
 const createQuiescentOutcome = (
@@ -1267,7 +1311,21 @@ const runMappingPass = (input: {
     const held = mapping.sourceCalendarId !== null
       && input.heldSourceCalendarIds.has(mapping.sourceCalendarId);
     const localEvent = input.localEventsById.get(mapping.syncEventId);
-    if (held || !localEvent) {
+    if (!localEvent) {
+      continue;
+    }
+    if (held) {
+      const recorded = recordHeldDisappearance({
+        counters: input.counters,
+        localEvent,
+        mapping,
+        now: input.now,
+        policy,
+        scope: input.scope,
+      });
+      if (recorded) {
+        result.classifications.push(recorded);
+      }
       continue;
     }
     /*

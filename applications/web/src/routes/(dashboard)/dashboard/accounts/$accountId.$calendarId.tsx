@@ -59,8 +59,8 @@ import type { ExcludeField } from "@/state/calendar-detail";
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 import { resolveDeleteConfirmationAnswers, resolveModeSelection } from "@/lib/write-back-answers";
 import {
+  resolveUnwritableSourceCopy,
   supportsWriteBack,
-  UNWRITABLE_SOURCE_COPY,
   WRITE_BACK_STATE_COPY,
 } from "@/lib/write-back-copy";
 import { buildWriteBackFieldSummary } from "@/features/dashboard/components/write-back-summary";
@@ -588,7 +588,7 @@ function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
       {`${summary.written} `}
       {summary.hidden ? `${summary.hidden} ` : ""}
       Only the fields you actually change are written back. Repeating events stay one-way.
-      An edit made in the first minute after Keeper.sh updates a copy may be replaced.
+      {` ${summary.adopted}`}
     </Text>
   );
 }
@@ -704,7 +704,7 @@ function WriteBackModeControl({
       )}
       {!writableSource && (
         <Text size="xs" className="text-muted-foreground">
-          {UNWRITABLE_SOURCE_COPY}
+          {resolveUnwritableSourceCopy(calendarDetail)}
         </Text>
       )}
       {locked && writableSource && <UpgradeHint>Two-way sync is a Pro feature.</UpgradeHint>}

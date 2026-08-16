@@ -38,6 +38,7 @@ const TEST_WINDOW = {
 
 interface WriteBackPolicy {
   deleteApproved: boolean;
+  deleteApprovedAt?: Date | null;
   destinationCalendarId: string;
   excludeEventDescription: boolean;
   excludeEventLocation: boolean;
@@ -1073,7 +1074,11 @@ describe("classifyInboundChanges: read health, not mirror count", () => {
     requestedWindow: TEST_WINDOW,
     writeBackPolicies: new Map([[
       SOURCE_CALENDAR_ID,
-      createPolicy({ deleteApproved: true, writeBackMode: "edits_and_deletes" }),
+      createPolicy({
+        deleteApproved: true,
+        deleteApprovedAt: new Date(NOW.getTime() - MINUTE_MS),
+        writeBackMode: "edits_and_deletes",
+      }),
     ]]),
   };
 

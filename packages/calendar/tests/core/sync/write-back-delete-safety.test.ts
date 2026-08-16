@@ -31,6 +31,7 @@ const TEST_WINDOW = {
 
 interface WriteBackPolicy {
   deleteApproved: boolean;
+  deleteApprovedAt?: Date | null;
   destinationCalendarId: string;
   excludeEventDescription: boolean;
   excludeEventLocation: boolean;
@@ -202,7 +203,10 @@ describe("a delete approval belongs to the source calendar it was given for", ()
       remoteEvents: [],
       remoteRawItemCount: 0,
       scope: createScope([
-        [SOURCE_A, createPolicy(SOURCE_A, { deleteApproved: true })],
+        [SOURCE_A, createPolicy(SOURCE_A, {
+          deleteApproved: true,
+          deleteApprovedAt: NOW,
+        })],
         [SOURCE_B, createPolicy(SOURCE_B)],
       ]),
     });
@@ -226,7 +230,10 @@ describe("a delete approval belongs to the source calendar it was given for", ()
       remoteEvents: [],
       remoteRawItemCount: 0,
       scope: createScope([
-        [SOURCE_A, createPolicy(SOURCE_A, { deleteApproved: true })],
+        [SOURCE_A, createPolicy(SOURCE_A, {
+          deleteApproved: true,
+          deleteApprovedAt: NOW,
+        })],
         [SOURCE_B, createPolicy(SOURCE_B)],
       ]),
     });

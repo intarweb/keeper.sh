@@ -18,11 +18,16 @@ type WriteBackField = WriteBackFieldName;
 
 interface WriteBackPolicy {
   /*
-   * A human has looked at copies that vanished in bulk and said to go ahead. It exempts
-   * those deletions from the bulk breaker and from nothing else: each one is still
-   * confirmed against the copy itself, still capped per day, still tombstoned first.
+   * A human has looked at copies that vanished in bulk and said to go ahead. It speaks
+   * only for the disappearances already on record when the answer was given: each one is
+   * still confirmed against the copy itself, still capped per day, still tombstoned first.
    */
   deleteApproved: boolean;
+  /*
+   * The instant the answer was given. A disappearance first observed after it is one no
+   * human has been shown, so the approval does not speak for it.
+   */
+  deleteApprovedAt?: Date | null;
   destinationCalendarId: string;
   excludeEventDescription: boolean;
   excludeEventLocation: boolean;
@@ -85,18 +90,47 @@ const resolveWriteBackPolicyState = (
   writeBackMode: WriteBackMode,
   writeBackState: string,
   deleteApproval?: { approvedAt: Date | null; now: Date; ttlMs: number },
-): { deleteApproved: boolean; paused: boolean; writeBackMode: WriteBackMode } => {
+): {
+  deleteApproved: boolean;
+  deleteApprovedAt: Date | null;
+  paused: boolean;
+  writeBackMode: WriteBackMode;
+} => {
+  const approvedAt = deleteApproval?.approvedAt ?? null;
   const deleteApproved = deleteApproval?.approvedAt instanceof Date
     && deleteApproval.now.getTime() - deleteApproval.approvedAt.getTime()
       < deleteApproval.ttlMs;
 
   if (writeBackState === DELETE_CONFIRMATION_STATE) {
-    return { deleteApproved: false, paused: true, writeBackMode };
+    return {
+      deleteApproved: false,
+      deleteApprovedAt: null,
+      paused: true,
+      writeBackMode,
+    };
   }
   if (writeBackState !== "ok") {
-    return { deleteApproved: false, paused: false, writeBackMode: "off" };
+    return {
+      deleteApproved: false,
+      deleteApprovedAt: null,
+      paused: false,
+      writeBackMode: "off",
+    };
   }
-  return { deleteApproved, paused: false, writeBackMode };
+  if (!deleteApproved) {
+    return {
+      deleteApproved: false,
+      deleteApprovedAt: null,
+      paused: false,
+      writeBackMode,
+    };
+  }
+  return {
+    deleteApproved: true,
+    deleteApprovedAt: approvedAt,
+    paused: false,
+    writeBackMode,
+  };
 };
 
 const resolveWriteBackEligibleFields = (

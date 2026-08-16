@@ -1,24 +1,39 @@
+import { isWriteBackCapableSource } from "@keeper.sh/data-schemas";
+
 /*
- * A calendar added by link is a read-only subscription: Keeper.sh can copy events out of
- * it and has nowhere to write them back to. The API refuses two-way on it, so the
- * dashboard has to refuse it in the same terms rather than offering a control whose only
+ * A calendar added by link is a read-only subscription, and one shared with the user
+ * read-only carries "pull" alone: Keeper.sh can copy events out of either and has nowhere
+ * to write them back to. The API refuses two-way on both against the same rule, so the
+ * dashboard refuses them in the same terms rather than offering a control whose only
  * effect is a rejected request and a button that springs back.
  */
-const UNWRITABLE_SOURCE_CALENDAR_TYPE = "ical";
-
 const supportsWriteBack = (
   source: { calendarType: string; capabilities: readonly string[] } | null,
-): boolean => {
-  if (!source) {
-    return false;
-  }
-  return source.calendarType !== UNWRITABLE_SOURCE_CALENDAR_TYPE
-    && source.capabilities.includes("pull");
-};
+): boolean => isWriteBackCapableSource(source);
 
 const UNWRITABLE_SOURCE_COPY =
   "This calendar is one you subscribed to by link, so Keeper.sh can only read it."
   + " Two-way sync needs a calendar it can write to.";
+
+const READ_ONLY_SOURCE_COPY =
+  "This calendar is shared with you without permission to change it, so Keeper.sh can"
+  + " only read it. Two-way sync needs a calendar it can write to.";
+
+const LINK_SOURCE_CALENDAR_TYPE = "ical";
+
+/*
+ * The two ways a source can be unwritable read differently to the person holding it: one
+ * is a subscription they added, the other is a calendar someone else owns. Naming the
+ * wrong one sends them looking for a setting that is not theirs to change.
+ */
+const resolveUnwritableSourceCopy = (
+  source: { calendarType: string; capabilities: readonly string[] } | null,
+): string => {
+  if (source?.calendarType === LINK_SOURCE_CALENDAR_TYPE) {
+    return UNWRITABLE_SOURCE_COPY;
+  }
+  return READ_ONLY_SOURCE_COPY;
+};
 
 const WRITE_BACK_STATE_COPY: Record<string, string> = {
   all_copies_missing:
@@ -61,4 +76,10 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     + " {destination} is paused.",
 };
 
-export { supportsWriteBack, UNWRITABLE_SOURCE_COPY, WRITE_BACK_STATE_COPY };
+export {
+  READ_ONLY_SOURCE_COPY,
+  resolveUnwritableSourceCopy,
+  supportsWriteBack,
+  UNWRITABLE_SOURCE_COPY,
+  WRITE_BACK_STATE_COPY,
+};

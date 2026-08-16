@@ -14,8 +14,11 @@ const resolve = (writeBackState: string, approvedAt: Date | null) =>
 
 describe("resolveWriteBackPolicyState: the answer to a held deletion", () => {
   it("carries a fresh answer into the pass", () => {
-    expect(resolve("ok", new Date(NOW.getTime() - MINUTE_MS))).toEqual({
+    const approvedAt = new Date(NOW.getTime() - MINUTE_MS);
+
+    expect(resolve("ok", approvedAt)).toEqual({
       deleteApproved: true,
+      deleteApprovedAt: approvedAt,
       paused: false,
       writeBackMode: "edits_and_deletes",
     });
@@ -30,6 +33,7 @@ describe("resolveWriteBackPolicyState: the answer to a held deletion", () => {
   it("carries no answer while the pair is still waiting for one", () => {
     expect(resolve("delete_confirmation_required", NOW)).toEqual({
       deleteApproved: false,
+      deleteApprovedAt: null,
       paused: true,
       writeBackMode: "edits_and_deletes",
     });
@@ -38,6 +42,7 @@ describe("resolveWriteBackPolicyState: the answer to a held deletion", () => {
   it("carries no answer for a quarantined pair", () => {
     expect(resolve("quarantined", NOW)).toEqual({
       deleteApproved: false,
+      deleteApprovedAt: null,
       paused: false,
       writeBackMode: "off",
     });

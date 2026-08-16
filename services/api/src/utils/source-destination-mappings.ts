@@ -18,6 +18,7 @@ import {
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
   resolveConfirmationDisposition,
 } from "./delete-confirmation-policy";
+import { isWriteBackCapableSource } from "@keeper.sh/data-schemas";
 const EMPTY_LIST_COUNT = 0;
 const SINGLE_ROW = 1;
 const NO_PENDING_DELETES = 0;
@@ -25,7 +26,6 @@ const USER_MAPPING_LOCK_NAMESPACE = 9001;
 const MAPPING_LIMIT_ERROR_MESSAGE = "Mapping limit reached. Upgrade to Pro for unlimited sync mappings.";
 const MAPPING_NOT_FOUND_ERROR_MESSAGE = "Mapping not found";
 const WRITE_BACK_MODE_OFF = "off";
-const UNWRITABLE_SOURCE_CALENDAR_TYPE = "ical";
 
 type DatabaseClient = typeof databaseInstance;
 type DatabaseTransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
@@ -818,11 +818,7 @@ const sourceSupportsWriteBack = async (
     ))
     .limit(1);
 
-  if (!source) {
-    return false;
-  }
-  return source.calendarType !== UNWRITABLE_SOURCE_CALENDAR_TYPE
-    && source.capabilities.includes("pull");
+  return isWriteBackCapableSource(source ?? null);
 };
 
 const clearDestinationWitness = async (
