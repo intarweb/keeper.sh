@@ -134,6 +134,8 @@ const truncatedAsPartial = (
   diagnostics,
 });
 
+const RESUMED_TAIL_FROM = 1;
+
 const noop = (): null => null;
 
 const holds = (held: boolean, complaint: string): Promise<void> => {
@@ -460,7 +462,11 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     return coverageOver(scope);
   };
 
-  const snapshotListing = (scope: ListingScope, at: Instant): ChangeListing => {
+  const snapshotListing = (
+    scope: ListingScope,
+    at: Instant,
+    resuming = false,
+  ): ChangeListing => {
     const coverage = provenCoverageOf(scope);
     if (!admitsAnything(coverage.covered)) {
       return emptySnapshot(scope, null);
@@ -471,7 +477,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     store.setReported(present);
     recordSpuriousWrite();
     const diagnostics = diagnosticsFor(feed);
-    if (defectIs(defect, "CONF-O41") && markedIn("CONF-O41").length > 0) {
+    if (!resuming && defectIs(defect, "CONF-O41") && markedIn("CONF-O41").length > 0) {
       return truncatedAsPartial(scope, feed, diagnostics);
     }
     return {
@@ -535,7 +541,20 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     at: Instant,
   ): Result<ChangeListing> => {
     if (resume.kind === "continuation") {
-      return { ok: true, value: snapshotListing(scope, at) };
+      const whole = snapshotListing(scope, at, true);
+      /*
+       * The defect this models is the one a real adapter reaches for: resume where the walk
+       * left off and report the tail as though it covered the whole window. The pages
+       * already handed back become derivable deletions of events that are plainly present,
+       * while every earlier assertion in the case still passes.
+       */
+      if (defectIs(defect, "CONF-O41") && whole.kind === "snapshot") {
+        return {
+          ok: true,
+          value: { ...whole, events: whole.events.slice(RESUMED_TAIL_FROM) },
+        };
+      }
+      return { ok: true, value: whole };
     }
     const verdict = mint.verify(resume, scope);
     switch (verdict.kind) {

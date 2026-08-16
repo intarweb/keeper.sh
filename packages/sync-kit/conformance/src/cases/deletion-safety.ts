@@ -33,6 +33,8 @@ const knownAt = (uid: string, day: string): KnownIdentity => ({
   },
 });
 
+const RESUME_CEILING = 50;
+
 const knownOf = (calendar: CalendarKey, uids: readonly string[]): KnownMirror => ({
   calendar,
   entries: uids.map((uid) => knownAt(uid, "2026-03-02")),
@@ -418,32 +420,53 @@ const deletionSafetyCases = <Provider extends ProviderId>(
   defineCase(
     supports,
     "CONF-O41",
-    "a truncated page's resumable token is a continuation, never a cursor",
+    "a resumed walk accounts for the pages it already handed back",
     async (context) => {
       const scope = caseScope(context);
-      await seedWith(context, [
-        foreignEvent(scope.calendar, {
-          uid: markedWith("CONF-O41", "only"),
-          start: "2026-03-02T09:00:00.000Z",
-          end: "2026-03-02T10:00:00.000Z",
-        }),
-      ]);
+      const seeded = Array.from({ length: 12 }, (unused, index) =>
+        markedWith("CONF-O41", `seed-${index}`));
 
-      const first = listingOf("CONF-O41", await listChanges(context, scope));
-      if (first.kind !== "partial") {
-        insist("CONF-O41", Boolean(first.coverage), "a complete read proved no coverage");
-        return;
+      await seedWith(context, seeded.map((uid, index) => foreignEvent(scope.calendar, {
+        uid,
+        start: `2026-03-${String((index % 27) + 1).padStart(2, "0")}T09:00:00.000Z`,
+        end: `2026-03-${String((index % 27) + 1).padStart(2, "0")}T10:00:00.000Z`,
+      })));
+
+      /*
+       * Walking to the end is the point. A listing that ends the walk claims authority over
+       * the window, so every seeded identity must still be accounted for — an adapter that
+       * resumes and reports only the pages after the resume point turns the earlier ones into
+       * derivable deletions of events that are plainly still there.
+       */
+      let listing = listingOf("CONF-O41", await listChanges(context, scope));
+      let walked = 0;
+      while (listing.kind === "partial" && walked < RESUME_CEILING) {
+        insist(
+          "CONF-O41",
+          listing.continuation.kind === "continuation" && !listing.cursor,
+          "a truncated page handed back a sync cursor instead of a continuation",
+        );
+        walked += 1;
+        listing = listingOf("CONF-O41", await listChanges(context, scope, listing.continuation));
       }
+
       insist(
         "CONF-O41",
-        first.continuation.kind === "continuation" && !first.cursor,
-        "a truncated page handed back a sync cursor instead of a continuation",
-      );
-      const resumed = listingOf("CONF-O41", await listChanges(context, scope, first.continuation));
-      insist(
-        "CONF-O41",
-        resumed.kind !== "partial",
+        listing.kind !== "partial",
         "resuming from the continuation never reached a listing that proves coverage",
+      );
+
+      const derivable = derivableRemovals({
+        listing,
+        known: knownOf(scope.calendar, seeded),
+        withinWindow: context.withinWindow,
+      });
+
+      insist(
+        "CONF-O41",
+        derivable.length === 0,
+        `a completed walk made ${derivable.length} still-present identities derivable as`
+        + ` removals, after ${walked} resumption(s)`,
       );
     },
   ),
