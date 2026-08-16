@@ -1,8 +1,13 @@
-import { microsoftApiErrorSchema, outlookEventListSchema } from "@keeper.sh/data-schemas";
-import type { OutlookEvent } from "@keeper.sh/data-schemas";
+import {
+  microsoftApiErrorSchema,
+  outlookEventWithAttendeesListSchema,
+  outlookEventWithAttendeesSchema,
+} from "@keeper.sh/data-schemas";
+import type { OutlookEventWithAttendees } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { instantToWallTime } from "../../../ics/utils/timezone-instant";
+import { ATTENDEE_REFUSAL } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -23,7 +28,17 @@ class OutlookSourceLookupError extends Error {
   }
 }
 
-type EventIdLookup = { error: string } | { eventId: string | null };
+type EventLookup =
+  | { error: string }
+  | { event: OutlookEventWithAttendees | null };
+
+/*
+ * Graph sends a meeting update to every attendee when the organizer changes an event, and
+ * a cancellation to every one of them when the organizer deletes it. Neither notice can be
+ * recalled, so a mirrored copy is never allowed to reach an event that carries attendees.
+ */
+const hasAttendees = (event: OutlookEventWithAttendees): boolean =>
+  (event.attendees ?? []).length > 0;
 
 const buildHeaders = (accessToken: string): Record<string, string> => ({
   "Authorization": `Bearer ${accessToken}`,
@@ -95,7 +110,7 @@ const createOutlookSourceWriter = (
     accessToken: string,
     sourceEventUid: string,
     signal?: AbortSignal,
-  ): Promise<OutlookEvent | null> => {
+  ): Promise<OutlookEventWithAttendees | null> => {
     const url = new URL(`${MICROSOFT_GRAPH_API}/me/events`);
     url.searchParams.set("$filter", `iCalUId eq ${quoteODataLiteral(sourceEventUid)}`);
     url.searchParams.set("$top", SINGLE_RESULT);
@@ -109,22 +124,46 @@ const createOutlookSourceWriter = (
     if (!response.ok) {
       throw new OutlookSourceLookupError(await readErrorMessage(response));
     }
-    const body = outlookEventListSchema.assert(await response.json());
+    const body = outlookEventWithAttendeesListSchema.assert(await response.json());
     const [item] = body.value ?? [];
     return item ?? null;
   };
 
-  const resolveEventId = async (
+  /*
+   * The event is read even when its id is already known, because the id alone cannot say
+   * whether anyone else is on it. A read that failed is not an event with no attendees.
+   */
+  const findEventById = async (
+    accessToken: string,
+    eventId: string,
+    signal?: AbortSignal,
+  ): Promise<OutlookEventWithAttendees | null> => {
+    const response = await fetchWithTimeout(
+      new URL(`${MICROSOFT_GRAPH_API}/me/events/${eventId}`),
+      { headers: buildHeaders(accessToken), method: "GET" },
+      TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
+      signal,
+    );
+    if (response.status === HTTP_STATUS.NOT_FOUND) {
+      await response.body?.cancel?.();
+      return null;
+    }
+    if (!response.ok) {
+      throw new OutlookSourceLookupError(await readErrorMessage(response));
+    }
+    return outlookEventWithAttendeesSchema.assert(await response.json());
+  };
+
+  const resolveEvent = async (
     accessToken: string,
     reference: { sourceEventId: string | null; sourceEventUid: string },
     signal?: AbortSignal,
-  ): Promise<EventIdLookup> => {
-    if (reference.sourceEventId) {
-      return { eventId: reference.sourceEventId };
-    }
+  ): Promise<EventLookup> => {
     try {
-      const existing = await findEventByUid(accessToken, reference.sourceEventUid, signal);
-      return { eventId: existing?.id ?? null };
+      if (reference.sourceEventId) {
+        return { event: await findEventById(accessToken, reference.sourceEventId, signal) };
+      }
+      return { event: await findEventByUid(accessToken, reference.sourceEventUid, signal) };
     } catch (error) {
       if (error instanceof OutlookSourceLookupError) {
         return { error: error.message };
@@ -133,17 +172,35 @@ const createOutlookSourceWriter = (
     }
   };
 
+  const resolveWritableEventId = (
+    lookup: { event: OutlookEventWithAttendees | null },
+    reference: { sourceEventId: string | null },
+  ): { eventId: string | null } | { refusal: SourceWriteResult } => {
+    const { event } = lookup;
+    if (!event) {
+      return { eventId: null };
+    }
+    if (hasAttendees(event)) {
+      return { refusal: ATTENDEE_REFUSAL };
+    }
+    return { eventId: event.id ?? reference.sourceEventId };
+  };
+
   const updateEvent = async (
     reference: { sourceEventId: string | null; sourceEventUid: string },
     updates: SourceEventUpdate,
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
     const accessToken = await config.accessToken();
-    const lookup = await resolveEventId(accessToken, reference, signal);
+    const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const { eventId } = lookup;
+    const writable = resolveWritableEventId(lookup, reference);
+    if ("refusal" in writable) {
+      return writable.refusal;
+    }
+    const { eventId } = writable;
     if (!eventId) {
       return { error: "Event not found on Outlook.", success: false };
     }
@@ -175,11 +232,15 @@ const createOutlookSourceWriter = (
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
     const accessToken = await config.accessToken();
-    const lookup = await resolveEventId(accessToken, reference, signal);
+    const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const { eventId } = lookup;
+    const writable = resolveWritableEventId(lookup, reference);
+    if ("refusal" in writable) {
+      return writable.refusal;
+    }
+    const { eventId } = writable;
     if (!eventId) {
       return { success: true };
     }

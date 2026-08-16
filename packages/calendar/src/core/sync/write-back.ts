@@ -823,6 +823,15 @@ const resolveProjectedSyncEventHash = (
   return createSyncEventContentHash({ ...localEvent, ...resolution.updates });
 };
 
+const isAvailabilityOnlyRejection = (
+  drift: DestinationDrift,
+  rejectionReason: WriteBackRejectionReason | null,
+): boolean =>
+  rejectionReason === "availability_not_writable"
+  && drift.availability
+  && !drift.content
+  && !drift.time;
+
 const classifyPresentMirror = (
   context: MappingContext,
   remoteEvent: RemoteEvent,
@@ -869,6 +878,24 @@ const classifyPresentMirror = (
 
   const eligibleFields = resolveWriteBackEligibleFields(policy);
   const resolution = resolveDrift(context, remoteEvent, observed, drift, eligibleFields);
+
+  /*
+   * Availability is the one axis no payload carries, so an edit to it can never reach the
+   * source. Recording the copy's value as the new baseline would accept a busy block
+   * silently downgraded to free for good, which is the opposite of what the product exists
+   * to project. The copy is handed back to the ordinary repair path and the recorded value
+   * is left alone, so the divergence stays visible until the repair lands.
+   */
+  if (isAvailabilityOnlyRejection(drift, resolution.rejectionReason)) {
+    return {
+      classification: {
+        mappingId: mapping.id,
+        reason: "availability_not_writable",
+        type: "rejected",
+      },
+      suppress: false,
+    };
+  }
 
   if (resolution.conflicted) {
     counters.conflictSourceWins += FIRST_OBSERVATION;

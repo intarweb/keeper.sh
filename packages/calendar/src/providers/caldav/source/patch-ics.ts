@@ -212,4 +212,21 @@ const collectDefinedTimezoneIds = (ics: string): Set<string> => {
   return identifiers;
 };
 
-export { collectDefinedTimezoneIds, extractProperties, patchIcsEvent };
+/*
+ * A server with iTIP scheduling sends a CANCEL to every ATTENDEE the object carries when
+ * it is deleted, and a REQUEST when it is edited. An email VALARM carries an ATTENDEE of
+ * its own that names nobody the write would notify, and collectSpans already refuses to
+ * walk into a sub-component, so only the event's own attendees are read here.
+ */
+const hasEventAttendees = (ics: string): boolean => {
+  const lines = splitLines(ics);
+  return collectVEventBlocks(lines)
+    .some((block) => collectSpans(lines, block).has("ATTENDEE"));
+};
+
+export {
+  collectDefinedTimezoneIds,
+  extractProperties,
+  hasEventAttendees,
+  patchIcsEvent,
+};

@@ -26,6 +26,13 @@ const requireValue = (request?: RecordedRequest): RecordedRequest => {
   return request;
 };
 
+/*
+ * Every write is preceded by a read of the event it would touch, so the request that
+ * carries the payload is selected by its method rather than by its position.
+ */
+const requireWrite = (requests: RecordedRequest[], method: string): RecordedRequest =>
+  requireValue(requests.find((request) => request.method === method));
+
 const readJsonBody = (body: unknown): Record<string, unknown> => {
   if (typeof body !== "string") {
     return {};
@@ -66,7 +73,7 @@ describe("createGoogleSourceWriter", () => {
     );
 
     expect(result).toEqual({ success: true });
-    expect(requireValue(requests[0]).body).toEqual({
+    expect(requireWrite(requests, "PATCH").body).toEqual({
       end: { date: "2027-05-14" },
       start: { date: "2027-05-13" },
     });
@@ -78,7 +85,7 @@ describe("createGoogleSourceWriter", () => {
       { endTime: TIMED_END, isAllDay: false, startTime: TIMED_START },
     );
 
-    expect(requireValue(requests[0]).body).toEqual({
+    expect(requireWrite(requests, "PATCH").body).toEqual({
       end: { dateTime: TIMED_END.toISOString() },
       start: { dateTime: TIMED_START.toISOString() },
     });
@@ -89,7 +96,7 @@ describe("createGoogleSourceWriter", () => {
       { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID },
       { endTime: ALL_DAY_END, startTime: ALL_DAY_START },
     )).rejects.toThrow(/all-day flag/);
-    expect(requests).toEqual([]);
+    expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
   });
 
   it("never sends a field the payload does not carry", async () => {
@@ -98,8 +105,8 @@ describe("createGoogleSourceWriter", () => {
       { endTime: TIMED_END, isAllDay: false, startTime: TIMED_START },
     );
 
-    expect(requireValue(requests[0]).body).not.toHaveProperty("summary");
-    expect(requireValue(requests[0]).body).not.toHaveProperty("description");
+    expect(requireWrite(requests, "PATCH").body).not.toHaveProperty("summary");
+    expect(requireWrite(requests, "PATCH").body).not.toHaveProperty("description");
   });
 
   it("uses the known event id rather than resolving the UID", async () => {
@@ -108,9 +115,9 @@ describe("createGoogleSourceWriter", () => {
       { summary: "Renamed on the destination" },
     );
 
-    expect(requests).toHaveLength(1);
-    expect(requireValue(requests[0]).method).toBe("PATCH");
-    expect(requireValue(requests[0]).url).toContain(SOURCE_EVENT_ID);
+    expect(requests.filter(({ url }) => url.includes("iCalUID"))).toEqual([]);
+    expect(requests.filter(({ method }) => method === "PATCH")).toHaveLength(1);
+    expect(requireWrite(requests, "PATCH").url).toContain(SOURCE_EVENT_ID);
   });
 
   it.each([NOT_FOUND_STATUS, GONE_STATUS])(
@@ -136,7 +143,7 @@ describe("createGoogleSourceWriter", () => {
       controller.signal,
     );
 
-    const { signal } = requireValue(requests[0]);
+    const { signal } = requireWrite(requests, "PATCH");
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(TWO_WAY_SOURCE_WRITE_TIMEOUT_MS).toBeLessThan(30_000);
     controller.abort();

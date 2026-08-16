@@ -38,7 +38,7 @@ const ORIGINAL_ICS = [
   "LOCATION:Room 4",
   String.raw`X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-TITLE=Clinic:geo:52.5\,13.4`,
   "X-MICROSOFT-SKYPETEAMSMEETINGURL:https://teams.example.com/l/meetup/abc",
-  "ATTENDEE;CN=Bob;PARTSTAT=ACCEPTED:mailto:bob@example.com",
+  "CATEGORIES:Work,Planning",
   "ORGANIZER;CN=Ada:mailto:ada@example.com",
   "SEQUENCE:4",
   "END:VEVENT",
@@ -82,6 +82,10 @@ const writeSummary = async (): Promise<string> => {
   return written.data;
 };
 
+/*
+ * The fixture carries no ATTENDEE: an event with one is refused outright rather than
+ * edited, which attendee-write-back-safety.test.ts is what proves.
+ */
 describe("a CalDAV source write-back edits the user's event without rewriting it", () => {
   it("applies the change it was given", async () => {
     const written = await writeSummary();
@@ -110,7 +114,7 @@ describe("a CalDAV source write-back edits the user's event without rewriting it
     expect(written).toContain("DESCRIPTION:Bring the notes");
     expect(written).toContain("LOCATION:Room 4");
     expect(written).toContain("DTSTART;TZID=Europe/Berlin:20270511T140000");
-    expect(written).toContain("ATTENDEE;CN=Bob;PARTSTAT=ACCEPTED:mailto:bob@example.com");
+    expect(written).toContain("CATEGORIES:Work,Planning");
     expect(written).toContain("ORGANIZER;CN=Ada:mailto:ada@example.com");
     expect(written).toContain("SEQUENCE:4");
     expect(written).toContain("CALSCALE:GREGORIAN");

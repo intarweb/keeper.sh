@@ -1,8 +1,13 @@
-import { googleApiErrorSchema, googleEventWithAttendeesListSchema } from "@keeper.sh/data-schemas";
+import {
+  googleApiErrorSchema,
+  googleEventWithAttendeesListSchema,
+  googleEventWithAttendeesSchema,
+} from "@keeper.sh/data-schemas";
 import type { GoogleEventWithAttendees } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
+import { ATTENDEE_REFUSAL } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -24,7 +29,18 @@ class GoogleSourceLookupError extends Error {
   }
 }
 
-type EventIdLookup = { error: string } | { eventId: string | null };
+type EventLookup =
+  | { error: string }
+  | { event: GoogleEventWithAttendees | null };
+
+/*
+ * A source event with other people on it is a meeting, and Google notifies every one of
+ * them when the organizer moves or deletes it. That notice cannot be recalled and the
+ * attendee list cannot be rebuilt, so a mirrored copy is never allowed to reach it. The
+ * user's own entry is the one attendee that names nobody else.
+ */
+const hasOtherAttendees = (event: GoogleEventWithAttendees): boolean =>
+  (event.attendees ?? []).some((attendee) => attendee.self !== true);
 
 const buildHeaders = (accessToken: string): Record<string, string> => ({
   "Authorization": `Bearer ${accessToken}`,
@@ -116,17 +132,48 @@ const createGoogleSourceWriter = (
     return item ?? null;
   };
 
-  const resolveEventId = async (
+  const buildEventUrl = (eventId: string): URL =>
+    new URL(
+      `calendars/${encodeURIComponent(resolveCalendarId(config.externalCalendarId))}`
+      + `/events/${encodeURIComponent(eventId)}`,
+      GOOGLE_CALENDAR_API,
+    );
+
+  /*
+   * The event is read even when its id is already known, because the id alone cannot say
+   * whether anyone else is on it. A read that failed is not an event with no attendees.
+   */
+  const findEventById = async (
+    accessToken: string,
+    eventId: string,
+    signal?: AbortSignal,
+  ): Promise<GoogleEventWithAttendees | null> => {
+    const response = await fetchWithTimeout(
+      buildEventUrl(eventId),
+      { headers: buildHeaders(accessToken), method: "GET" },
+      TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
+      signal,
+    );
+    if (isAlreadyGone(response.status)) {
+      await response.body?.cancel?.();
+      return null;
+    }
+    if (!response.ok) {
+      throw new GoogleSourceLookupError(await readErrorMessage(response));
+    }
+    return googleEventWithAttendeesSchema.assert(await response.json());
+  };
+
+  const resolveEvent = async (
     accessToken: string,
     reference: { sourceEventId: string | null; sourceEventUid: string },
     signal?: AbortSignal,
-  ): Promise<EventIdLookup> => {
-    if (reference.sourceEventId) {
-      return { eventId: reference.sourceEventId };
-    }
+  ): Promise<EventLookup> => {
     try {
-      const existing = await findEventByUid(accessToken, reference.sourceEventUid, signal);
-      return { eventId: existing?.id ?? null };
+      if (reference.sourceEventId) {
+        return { event: await findEventById(accessToken, reference.sourceEventId, signal) };
+      }
+      return { event: await findEventByUid(accessToken, reference.sourceEventUid, signal) };
     } catch (error) {
       if (error instanceof GoogleSourceLookupError) {
         return { error: error.message };
@@ -135,12 +182,19 @@ const createGoogleSourceWriter = (
     }
   };
 
-  const buildEventUrl = (eventId: string): URL =>
-    new URL(
-      `calendars/${encodeURIComponent(resolveCalendarId(config.externalCalendarId))}`
-      + `/events/${encodeURIComponent(eventId)}`,
-      GOOGLE_CALENDAR_API,
-    );
+  const resolveWritableEventId = (
+    lookup: { event: GoogleEventWithAttendees | null },
+    reference: { sourceEventId: string | null },
+  ): { eventId: string | null } | { refusal: SourceWriteResult } => {
+    const { event } = lookup;
+    if (!event) {
+      return { eventId: null };
+    }
+    if (hasOtherAttendees(event)) {
+      return { refusal: ATTENDEE_REFUSAL };
+    }
+    return { eventId: event.id ?? reference.sourceEventId };
+  };
 
   const updateEvent = async (
     reference: { sourceEventId: string | null; sourceEventUid: string },
@@ -148,11 +202,15 @@ const createGoogleSourceWriter = (
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
     const accessToken = await config.accessToken();
-    const lookup = await resolveEventId(accessToken, reference, signal);
+    const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const { eventId } = lookup;
+    const writable = resolveWritableEventId(lookup, reference);
+    if ("refusal" in writable) {
+      return writable.refusal;
+    }
+    const { eventId } = writable;
     if (!eventId) {
       return { error: "Event not found on Google Calendar.", success: false };
     }
@@ -182,11 +240,15 @@ const createGoogleSourceWriter = (
     signal?: AbortSignal,
   ): Promise<SourceWriteResult> => {
     const accessToken = await config.accessToken();
-    const lookup = await resolveEventId(accessToken, reference, signal);
+    const lookup = await resolveEvent(accessToken, reference, signal);
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const { eventId } = lookup;
+    const writable = resolveWritableEventId(lookup, reference);
+    if ("refusal" in writable) {
+      return writable.refusal;
+    }
+    const { eventId } = writable;
     if (!eventId) {
       return { success: true };
     }

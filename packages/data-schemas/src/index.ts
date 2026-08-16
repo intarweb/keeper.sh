@@ -181,6 +181,24 @@ const outlookEventSchema = type({
 });
 type OutlookEvent = typeof outlookEventSchema.infer;
 
+const outlookAttendeeSchema = type({
+  "emailAddress?": { "address?": "string", "name?": "string" },
+  "status?": { "response?": "string" },
+  "type?": "string",
+});
+type OutlookAttendee = typeof outlookAttendeeSchema.infer;
+
+const outlookEventWithAttendeesSchema = outlookEventSchema.and({
+  "attendees?": outlookAttendeeSchema.array(),
+  "organizer?": { "emailAddress?": { "address?": "string", "name?": "string" } },
+});
+type OutlookEventWithAttendees = typeof outlookEventWithAttendeesSchema.infer;
+
+const outlookEventWithAttendeesListSchema = type({
+  "value?": outlookEventWithAttendeesSchema.array(),
+});
+type OutlookEventWithAttendeesList = typeof outlookEventWithAttendeesListSchema.infer;
+
 const outlookEventListSchema = type({
   "@odata.deltaLink?": "string",
   "@odata.nextLink?": "string",
@@ -534,6 +552,8 @@ export {
   microsoftUserInfoSchema,
   outlookEventSchema,
   outlookEventListSchema,
+  outlookEventWithAttendeesSchema,
+  outlookEventWithAttendeesListSchema,
   outlookCalendarViewEventSchema,
   outlookCalendarViewListSchema,
   microsoftApiErrorSchema,
@@ -587,7 +607,10 @@ export type {
   MicrosoftTokenResponse,
   MicrosoftUserInfo,
   OutlookEvent,
+  OutlookAttendee,
   OutlookEventList,
+  OutlookEventWithAttendees,
+  OutlookEventWithAttendeesList,
   OutlookCalendarViewEvent,
   OutlookCalendarViewList,
   MicrosoftApiError,

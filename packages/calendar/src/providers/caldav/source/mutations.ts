@@ -4,8 +4,10 @@ import { buildZonedIcsDate } from "../../../ics/utils/build-zoned-date";
 import {
   collectDefinedTimezoneIds,
   extractProperties,
+  hasEventAttendees,
   patchIcsEvent,
 } from "./patch-ics";
+import { ATTENDEE_REFUSAL } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -209,6 +211,9 @@ const createCalDAVSourceWriter = (
     if (!object?.data) {
       return { error: "Event not found on the CalDAV server.", success: false };
     }
+    if (hasEventAttendees(object.data)) {
+      return ATTENDEE_REFUSAL;
+    }
 
     const [event] = parseIcsString(object.data).events ?? [];
     if (!event) {
@@ -254,6 +259,9 @@ const createCalDAVSourceWriter = (
     const object = await locateObject(client, reference.sourceEventUid);
     if (!object) {
       return { success: true };
+    }
+    if (object.data && hasEventAttendees(object.data)) {
+      return ATTENDEE_REFUSAL;
     }
 
     const status = await client

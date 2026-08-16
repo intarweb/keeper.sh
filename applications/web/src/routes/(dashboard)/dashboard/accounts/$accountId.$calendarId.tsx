@@ -728,6 +728,10 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     "Two-way sync to {destination} is paused: more originals on {source} were being"
     + " deleted in a day than Keeper.sh will apply unattended.",
   plan_downgraded: "Two-way sync to {destination} is paused because the plan changed.",
+  source_event_has_attendees:
+    "A copy on {destination} was changed, but the original on {source} is a meeting other"
+    + " people are invited to. Keeper.sh will not cancel or move a meeting on their behalf,"
+    + " so two-way sync to {destination} is paused and nothing on {source} was touched.",
   runaway_write_back:
     "Two-way sync to {destination} is paused: the copies kept changing on their own, so"
     + " Keeper.sh stopped writing to {source}.",
@@ -808,7 +812,8 @@ function DeletionConsentModal({
           {siblingCount > 0
             ? ` — and remove it from the ${siblingCount} other calendar${siblingCount === 1 ? "" : "s"} it is copied to.`
             : "."}
-          {" Keeper.sh keeps a record of deleted events for 30 days."}
+          {" Keeper.sh keeps a record of deleted events for 30 days, and never deletes or"}
+          {" moves an original that other people are invited to."}
         </ModalDescription>
         <label className="flex items-start gap-2 text-xs">
           <input

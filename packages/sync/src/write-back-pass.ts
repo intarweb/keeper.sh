@@ -33,6 +33,42 @@ class WriteBackDailyCapError extends Error {
   }
 }
 
+/*
+ * The provider was reachable and the write was understood; it was declined because
+ * applying it would reach past the user — cancelling a meeting for its attendees, or
+ * moving it on their calendars. No retry changes that, so it is not a failure to spend a
+ * budget on: the pair stops writing to this source and the user is told why.
+ */
+class SourceWriteRefusedError extends Error {
+  readonly refusal: string;
+
+  constructor(refusal: string) {
+    super(`Source write refused: ${refusal}`);
+    this.name = "SourceWriteRefusedError";
+    this.refusal = refusal;
+  }
+}
+
+const QUARANTINE_REASONS_BY_REFUSAL: Record<string, string> = {
+  event_has_attendees: "source_event_has_attendees",
+};
+
+const resolveQuarantineReason = (refusal: string): string =>
+  QUARANTINE_REASONS_BY_REFUSAL[refusal] ?? "source_write_refused";
+
+const assertWriteAccepted = (written: {
+  error?: string;
+  refused?: string;
+  success: boolean;
+}, fallback: string): void => {
+  if (written.refused) {
+    throw new SourceWriteRefusedError(written.refused);
+  }
+  if (!written.success) {
+    throw new Error(written.error ?? fallback);
+  }
+};
+
 class UnusableSourceError extends Error {
   constructor(message: string) {
     super(message);
@@ -270,25 +306,45 @@ const runLockedUpdate = (
         classification.updates,
         input.signal,
       );
-      if (!written.success) {
-        throw new Error(written.error ?? "Source write-back failed");
-      }
+      assertWriteAccepted(written, "Source write-back failed");
 
       return { epoch: committed.writeBackEpoch, state: "applied" };
     },
   );
+
+const quarantineRefusal = async (
+  input: WriteBackPassInput,
+  target: WriteBackTarget,
+  error: SourceWriteRefusedError,
+): Promise<Outcome> => {
+  await input.store.quarantineMapping(
+    target.sourceCalendarId,
+    target.destinationCalendarId,
+    resolveQuarantineReason(error.refusal),
+  );
+  return "quarantined";
+};
+
+type UpdateOutcome =
+  | { epoch: number; kind: "committed"; state: Outcome }
+  | { kind: "over-budget" }
+  | { kind: "refused"; refusal: SourceWriteRefusedError };
 
 const runBudgetedUpdate = async (
   input: WriteBackPassInput,
   target: WriteBackTarget,
   writer: CalendarSourceWriter,
   classification: Extract<InboundClassification, { type: "write-back" }>,
-): Promise<{ epoch: number; state: Outcome } | "over-budget"> => {
+): Promise<UpdateOutcome> => {
   try {
-    return await runLockedUpdate(input, target, writer, classification);
+    const { epoch, state } = await runLockedUpdate(input, target, writer, classification);
+    return { epoch, kind: "committed", state };
   } catch (error) {
     if (error instanceof WriteBackDailyCapError) {
-      return "over-budget";
+      return { kind: "over-budget" };
+    }
+    if (error instanceof SourceWriteRefusedError) {
+      return { kind: "refused", refusal: error };
     }
     throw error;
   }
@@ -301,7 +357,10 @@ const applyUpdate = async (
   classification: Extract<InboundClassification, { type: "write-back" }>,
 ): Promise<Outcome> => {
   const outcome = await runBudgetedUpdate(input, target, writer, classification);
-  if (outcome === "over-budget") {
+  if (outcome.kind === "refused") {
+    return quarantineRefusal(input, target, outcome.refusal);
+  }
+  if (outcome.kind === "over-budget") {
     return quarantineRunaway(input, target);
   }
   if (outcome.state === "applied" && outcome.epoch >= TWO_WAY_EPOCH_QUARANTINE_LIMIT) {
@@ -371,26 +430,39 @@ const applyDelete = async (
   }
   const tombstoneId = await input.store.recordTombstone({ snapshot: preSnapshot, target });
 
-  return input.store.withSourceLock(target.sourceCalendarId, async (locked): Promise<Outcome> => {
-    if (!await isStillTheStateWeClassified(locked, classification, target)) {
+  const run = input.store.withSourceLock(
+    target.sourceCalendarId,
+    async (locked): Promise<Outcome> => {
+      if (!await isStillTheStateWeClassified(locked, classification, target)) {
+        await input.store.abandonTombstone(tombstoneId);
+        return "abandoned";
+      }
+
+      const deleted = await writer.deleteEvent(
+        { sourceEventId: target.sourceEventId, sourceEventUid: target.sourceEventUid },
+        input.signal,
+      );
+      assertWriteAccepted(deleted, "Source write-back delete failed");
+
+      await locked.commitDelete({
+        eventStateId: target.eventStateId,
+        mappingId: target.mappingId,
+        tombstoneId,
+      });
+      return "applied";
+    },
+  );
+
+  /*
+   * The tombstone was committed on its own transaction before the provider was asked, so
+   * the refusal has to release it explicitly: nothing rolls it back.
+   */
+  return run.catch(async (error: unknown) => {
+    if (error instanceof SourceWriteRefusedError) {
       await input.store.abandonTombstone(tombstoneId);
-      return "abandoned";
+      return quarantineRefusal(input, target, error);
     }
-
-    const deleted = await writer.deleteEvent(
-      { sourceEventId: target.sourceEventId, sourceEventUid: target.sourceEventUid },
-      input.signal,
-    );
-    if (!deleted.success) {
-      throw new Error(deleted.error ?? "Source write-back delete failed");
-    }
-
-    await locked.commitDelete({
-      eventStateId: target.eventStateId,
-      mappingId: target.mappingId,
-      tombstoneId,
-    });
-    return "applied";
+    throw error;
   });
 };
 

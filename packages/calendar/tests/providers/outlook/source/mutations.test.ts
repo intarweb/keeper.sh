@@ -23,6 +23,13 @@ const requireValue = (request?: RecordedRequest): RecordedRequest => {
   return request;
 };
 
+/*
+ * Every write is preceded by a read of the event it would touch, so the request that
+ * carries the payload is selected by its method rather than by its position.
+ */
+const requireWrite = (requests: RecordedRequest[], method: string): RecordedRequest =>
+  requireValue(requests.find((request) => request.method === method));
+
 const readJsonBody = (body: unknown): Record<string, unknown> => {
   if (typeof body !== "string") {
     return {};
@@ -59,7 +66,7 @@ describe("createOutlookSourceWriter", () => {
       { endTime: ALL_DAY_END, isAllDay: true, startTime: ALL_DAY_START },
     );
 
-    expect(requireValue(requests[0]).body).toEqual({
+    expect(requireWrite(requests, "PATCH").body).toEqual({
       end: { dateTime: "2027-05-14T00:00:00.000", timeZone: "UTC" },
       isAllDay: true,
       start: { dateTime: "2027-05-13T00:00:00.000", timeZone: "UTC" },
@@ -77,7 +84,7 @@ describe("createOutlookSourceWriter", () => {
       },
     );
 
-    expect(requireValue(requests[0]).body).toEqual({
+    expect(requireWrite(requests, "PATCH").body).toEqual({
       end: { dateTime: "2027-05-11T14:00:00.000", timeZone: SOURCE_TIME_ZONE },
       isAllDay: false,
       start: { dateTime: "2027-05-11T13:00:00.000", timeZone: SOURCE_TIME_ZONE },
@@ -90,7 +97,7 @@ describe("createOutlookSourceWriter", () => {
       { endTime: TIMED_END, isAllDay: false, startTime: TIMED_START },
     );
 
-    expect(requireValue(requests[0]).body).toEqual({
+    expect(requireWrite(requests, "PATCH").body).toEqual({
       end: { dateTime: "2027-05-11T18:00:00.000", timeZone: "UTC" },
       isAllDay: false,
       start: { dateTime: "2027-05-11T17:00:00.000", timeZone: "UTC" },
@@ -108,7 +115,7 @@ describe("createOutlookSourceWriter", () => {
       },
     );
 
-    expect(requireValue(requests[0]).body).toEqual({
+    expect(requireWrite(requests, "PATCH").body).toEqual({
       end: { dateTime: "2027-05-14T00:00:00.000", timeZone: "UTC" },
       isAllDay: true,
       start: { dateTime: "2027-05-13T00:00:00.000", timeZone: "UTC" },
@@ -120,7 +127,7 @@ describe("createOutlookSourceWriter", () => {
       { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID },
       { endTime: ALL_DAY_END, startTime: ALL_DAY_START },
     )).rejects.toThrow(/all-day flag/);
-    expect(requests).toEqual([]);
+    expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
   });
 
   /*
@@ -134,7 +141,8 @@ describe("createOutlookSourceWriter", () => {
       { summary: "Renamed on the destination" },
     );
 
-    expect(new URL(requireValue(requests[0]).url).searchParams.get("$filter"))
+    const lookup = requests.find(({ url }) => url.includes("iCalUId"));
+    expect(new URL(requireValue(lookup).url).searchParams.get("$filter"))
       .toBe("iCalUId eq 'abc'' or startswith(subject,''A'");
   });
 
