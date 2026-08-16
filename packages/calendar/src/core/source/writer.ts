@@ -253,6 +253,15 @@ const resolveAudience = (input: {
  * comparing "John Smith" with an author's address answers "somebody else" for every event
  * on the calendar — pausing a connection where nothing is wrong, on a question that was
  * never actually asked.
+ *
+ * An author who is not the account is only somebody else when the event is somebody else's.
+ * A scheduling app, an assistant or a booking integration writing onto the user's own
+ * calendar stamps its own service address into the author field while the event itself is
+ * held by the account — the provider names the account as the event's owner — and that
+ * event is the user's to edit in every native client they have. So an owner the account
+ * matches settles the question before the author is weighed. It is a narrower answer than
+ * it looks: on a colleague's shared calendar the owner is the colleague, never the account,
+ * so a colleague's booking is still refused.
  */
 const IS_ADDRESS = /^[^\s@]+@[^\s@]+$/u;
 
@@ -260,11 +269,15 @@ const resolveAuthorship = (input: {
   account: string | null | undefined;
   author: string | null | undefined;
   isAccount?: boolean;
+  owner?: string | null | undefined;
 }): SourceEventAuthorship => {
   if (input.isAccount === true) {
     return "the_account";
   }
   const account = normalizeAttendeeAddress(input.account);
+  if (IS_ADDRESS.test(account) && account === normalizeAttendeeAddress(input.owner)) {
+    return "the_account";
+  }
   const author = normalizeAttendeeAddress(input.author);
   if (!IS_ADDRESS.test(account) || !IS_ADDRESS.test(author)) {
     return "unknown";

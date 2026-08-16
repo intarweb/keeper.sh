@@ -392,6 +392,12 @@ const buildEpochAssignment = (): Record<string, unknown> => {
   )`;
 
   return {
+    /*
+     * A write that reached the source is the answer to every classification that could not
+     * be acted on before it, so the abandon budget starts over. The epoch above is what
+     * still bounds a mapping that alternates between landing and abandoning.
+     */
+    writeBackAbandonCount: NO_EPOCHS,
     writeBackEpoch: sql`case when ${staleWindow} then ${FIRST_EPOCH}
       else ${eventMappingsTable.writeBackEpoch} + ${EPOCH_INCREMENT} end`,
     writeBackEpochWindowStart: sql`case when ${staleWindow} then now()
@@ -412,15 +418,33 @@ const buildEpochAssignment = (): Record<string, unknown> => {
  * failures instead: consecutive failures keep counting however far apart they are, and an
  * hour with none at all is what starts the budget over. Nothing here touches
  * writeBackLastAppliedAt, because nothing was applied.
+ *
+ * An attempt nobody could carry out is counted a second time, on its own column. A
+ * rejection is the provider saying "not right now" and is retried for half an hour; an
+ * abandon is the pass saying "I cannot act on this classification" and is escalated after
+ * five. Judged on one column they cannot be told apart, and the first abandon that follows
+ * a provider outage reverts the pair to one-way as a runaway — over writes that reached no
+ * calendar at all. A rejection therefore leaves the abandon count exactly where it stands,
+ * and clears it only when the window itself has gone stale.
  */
-const buildFailureEpochAssignment = (): Record<string, unknown> => {
+type WriteBackFailureOutcome = "abandoned" | "rejected";
+
+const buildFailureEpochAssignment = (
+  outcome: WriteBackFailureOutcome = "rejected",
+): Record<string, unknown> => {
   const staleWindow = sql`(
     ${eventMappingsTable.writeBackEpochWindowStart} is null
     or ${eventMappingsTable.writeBackEpochWindowStart}
       < now() - (interval '1 millisecond' * ${TWO_WAY_EPOCH_WINDOW_MS})
   )`;
+  const spentAbandons = sql`case when ${staleWindow} then ${FIRST_EPOCH}
+    else ${eventMappingsTable.writeBackAbandonCount} + ${EPOCH_INCREMENT} end`;
+  const carriedAbandons = sql`case when ${staleWindow} then ${NO_EPOCHS}
+    else ${eventMappingsTable.writeBackAbandonCount} end`;
+  const abandons = new Map([["abandoned", spentAbandons], ["rejected", carriedAbandons]]);
 
   return {
+    writeBackAbandonCount: abandons.get(outcome) ?? carriedAbandons,
     writeBackEpoch: sql`case when ${staleWindow} then ${FIRST_EPOCH}
       else ${eventMappingsTable.writeBackEpoch} + ${EPOCH_INCREMENT} end`,
     writeBackEpochWindowStart: sql`now()`,
@@ -724,12 +748,24 @@ const createDatabaseWriteBackStore = (
     );
   },
   readSourceEvent: (eventStateId) => readSourceEventFrom(config.database, eventStateId),
-  recordFailure: async (mappingId) => {
+  /*
+   * The number handed back is the budget this outcome is judged against, not the raw
+   * column: a rejection is measured by the epoch it spends, an abandon by the abandons it
+   * spends. Both are recorded either way, so an abandoned pass still counts toward the
+   * runaway stop the epoch carries.
+   */
+  recordFailure: async (mappingId, outcome = "rejected") => {
     const [row] = await config.database
       .update(eventMappingsTable)
-      .set(buildFailureEpochAssignment())
+      .set(buildFailureEpochAssignment(outcome))
       .where(eq(eventMappingsTable.id, mappingId))
-      .returning({ writeBackEpoch: eventMappingsTable.writeBackEpoch });
+      .returning({
+        writeBackAbandonCount: eventMappingsTable.writeBackAbandonCount,
+        writeBackEpoch: eventMappingsTable.writeBackEpoch,
+      });
+    if (outcome === "abandoned") {
+      return row?.writeBackAbandonCount ?? NO_EPOCHS;
+    }
     return row?.writeBackEpoch ?? NO_EPOCHS;
   },
   /*

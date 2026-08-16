@@ -388,6 +388,16 @@ const eventMappingsTable = pgTable(
     // The migration runner backfills it and installs its validated index/checks.
     sourceCalendarId: uuid(),
     startTime: timestamp({ withTimezone: true }).notNull(),
+    /*
+     * How many passes in a row produced a write-back nothing could be done with — the
+     * source moved under the classification, the destination could not answer whether the
+     * copy is really gone. It is counted apart from writeBackEpoch because that column
+     * also carries the writes a provider rejected, and a provider rejecting for half an
+     * hour is exactly what the longer failure budget exists to survive. Judged together,
+     * the first abandon after an outage reads as a runaway and reverts the pair to one-way
+     * with a reason that is not true.
+     */
+    writeBackAbandonCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackDailyCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackDailyWindowStart: timestamp({ withTimezone: true }),
     writeBackEpoch: integer().notNull().default(DEFAULT_EVENT_COUNT),

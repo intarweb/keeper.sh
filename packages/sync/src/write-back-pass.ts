@@ -218,8 +218,17 @@ interface WriteBackStore {
   /*
    * A write-back the provider keeps rejecting would otherwise be retried under the source
    * ingest lock once a minute forever, so a failure spends the same budget a success does.
+   *
+   * The outcome says which budget the answer is measured against. A rejection is the
+   * provider declining to act and is retried far longer than an abandon, which is this
+   * pass declining to act; counting them on one number is what turns the first abandon
+   * after an outage into a runaway. The store returns the count for the outcome it was
+   * given, and a store that counts only one of them is judged by that one.
    */
-  recordFailure: (mappingId: string) => Promise<number>;
+  recordFailure: (
+    mappingId: string,
+    outcome?: "abandoned" | "rejected",
+  ) => Promise<number>;
   /*
    * A deletion the copy keeps refusing to confirm is a question, not a failure. Asking it
    * pauses the pair with its pending state intact, which is the only outcome that both
@@ -713,13 +722,17 @@ const applyClassification = async (
  * the budget on it is what makes the retry finite: a write-back is refused once the budget
  * is out, and a deletion the copy keeps refusing to confirm becomes a question for the
  * user instead of a request repeated once a minute forever.
+ *
+ * It is its own budget. A provider rejecting a write is retried for six times as long as
+ * this, and measuring both against one number turns the first abandon after an outage into
+ * a pair reverted to one-way for a runaway that never wrote anything anywhere.
  */
 const recordNonProgress = async (
   input: WriteBackPassInput,
   target: WriteBackTarget,
   classification: ActionableClassification,
 ): Promise<boolean> => {
-  const spent = await input.store.recordFailure(target.mappingId);
+  const spent = await input.store.recordFailure(target.mappingId, "abandoned");
   if (spent < TWO_WAY_EPOCH_QUARANTINE_LIMIT) {
     return false;
   }
@@ -841,7 +854,7 @@ const runWriteBackPass = async (
        * would otherwise repeat untouched on every pass. Only the pair a target identifies
        * can be reverted to one-way.
        */
-      const spent = await input.store.recordFailure(classification.mappingId);
+      const spent = await input.store.recordFailure(classification.mappingId, "rejected");
       if (failedTarget && spent >= resolveQuarantineLimit(error)) {
         await input.store.quarantineMapping(
           failedTarget.sourceCalendarId,

@@ -17,6 +17,7 @@ const TEN_MINUTES = 10;
 const DDL = `
 create table event_mappings (
   "id" uuid primary key,
+  "writeBackAbandonCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
   "writeBackLastAppliedAt" timestamptz

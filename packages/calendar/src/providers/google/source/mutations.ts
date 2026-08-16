@@ -1,5 +1,4 @@
 import {
-  googleApiErrorSchema,
   googleEventWithAttendeesListSchema,
   googleEventWithAttendeesSchema,
 } from "@keeper.sh/data-schemas";
@@ -7,6 +6,7 @@ import type { GoogleEventWithAttendees } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
+import { isRateLimitApiError, parseGoogleApiError } from "../shared/errors";
 import {
   attemptSourceWrite,
   isRetryableWriteStatus,
@@ -29,11 +29,11 @@ const DEFAULT_GOOGLE_CALENDAR_ID = "primary";
 const ISO_DATE_LENGTH = 10;
 
 /*
- * The address the account is known by. It is weighed against who created the event, never
- * against who organizes it: on a Google calendar that is not the user's primary one the
- * organizer is the calendar itself, so the organizer of the user's own event on a shared
- * calendar is the shared calendar. creator is the person, which is the question asked.
- * Where the address is missing the question has no answer and no write is refused for it.
+ * The address the account is known by. It is weighed against who created the event and
+ * against who holds it: on a Google calendar the organizer is the calendar itself, so an
+ * organizer that is the account means the event sits on the account's own calendar and is
+ * the account's to change, whoever wrote it there. Where the address is missing the
+ * question has no answer and no write is refused for it.
  */
 interface GoogleSourceWriterConfig {
   accessToken: () => Promise<string>;
@@ -107,6 +107,15 @@ const readEventAudience = (event: GoogleEventWithAttendees): SourceEventAudience
  * made it. It sends the flag only when it is true, so its absence proves nothing and the
  * address settles the rest — and where there is no address on either side, nothing is
  * settled and nothing is refused.
+ *
+ * creator on Google is the writing agent, not the calendar owner: a scheduling app given
+ * write access to the user's own calendar signs its focus blocks with a service account
+ * that is nobody, and creator.self is absent because a service account never corresponds
+ * to the calendar the copy sits on. organizer is what Google answers the ownership
+ * question with — for an event with no other structure it is the calendar the event was
+ * inserted into — so it is handed over as the owner. It is only ever an exemption for the
+ * account's own address: on a colleague's shared calendar the organizer is the colleague,
+ * and the refusal stands.
  */
 const readEventAuthorship = (
   event: GoogleEventWithAttendees,
@@ -115,6 +124,7 @@ const readEventAuthorship = (
   resolveAuthorship({
     account: accountEmail,
     author: event.creator?.email,
+    owner: event.organizer?.email,
     ...(typeof event.creator?.self === "boolean" && { isAccount: event.creator.self }),
   });
 
@@ -158,20 +168,26 @@ const isAlreadyGone = (status: number): boolean =>
  * outcome is unknown: the tombstone stays counted, the day's deletion budget is spent on
  * deletions that never happened, and the pair quarantines on a cap it never reached. The
  * status is what the caller is owed, and it is always available.
+ *
+ * The status alone does not say whether a Google write may be retried. Google signals its
+ * per-user write quota with 403 and a reason of userRateLimitExceeded — never with 429 —
+ * and a throttle read as a permanent defect spends the short failure budget, reverts the
+ * pair to one-way within minutes and discards the edit the user made on the copy, with
+ * nothing retried once the pair is off. The body is already being read for the message, so
+ * the reason is read with it, by the same rule the read path has always used. A 403 that
+ * carries no rate-limit reason is still what it has always been: a permanent refusal.
  */
-const readErrorMessage = async (response: Response): Promise<string> => {
+const describeErrorResponse = async (
+  response: Response,
+): Promise<{ message: string; retryable: boolean }> => {
   const fallback = response.statusText || `HTTP ${response.status}`;
   const body = await response.text().catch(() => "");
-  let parsed: unknown = null;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return fallback;
-  }
-  if (!googleApiErrorSchema.allows(parsed)) {
-    return fallback;
-  }
-  return googleApiErrorSchema.assert(parsed).error?.message ?? fallback;
+  const error = parseGoogleApiError(body);
+  return {
+    message: error.message ?? fallback,
+    retryable: isRetryableWriteStatus(response.status)
+      || isRateLimitApiError(response.status, error),
+  };
 };
 
 /*
@@ -235,10 +251,8 @@ const createGoogleSourceWriter = (
       signal,
     );
     if (!response.ok) {
-      throw new GoogleSourceLookupError(
-        await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
-      );
+      const failure = await describeErrorResponse(response);
+      throw new GoogleSourceLookupError(failure.message, failure.retryable);
     }
     const body = googleEventWithAttendeesListSchema.assert(await response.json());
     const [item] = body.items ?? [];
@@ -272,10 +286,8 @@ const createGoogleSourceWriter = (
       return null;
     }
     if (!response.ok) {
-      throw new GoogleSourceLookupError(
-        await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
-      );
+      const failure = await describeErrorResponse(response);
+      throw new GoogleSourceLookupError(failure.message, failure.retryable);
     }
     return googleEventWithAttendeesSchema.assert(await response.json());
   };
@@ -384,10 +396,8 @@ const createGoogleSourceWriter = (
     }
     const response = sent.sent;
     if (!response.ok) {
-      return toWriteFailure(
-        await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
-      );
+      const failure = await describeErrorResponse(response);
+      return toWriteFailure(failure.message, failure.retryable);
     }
     await response.body?.cancel?.();
     return { success: true };
@@ -429,10 +439,8 @@ const createGoogleSourceWriter = (
     }
     const response = sent.sent;
     if (!response.ok && !isAlreadyGone(response.status)) {
-      return toWriteFailure(
-        await readErrorMessage(response),
-        isRetryableWriteStatus(response.status),
-      );
+      const failure = await describeErrorResponse(response);
+      return toWriteFailure(failure.message, failure.retryable);
     }
     await response.body?.cancel?.();
     return { success: true };
