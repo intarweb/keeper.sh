@@ -42,6 +42,8 @@ import {
   navigationMenuToggleThumb,
 } from "@/components/ui/composites/navigation-menu/navigation-menu.styles";
 import { Text } from "@/components/ui/primitives/text";
+import type { ButtonProps } from "@/components/ui/primitives/button";
+import { Collapsible } from "@/components/ui/primitives/collapsible";
 import { TemplateText } from "@/components/ui/primitives/template-text";
 import {
   calendarDetailAtom,
@@ -583,16 +585,27 @@ function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
     sourceName,
   );
 
+  const caveats = [
+    summary.conflict,
+    summary.hidden,
+    "Only the fields you actually change are written back, and repeating events stay one-way.",
+    summary.adopted,
+    summary.batch,
+    summary.repeated,
+  ].filter((caveat) => caveat !== null);
+
   return (
-    <Text size="xs" className="text-muted-foreground">
-      {`${summary.written} `}
-      {`${summary.conflict} `}
-      {summary.hidden ? `${summary.hidden} ` : ""}
-      Only the fields you actually change are written back. Repeating events stay one-way.
-      {` ${summary.adopted}`}
-      {` ${summary.batch}`}
-      {` ${summary.repeated}`}
-    </Text>
+    <div className="flex flex-col gap-1">
+      <Text size="xs">{summary.written}</Text>
+      <Collapsible
+        className="-mx-4"
+        trigger={<Text size="xs">{`When an edit will not reach ${sourceName}`}</Text>}
+      >
+        <div className="flex flex-col gap-2">
+          {caveats.map((caveat) => <Text key={caveat} size="xs">{caveat}</Text>)}
+        </div>
+      </Collapsible>
+    </div>
   );
 }
 
@@ -686,27 +699,28 @@ function WriteBackModeControl({
 
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1">
         {WRITE_BACK_OPTIONS.map((option) => (
-          <button
+          <Button
             key={option.mode}
             type="button"
+            size="compact"
+            variant={resolveWriteBackOptionVariant(option.mode === mode)}
             disabled={(locked || !writableSource) && option.mode !== "off"}
             onClick={() => { applyMode(option.mode); }}
-            className={writeBackOptionStyle(option.mode === mode)}
           >
             {option.label}
-          </button>
+          </Button>
         ))}
       </div>
-      <Text size="xs" className="text-muted-foreground">
+      <Text size="xs">
         {WRITE_BACK_OPTIONS.find((option) => option.mode === mode)?.description}
       </Text>
       {mode !== "off" && (
         <WriteBackFieldSummary sourceName={sourceName || "this calendar"} />
       )}
       {!writableSource && (
-        <Text size="xs" className="text-muted-foreground">
+        <Text size="xs">
           {resolveUnwritableSourceCopy(calendarDetail)}
         </Text>
       )}
@@ -717,7 +731,7 @@ function WriteBackModeControl({
         sourceName={sourceName || "this calendar"}
         status={status}
       />
-      <Text size="xs" className="text-muted-foreground">
+      <Text size="xs">
         {`Copies live on ${destinationName}.`}
       </Text>
       {pendingDeletionConsent && (
@@ -773,14 +787,15 @@ function WriteBackStatusLine({
       {answers.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {answers.map((answer) => (
-            <button
+            <Button
               key={answer}
               type="button"
-              className={writeBackOptionStyle(false)}
+              size="compact"
+              variant={resolveDeleteAnswerVariant(answer)}
               onClick={() => { onResolveDeleteConfirmation(answer); }}
             >
               {ANSWER_LABELS[answer](sourceName)}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -841,10 +856,23 @@ function DeletionConsentModal({
   );
 }
 
-const writeBackOptionStyle = (selected: boolean): string =>
-  selected
-    ? "rounded-md border border-foreground/30 bg-foreground/10 px-2 py-1 text-xs"
-    : "rounded-md border border-transparent px-2 py-1 text-xs text-muted-foreground";
+const resolveWriteBackOptionVariant = (selected: boolean): ButtonProps["variant"] => {
+  if (selected) {
+    return "border";
+  }
+  return "ghost";
+};
+
+const resolveDeleteAnswerVariant = (
+  answer: DeleteConfirmationAnswer,
+): ButtonProps["variant"] => {
+  switch (answer) {
+    case "decline":
+      return "border";
+    default:
+      return "destructive";
+  }
+};
 
 function DestinationCheckboxIndicator({ destinationId }: { destinationId: string }) {
   const checkedAtom = useMemo(() => selectDestinationInclusion(destinationId), [destinationId]);
