@@ -79,6 +79,12 @@ interface HarnessOptions {
   readonly timeoutMs?: number;
 }
 
+const authorizedClient = (): InstanceType<typeof auth.OAuth2> => {
+  const client = new auth.OAuth2({ clientId: "fake", clientSecret: "fake" });
+  client.setCredentials({ access_token: "fake-access-token" });
+  return client;
+};
+
 const googleDependenciesOver = (
   environment: ConformanceEnvironment,
   fake: FakeGoogle,
@@ -88,7 +94,7 @@ const googleDependenciesOver = (
   return {
     calendar: createGoogleClient({
       fetch: fake.fetch,
-      auth: new auth.OAuth2({ clientId: "fake", clientSecret: "fake" }),
+      auth: authorizedClient(),
       timeoutMs: options.timeoutMs ?? 5000,
     }),
     clock: environment.clock,

@@ -1,5 +1,5 @@
 import type { calendar_v3 } from "@googleapis/calendar";
-import { unimplemented } from "../unimplemented";
+import { calendar_v3 as calendarApi } from "@googleapis/calendar";
 
 type GoogleAuthClient = NonNullable<calendar_v3.Options["auth"]>;
 
@@ -14,8 +14,20 @@ interface GoogleClientOptions {
   readonly timeoutMs: number;
 }
 
+const forwardingFetch = (send: FetchImplementation): typeof fetch =>
+  Object.assign(
+    (input: string | URL | Request, init?: RequestInit): Promise<Response> => send(input, init),
+    { preconnect: (url: string | URL): void => globalThis.fetch.preconnect(url) },
+  );
+
 const createGoogleClient = (options: GoogleClientOptions): calendar_v3.Calendar =>
-  unimplemented(options);
+  new calendarApi.Calendar({
+    auth: options.auth,
+    fetchImplementation: forwardingFetch(options.fetch),
+    timeout: options.timeoutMs,
+    retry: false,
+    retryConfig: { retry: 0, httpMethodsToRetry: [], noResponseRetries: 0 },
+  });
 
 export { createGoogleClient };
 export type { FetchImplementation, GoogleAuthClient, GoogleClientOptions };

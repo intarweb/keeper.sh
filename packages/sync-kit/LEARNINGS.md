@@ -5403,23 +5403,27 @@ src/provider.ts                     createGoogleProvider -> CalendarProvider<"go
 src/dependencies.ts                 GoogleDependencies: client, clock, gate, hash, installation, limits
 src/limits.ts                       googleLimits as const: maxResults, maxPages, coverage ceiling
 src/fingerprint.ts                  RFC 8785 canonical encoding fed to the injected hash
+src/canonical.ts                    the sorted-key encoder every fingerprint and key is built from
+src/internals.ts                    assembles semaphore, seam, single flight and cursor frontier once
 src/conformance-obligations.ts      the seven ConformanceObligation implementations
 
 src/client/calendar-client.ts       builds calendar_v3.Calendar: retry 0, explicit timeout, injected fetch
 src/client/request.ts               the one seam: gate -> permit -> deadline -> retry -> classify
 src/client/deadline.ts              mergeSignals, raceDeadline — the only place an await gets a ceiling
-src/client/backoff.ts               bounded, jittered, abortable retry over the injected clock.sleep
+src/client/backoff.ts               bounded, abortable retry over the injected clock.sleep (GOOG-I77)
 src/client/semaphore.ts             permits, released on return, on throw and on abort
 src/client/single-flight.ts         coalescing by listing scope; own-entry release; failure fan-out
 
 src/errors/gaxios-error.ts          total decoder from unknown to { status, reasons, retryAfter }
 src/errors/classify.ts              (status, reasons, operation) -> GoogleFailure, an as const union
+src/errors/gate-failure.ts          a failure the injected gate carried, read before classification
 src/errors/to-provider-failure.ts   GoogleFailure -> ProviderFailure, switched exhaustively
 
 src/cursor/cursor.ts                mint and parse the owned opaque cursor; cursorVersion
 src/cursor/fingerprint.ts           the request-shape fingerprint the cursor is bound to
 
 src/listing/list-changes.ts         the orchestration and the one producer of cursorLost
+src/listing/build-feed.ts           collapsed items -> events, removals, withheld, self-authored
 src/listing/request-shape.ts        as const parameter records per listing mode; singleEvents false
 src/listing/paginate.ts             bounded pagination: page ceiling, loop deadline, PageWalk union
 src/listing/collapse-revisions.ts   same id across pages; newest updated wins; unbuildable withholds
@@ -5446,6 +5450,8 @@ src/write/serialize.ts              EditableContent -> Schema$Event body; writes
 src/write/event-id.ts               base32hex deterministic id, length-checked at the boundary
 src/write/precondition.ts           RemoteVersion <-> etag, If-Match, 412 -> typed conflict
 src/write/echo.ts                   the three-state EchoVerdict from the returned body
+src/write/remote.ts                 reads the copy a 409 or a 412 names: version and fingerprint
+src/write/surroundings.ts           WriteSurroundings, so the write modules share no cycle
 
 src/calendars/list-calendars.ts     tolerant enumeration; absent items, absent summary
 
@@ -5583,3 +5589,138 @@ than by accident:
 
 The one remaining non-`unimplemented` failure is `GOOG-L1: every delay in the package goes through the
 injected clock`, which fails because no module yet calls `clock.sleep`. It names its own reason.
+
+## Green phase addendum (sync-google)
+
+The implementation forced eleven decisions the design did not settle, and turned up five defects in the
+material the adapter was written against. Every one is recorded here with the code and the test that hold it.
+
+### GOOG-I72. The mirrored identity travels in an extended property, never in `iCalUID`
+
+An event we author has to come back out of Google carrying the identity we mirrored, or the next run reads
+it as a stranger. `iCalUID` is not the channel for that: `events.insert` does not honour a submitted
+`iCalUID` (only `events.import` does, and GOOG-I58 rejects `import`), so Google would hand back
+`<eventId>@google.com` and the mapping would be lost. The write stamps
+`extendedProperties.private["keeper.sh/uid"]` beside the installation stamp, and `decodeIdentity` prefers it
+over `iCalUID`. This is the channel the capability declaration already names
+(`provenanceChannel: "extendedProperty"`), so it costs no new mechanism. `src/decode/identity.ts`,
+`src/write/serialize.ts`; held by the conformance run's `CONF-O16` and `CONF-O36`.
+
+### GOOG-I73. `revision` is the first integer in the etag, and an update never restamps the provenance
+
+`RemoteEventFacts.revision` needs a number that increases with every change of an identity. Google's etag is
+derived from the update time, so the first integer in it does; nothing else in the payload does (`sequence`
+is the publisher's RFC 5545 SEQUENCE and is absent from most events). `revisionOfVersion` reads that integer
+and defaults to `1`. Relatedly, `events.patch` is a merge, so an update sends **no** `extendedProperties` at
+all: restamping them on every edit would overwrite the mirrored uid of GOOG-I72 with whatever the caller
+happened to be holding. `src/decode/identity.ts`, `src/write/update.ts`.
+
+### GOOG-I74. A superseded cursor is refused before the network, from an in-process frontier
+
+A cursor the adapter has already replaced must not be replayed: the pages it names have been consumed, and a
+delta taken from it would read against a base that no longer exists. The adapter owns the cursor, so it can
+refuse one locally. `createCursorFrontier` holds the most recently minted value per request-shape
+fingerprint; a cursor that is readable but is not the current frontier is answered `cursorLost` with no
+request spent. The frontier advances only on the last page's success, so a failed run cannot move it
+(GOOG-I9). `src/internals.ts`, `src/listing/list-changes.ts`; held by `CONF-O10` and `CONF-O24`.
+
+### GOOG-I75. The injected gate may answer with a typed failure of its own, and the seam honours it
+
+`GoogleDependencies.gate` is our code, not Google's: a quota gate can refuse a call before it is ever sent,
+and it refuses with a `ProviderFailure`, not with a Gaxios error. `gateFailureOf` reads a carried
+`failure.kind` off a rejection and maps it into the adapter's own failure vocabulary before
+`classifyGoogleError` is consulted. Without it, a gate that refuses with `rateLimited` would be classified
+from a status that was never set. `src/errors/gate-failure.ts`; held by `CONF-O23` and `CONF-L1`.
+
+### GOOG-I76. `Retry-After` is only read when it names an instant
+
+`decodeGaxiosError` is pure and has no clock, so it cannot turn `Retry-After: 30` into an instant. It reads
+a retry-after that already names an instant, or an HTTP-date, and otherwise reports `null`. Nothing is lost
+in practice: `retryDelayMs` clamps every provider-supplied delay to `retryBudget.retryDelayCeilingMs`, so a
+delta-seconds value would have been clamped to the same ceiling the exponential fallback produces. The
+capability declaration says `403` carries no retry-after and `429` does, and the classifier answers exactly
+that. `src/errors/gaxios-error.ts`, `src/errors/classify.ts`; held by
+`google/tests/errors/hostile-bodies.test.ts :: GOOG-O24: the status is read before anything can redact it`
+and by `CONF-O46`.
+
+### GOOG-I77. The retry delay is exponential under the budget's ceiling, and deliberately not jittered
+
+The delay is `min(ceiling, max(0, retryAfter - now))` when the provider named a time, and
+`min(ceiling, 100ms * 2^(attempt-1))` otherwise. There is no jitter: the only injected source of randomness
+is `randomId`, which is reserved for channel identifiers, and inventing a second one would add a dependency
+the ceiling already makes unnecessary at this concurrency. The property that matters — that a hostile
+`Retry-After` cannot outlast the budget — is the one under test. `src/client/backoff.ts`; held by
+`google/tests/lockups/retry-ceiling.test.ts :: GOOG-L1: a Retry-After in the next century cannot outlast the delay ceiling`.
+
+### GOOG-I78. A 409 on create is resolved by reading the id that is taken
+
+Google's 409 says only that the client-supplied id exists; it does not say whether what is there is what we
+were about to write. Answering `alreadyExists` blindly would hide a user's concurrent edit, and answering
+`conflict` blindly would stall an idempotent replay forever. `resolveDuplicate` reads the taken id once and
+compares its normalised fingerprint against the submitted one: equal is `alreadyExists`, different is a
+typed `conflict` carrying the version the calendar actually holds. Google's own advice — generate a new id —
+stays rejected (GOOG-I40). `src/write/create.ts`; held by
+`google/tests/writes/idempotent-create.test.ts :: GOOG-O14: a differing create against a taken id is refused, never blindly recreated`
+and by `CONF-O14`, `CONF-O15`, `CONF-O20` and `CONF-O21`.
+
+### GOOG-I79. A recurring event is always in scope, because nothing here expands it
+
+`withinGoogleWindow` judges a single occurrence. With `singleEvents: false` the adapter never sees a series'
+occurrences, so it cannot decide membership for one — and judging the series by its anchor would drop a
+weekly series whose anchor predates the window. A decoded series is therefore always reported and never
+becomes an `outOfScope` removal. The rule the predicate does own is unchanged and still lives in one module.
+`src/listing/build-feed.ts`; held by `google/tests/listing/series-assembly.test.ts` and `CONF-O36`.
+
+### GOOG-I80. `outOfOffice` mirrors as free, `workingLocation` is withheld, and transparency wins
+
+`verdictForEventType` gives every published `eventType` a mirrored availability or a refusal;
+`workingLocation` is withheld because a working-location block is not an appointment and the user could not
+delete it from Keeper. When the event carries an explicit `transparency` that value wins, because the
+publisher said it outright. An `eventType` Google has not published yet is `null` from `readEventType` and
+the item is withheld — never silently `busy`. `src/decode/event-type.ts`, `src/decode/decode-event.ts`;
+held by `google/tests/decode/event-type.test.ts :: GOOG-O27: an event type Google has not published is unrecognised, never busy`.
+
+### GOOG-I81. A spent precondition is a `WriteOutcome`, not a transport failure
+
+The protocol carries `conflict` twice: as a `WriteOutcome` with the remote reference and the observed
+precondition, and as a `ProviderFailure` with the precondition alone. A conditional write that lost is a
+completed operation with an answer, not a failed one, and the richer arm is the one that lets a caller retry
+against the version it now knows. Every write path answers `{ ok: true, value: { kind: "conflict" } }`.
+`src/write/update.ts`, `src/write/delete.ts`, `src/write/create.ts`; held by
+`google/tests/writes/stale-precondition.test.ts :: GOOG-O39: the conflict carries the version the calendar actually holds`.
+
+### GOOG-I82. A deadline is measured on the injected clock, not on the caller's `now`
+
+`OperationContext` carries both a `deadline` and a `now`. The adapter measures its remaining budget with
+`dependencies.clock` — the same clock whose `sleep` arms the deadline — so the two can never disagree, and a
+caller cannot hand the adapter a frozen `now` that makes every deadline infinite. `src/client/deadline.ts`,
+`src/listing/paginate.ts`; held by `CONF-L13`.
+
+### Defects found in the material the adapter was written against
+
+Three in `@keeper.sh/sync-conformance` and two in this package's own test support. All five are fixed in
+place; the conformance package's own 309 tests, including its 119 negative controls, still pass.
+
+1. **`CONF-O25`, `CONF-O36`, `CONF-O39` and `CONF-O44` fabricated provider identities.** They addressed the
+   object a create had just made as `id-<idempotencyKey>` and `handle-<idempotencyKey>` — the reference
+   provider's private convention. No provider whose identifiers are assigned server-side can satisfy that,
+   and Google's are: the id is the client-supplied base32hex value and the delete handle is the same id. The
+   cases now use the `RemoteRef` the create returned, which is identical for the reference provider and
+   correct for every other one.
+2. **`CONF-O39` demanded the failure arm of a conflict.** `CONF-O15` and `assertConflictNotOverwrite` both
+   accept either arm; only `CONF-O39` insisted on `!ok`. It now accepts either, exactly as `CONF-O15` does,
+   which keeps the property — never a silent second write — and drops the accidental one.
+3. **`CONF-O27` contradicted `CONF-O5`.** It required every event the window predicate admits to appear in
+   `listing.events`, ignoring the withheld arm — so an adapter that withholds a zero-duration event, which
+   `CONF-O28` requires of any adapter declaring `zeroDuration: "reject"`, could not pass both. It now counts
+   presence the way `CONF-O1` already did, over events *and* withheld identities.
+4. **The fake Google kept vanished events instead of tombstoning them.** `ProviderSeed` is the provider's
+   whole state, so an identity dropped from a later seed has been deleted. Google reports that as a
+   `status: "cancelled"` item under `showDeleted: true`, and the fake now does the same: it replaces its feed
+   and leaves a tombstone behind, keeping the `iCalUID` so the cancellation stays attributable. It also
+   stores its feed as an ordered list rather than a map, because a real listing can carry the same id twice
+   across pages — which is the whole point of `collapse-revisions`.
+5. **The fake Google answered no `events.get`, and its OAuth2 client carried no credentials.** The client
+   threw `No access, refresh token, API key or refresh handler callback is set` before any request reached
+   the fake; it is now given an access token. The missing `events.get` handler made every 409 and 412
+   resolution fail as a transport error.

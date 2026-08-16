@@ -193,7 +193,7 @@ const bodyOf = async (request: Request): Promise<unknown> => {
 };
 
 const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
-  const stored = new Map<string, calendar_v3.Schema$Event>();
+  const stored: calendar_v3.Schema$Event[] = [];
   const recorded: RecordedRequest[] = [];
   const openChannels: calendar_v3.Schema$Channel[] = [];
   const listFailures: ScriptedFailure[] = [];
@@ -220,8 +220,37 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
     return { slice, nextPageToken: null, last: true };
   };
 
+  const lastIndexOfId = (id: string): number =>
+    stored.findLastIndex((item) => item.id === id);
+
+  const itemWithId = (id: string): calendar_v3.Schema$Event | null => {
+    const position = lastIndexOfId(id);
+    if (position === -1) {
+      return null;
+    }
+    return stored.at(position) ?? null;
+  };
+
+  const replaceAt = (position: number, item: calendar_v3.Schema$Event): void => {
+    stored.splice(position, 1, item);
+  };
+
+  const tombstonesFor = (
+    events: readonly RemoteEvent[],
+  ): readonly calendar_v3.Schema$Event[] => {
+    const surviving = new Set(events.map((event) => event.id.value));
+    const vanished = new Map<string, calendar_v3.Schema$Event>();
+    for (const item of stored) {
+      if (typeof item.id !== "string" || surviving.has(item.id)) {
+        continue;
+      }
+      vanished.set(item.id, { ...item, status: "cancelled" });
+    }
+    return [...vanished.values()];
+  };
+
   const listBody = (pageToken: string | null): unknown => {
-    const page = pageOf([...stored.values()], pageToken);
+    const page = pageOf([...stored], pageToken);
     issuedTokens += 1;
     const base = { kind: "calendar#events", items: page.slice };
     if (!page.last) {
@@ -248,6 +277,14 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
       return errorResponse(failure);
     }
     return jsonResponse(200, listBody(url.searchParams.get("pageToken")), headersOf({}));
+  };
+
+  const answerEvent = (eventId: string): Response => {
+    const found = itemWithId(eventId);
+    if (!found) {
+      return errorResponse({ onCall: 0, status: 404, reason: "notFound", bodyShape: "json" });
+    }
+    return jsonResponse(200, found, headersOf({ etag: found.etag ?? "" }));
   };
 
   const answerCalendarList = (): Response => {
@@ -277,7 +314,7 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
     }
     const submitted: calendar_v3.Schema$Event = body;
     const id = submitted.id ?? `generated-${writeCalls}`;
-    const existing = stored.get(id);
+    const existing = itemWithId(id);
     if (existing) {
       return errorResponse({
         onCall: writeCalls,
@@ -287,13 +324,14 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
       });
     }
     const created = { ...submitted, id, etag: `"v1-${id}"`, status: "confirmed" };
-    stored.set(id, created);
+    stored.push(created);
     return jsonResponse(200, created, headersOf({ etag: `"v1-${id}"` }));
   };
 
   const patch = (id: string, body: unknown, ifMatch: string | null): Response => {
-    const existing = stored.get(id);
-    if (!existing) {
+    const position = lastIndexOfId(id);
+    const existing = stored.at(position);
+    if (position === -1 || !existing) {
       return errorResponse({
         onCall: writeCalls,
         status: 404,
@@ -314,12 +352,12 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
     }
     const revision = Number.parseInt((existing.etag ?? `"v1-${id}"`).slice(2), 10) + 1;
     const next = { ...existing, ...body, id, etag: `"v${revision}-${id}"` };
-    stored.set(id, next);
+    replaceAt(position, next);
     return jsonResponse(200, next, headersOf({ etag: `"v${revision}-${id}"` }));
   };
 
   const remove = (id: string, ifMatch: string | null): Response => {
-    const existing = stored.get(id);
+    const existing = itemWithId(id);
     if (!existing) {
       return errorResponse({ onCall: writeCalls, status: 410, reason: "deleted", bodyShape: "json" });
     }
@@ -331,7 +369,11 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
         bodyShape: "json",
       });
     }
-    stored.delete(id);
+    for (let position = stored.length - 1; position >= 0; position -= 1) {
+      if (stored.at(position)?.id === id) {
+        stored.splice(position, 1);
+      }
+    }
     return new Response(null, { status: 204 });
   };
 
@@ -397,6 +439,9 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
     if (method === "GET" && url.pathname.endsWith("/events")) {
       return answerList(url);
     }
+    if (method === "GET" && url.pathname.includes("/events/")) {
+      return answerEvent(decodeURIComponent(url.pathname.split("/events/").at(1) ?? ""));
+    }
     return answerWrite(method, url, body, ifMatch);
   };
 
@@ -418,37 +463,37 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
   return {
     fetch: fakeFetch,
     seedFromProvider: (seed: ProviderSeed) => {
+      const vanished = tombstonesFor(seed.events);
+      stored.length = 0;
       for (const event of seed.events) {
-        stored.set(event.id.value, itemOfRemoteEvent(event, options.startedAt));
+        stored.push(itemOfRemoteEvent(event, options.startedAt));
       }
+      stored.push(...vanished);
       for (const uid of seed.cancelled) {
-        for (const [id, item] of stored.entries()) {
+        for (const [position, item] of stored.entries()) {
           if (item.iCalUID === uid.value) {
-            stored.set(id, { ...item, status: "cancelled" });
+            replaceAt(position, { ...item, status: "cancelled" });
           }
         }
       }
       for (const id of seed.unattributableRemovals) {
-        stored.set(id.value, { id: id.value, status: "cancelled" });
+        stored.push({ id: id.value, status: "cancelled" });
       }
-      if (seed.corruptKnownRows.length > 0) {
-        corruptStoredRows = true;
-      }
+      corruptStoredRows = seed.corruptKnownRows.length > 0;
     },
     putItems: (items: readonly calendar_v3.Schema$Event[]) => {
-      for (const item of items) {
-        stored.set(item.id ?? `anonymous-${stored.size}`, item);
-      }
+      stored.push(...items);
     },
     cancelItem: (id: string) => {
-      const existing = stored.get(id);
-      if (!existing) {
-        stored.set(id, { id, status: "cancelled" });
+      const position = lastIndexOfId(id);
+      const existing = stored.at(position);
+      if (position === -1 || !existing) {
+        stored.push({ id, status: "cancelled" });
         return;
       }
-      stored.set(id, { ...existing, status: "cancelled" });
+      replaceAt(position, { ...existing, status: "cancelled" });
     },
-    items: () => [...stored.values()],
+    items: () => [...stored],
     requests: () => [...recorded],
     listCallCount: () => listCalls,
     channels: () => [...openChannels],

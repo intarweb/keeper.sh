@@ -1,6 +1,13 @@
 import type { calendar_v3 } from "@googleapis/calendar";
-import type { DeleteHandle, EventUid, RemoteEventId, RemoteVersion } from "@keeper.sh/sync-protocol";
-import { unimplemented } from "../unimplemented";
+import type {
+  DeleteHandle,
+  EventUid,
+  RemoteEventId,
+  RemoteVersion,
+  Revision,
+} from "@keeper.sh/sync-protocol";
+
+const mirroredUidPropertyKey = "keeper.sh/uid";
 
 interface DecodedIdentity {
   readonly id: RemoteEventId;
@@ -9,10 +16,56 @@ interface DecodedIdentity {
   readonly version: RemoteVersion | null;
 }
 
-const decodeIdentity = (item: calendar_v3.Schema$Event): DecodedIdentity | null =>
-  unimplemented(item);
+const nonEmpty = (value: string | null | undefined): string | null => {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+  return value;
+};
 
-const versionOfEtag = (etag: string | null | undefined): RemoteVersion | null => unimplemented(etag);
+const versionOfEtag = (etag: string | null | undefined): RemoteVersion | null => {
+  const named = nonEmpty(etag);
+  if (named === null) {
+    return null;
+  }
+  const unquoted = named.replace(/^W\//, "").replaceAll('"', "");
+  if (unquoted.length === 0) {
+    return null;
+  }
+  return { kind: "remoteVersion", value: unquoted };
+};
 
-export { decodeIdentity, versionOfEtag };
+const revisionOfVersion = (version: RemoteVersion): Revision => {
+  const digits = /\d+/.exec(version.value);
+  if (!digits) {
+    return 1;
+  }
+  return Number.parseInt(digits[0], 10);
+};
+
+const mirroredUidOf = (item: calendar_v3.Schema$Event): string | null =>
+  nonEmpty(item.extendedProperties?.private?.[mirroredUidPropertyKey]);
+
+const uidOf = (item: calendar_v3.Schema$Event): EventUid | null => {
+  const named = mirroredUidOf(item) ?? nonEmpty(item.iCalUID);
+  if (named === null) {
+    return null;
+  }
+  return { kind: "eventUid", value: named };
+};
+
+const decodeIdentity = (item: calendar_v3.Schema$Event): DecodedIdentity | null => {
+  const id = nonEmpty(item.id);
+  if (id === null) {
+    return null;
+  }
+  return {
+    id: { kind: "remoteEventId", value: id },
+    deleteHandle: { kind: "deleteHandle", value: id },
+    uid: uidOf(item),
+    version: versionOfEtag(item.etag),
+  };
+};
+
+export { decodeIdentity, mirroredUidPropertyKey, revisionOfVersion, versionOfEtag };
 export type { DecodedIdentity };
