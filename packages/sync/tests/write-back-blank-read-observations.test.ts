@@ -17,9 +17,9 @@ const DESTINATION_CALENDAR_ID = "22222222-2222-4222-8222-222222222222";
 const DDL = `
 create table source_destination_mappings (
   "id" uuid primary key default gen_random_uuid(),
-  "copiesMissingObservedAt" timestamp,
+  "copiesMissingObservedAt" timestamptz,
   "destinationCalendarId" uuid not null,
-  "lastHealthyReadAt" timestamp,
+  "lastHealthyReadAt" timestamptz,
   "sourceCalendarId" uuid not null,
   "writeBackMode" text not null default 'off',
   "writeBackState" text not null default 'ok',

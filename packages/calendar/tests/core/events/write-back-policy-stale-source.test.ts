@@ -34,12 +34,12 @@ create table calendars (
   "excludeEventDescription" boolean not null default false,
   "excludeEventLocation" boolean not null default false,
   "excludeEventName" boolean not null default false,
-  "ingestLastSucceededAt" timestamp,
+  "ingestLastSucceededAt" timestamptz,
   "userId" text not null default 'user-1'
 );
 create table source_destination_mappings (
   "id" uuid primary key default gen_random_uuid(),
-  "deleteConfirmationApprovedAt" timestamp,
+  "deleteConfirmationApprovedAt" timestamptz,
   "destinationCalendarId" uuid not null,
   "sourceCalendarId" uuid not null,
   "writeBackMode" text not null default 'off',

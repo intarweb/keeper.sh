@@ -18,8 +18,8 @@ const DDL = `
 create table event_mappings (
   "id" uuid primary key,
   "writeBackEpoch" integer not null default 0,
-  "writeBackEpochWindowStart" timestamp,
-  "writeBackLastAppliedAt" timestamp
+  "writeBackEpochWindowStart" timestamptz,
+  "writeBackLastAppliedAt" timestamptz
 );
 `;
 

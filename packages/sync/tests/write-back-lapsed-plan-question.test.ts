@@ -27,7 +27,7 @@ create table source_destination_mappings (
   "id" uuid primary key,
   "destinationCalendarId" uuid not null,
   "sourceCalendarId" uuid not null,
-  "deleteConfirmationApprovedAt" timestamp,
+  "deleteConfirmationApprovedAt" timestamptz,
   "writeBackMode" text not null default 'off',
   "writeBackState" text not null default 'ok',
   "writeBackStateReason" text
@@ -39,16 +39,16 @@ create table event_mappings (
   "destinationAvailability" text,
   "destinationContentHash" text,
   "destinationDescription" text,
-  "destinationEndTime" timestamp,
+  "destinationEndTime" timestamptz,
   "destinationIsAllDay" boolean,
   "destinationLocation" text,
-  "destinationStartTime" timestamp,
+  "destinationStartTime" timestamptz,
   "destinationSummary" text,
   "writeBackDailyCount" integer not null default 0,
-  "writeBackDailyWindowStart" timestamp,
+  "writeBackDailyWindowStart" timestamptz,
   "writeBackEpoch" integer not null default 0,
-  "writeBackEpochWindowStart" timestamp,
-  "writeBackLastAppliedAt" timestamp
+  "writeBackEpochWindowStart" timestamptz,
+  "writeBackLastAppliedAt" timestamptz
 );
 `;
 

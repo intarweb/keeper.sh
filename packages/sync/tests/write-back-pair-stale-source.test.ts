@@ -31,7 +31,7 @@ create table calendars (
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
   "disabled" boolean not null default false,
-  "ingestLastSucceededAt" timestamp
+  "ingestLastSucceededAt" timestamptz
 );
 create table source_destination_mappings (
   "id" uuid primary key default gen_random_uuid(),

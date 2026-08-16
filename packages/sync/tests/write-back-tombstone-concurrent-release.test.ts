@@ -17,12 +17,12 @@ const EVENT_STATE_ID = "44444444-4444-4444-8444-444444444444";
 const DDL = `
 create table event_write_back_tombstones (
   "id" uuid primary key default gen_random_uuid(),
-  "appliedAt" timestamp not null default now(),
+  "appliedAt" timestamptz not null default now(),
   "destinationCalendarId" uuid not null,
   "eventMappingId" uuid not null,
   "eventStateId" uuid,
-  "expiresAt" timestamp not null,
-  "observedAt" timestamp,
+  "expiresAt" timestamptz not null,
+  "observedAt" timestamptz,
   "snapshot" jsonb not null,
   "sourceCalendarId" uuid not null,
   "sourceEventUid" text not null,
