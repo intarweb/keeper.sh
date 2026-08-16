@@ -1,3 +1,4 @@
+import { TWO_WAY_EDIT_ABSOLUTE_CEILING } from "@keeper.sh/constants";
 import { describe, expect, it } from "vitest";
 import { classifyInboundChanges } from "../../../src/core/sync/write-back";
 import type { ReconciliationScope } from "../../../src/core/sync/operations";
@@ -224,5 +225,28 @@ describe("a sub-majority destination-side shift is held back from the source", (
 
     expect(writeBacksIn(result)).toHaveLength(4);
     expect(result.writeBackHold).toBeNull();
+  });
+
+  /*
+   * The number the dashboard discloses. One edit past it discards the whole batch rather
+   * than the one that crossed the line, so the figure the user is shown has to be the
+   * figure the classifier holds at.
+   */
+  it("writes back every edit at the disclosed ceiling", () => {
+    const result = classifyMixedCalendar(TWO_WAY_EDIT_ABSOLUTE_CEILING, 290);
+
+    expect(writeBacksIn(result)).toHaveLength(TWO_WAY_EDIT_ABSOLUTE_CEILING);
+    expect(result.writeBackHold).toBeNull();
+  });
+
+  it("writes back none of them one edit past the disclosed ceiling", () => {
+    const result = classifyMixedCalendar(TWO_WAY_EDIT_ABSOLUTE_CEILING + 1, 289);
+
+    expect(writeBacksIn(result)).toEqual([]);
+    expect(result.counters.editBreakerTripped).toBe(1);
+    expect(result.writeBackHold).toEqual({
+      reason: "bulk_edit_breaker",
+      sourceCalendarIds: [SOURCE_A],
+    });
   });
 });

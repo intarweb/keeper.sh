@@ -8,13 +8,14 @@ import { WRITE_BACK_STATE_COPY } from "@/lib/write-back-copy";
  * {source} was touched" reads as the opposite — as the change sitting on the copy waiting
  * for the pause to be lifted — so every quarantine reason has to say where the copy ends up.
  *
- * The two delete_confirmation_required reasons are deliberately absent: that state keeps
- * the mode and holds the pending mappings, so their copies are not rebuilt.
+ * The delete_confirmation_required reasons are deliberately absent: that state keeps the
+ * mode and holds every mapping of the pair, so none of their copies are rebuilt.
+ * delete_probe_blocked is one of them — packages/sync/src/write-back-pass.ts hands it to
+ * requestDeleteConfirmation, which stores delete_confirmation_required.
  */
 const QUARANTINE_REASONS = [
   "bulk_edit_breaker",
   "delete_daily_cap",
-  "delete_probe_blocked",
   "plan_downgraded",
   "runaway_write_back",
   "source_event_authored_by_someone_else",
@@ -24,7 +25,11 @@ const QUARANTINE_REASONS = [
   "write_back_failing",
 ];
 
-const HELD_REASONS = ["all_copies_missing", "delete_breaker_tripped"];
+const HELD_REASONS = [
+  "all_copies_missing",
+  "delete_breaker_tripped",
+  "delete_probe_blocked",
+];
 
 const COPY_FATE = "go back to matching {source}";
 

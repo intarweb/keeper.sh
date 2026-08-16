@@ -76,6 +76,38 @@ const resolveAccountIdentity = (
 };
 
 /*
+ * Apple gives one account the same mailbox at all three of these, and its clients stamp
+ * ORGANIZER with whichever the account was created under — routinely not the one the user
+ * signs CalDAV in with. No @me.com or @mac.com address has been issued since 2012, so a
+ * matching local part across the three names the same person and nobody else.
+ */
+const APPLE_ALIAS_DOMAINS = new Set(["icloud.com", "mac.com", "me.com"]);
+const ADDRESS_PARTS = 2;
+
+const splitAddress = (address: string): { domain: string; local: string } | null => {
+  const parts = address.split("@");
+  const [local, domain] = parts;
+  if (parts.length !== ADDRESS_PARTS || !local || !domain) {
+    return null;
+  }
+  return { domain, local };
+};
+
+const isSameAppleAccount = (organizer: string, identity: string): boolean => {
+  const left = splitAddress(organizer);
+  const right = splitAddress(identity);
+  if (!left || !right) {
+    return false;
+  }
+  return left.local === right.local
+    && APPLE_ALIAS_DOMAINS.has(left.domain)
+    && APPLE_ALIAS_DOMAINS.has(right.domain);
+};
+
+const isSameIdentity = (organizer: string, identity: string): boolean =>
+  organizer === identity || isSameAppleAccount(organizer, identity);
+
+/*
  * An ORGANIZER that cannot be compared to anything is not an event this account is known
  * to have written, and a shared collection is exactly where an unmatchable one appears.
  * Refusing costs the user an unsynced edit; guessing costs somebody else their event.
@@ -91,7 +123,8 @@ const isAuthoredBySomeoneElse = (
   if (!identity) {
     return true;
   }
-  return organizers.some((organizer) => normalizeOrganizerAddress(organizer) !== identity);
+  return organizers.some((organizer) =>
+    !isSameIdentity(normalizeOrganizerAddress(organizer), identity));
 };
 
 const ensureTrailingSlash = (url: string): string => {

@@ -1,3 +1,4 @@
+import { TWO_WAY_EDIT_ABSOLUTE_CEILING } from "@keeper.sh/constants";
 import { describeWriteBackFields } from "@keeper.sh/data-schemas";
 import type { WriteBackFieldExclusions } from "@keeper.sh/data-schemas";
 
@@ -60,11 +61,31 @@ const resolveConflictSentence = (sourceName: string): string =>
   `If the original also changed since Keeper.sh last updated the copy, ${sourceName} wins:`
   + " the copy is rebuilt from the original and the edit made on the copy is replaced.";
 
+/*
+ * A pass that sees more edited copies of one calendar than the ceiling writes none of them
+ * back and rebuilds all of them: the batch reads as something moving the whole calendar
+ * rather than as edits a person made. Every other exception is stated here, so leaving
+ * this one out is what makes it a surprise — the user drags a day of meetings and learns
+ * the rule afterwards, from a status line, with the edits already gone.
+ */
+const resolveBatchSentence = (sourceName: string): string =>
+  `Editing more than ${TWO_WAY_EDIT_ABSOLUTE_CEILING} copies before Keeper.sh next checks`
+  + " reads as something moving the whole calendar rather than as edits you made: none of"
+  + ` those edits reach ${sourceName}, those copies are rebuilt from it, and two-way sync`
+  + " pauses until you switch it on again.";
+
 const buildWriteBackFieldSummary = (
   exclusions: WriteBackFieldExclusions,
   sourceName: string,
-): { adopted: string; conflict: string; hidden: string | null; written: string } => ({
+): {
+  adopted: string;
+  batch: string;
+  conflict: string;
+  hidden: string | null;
+  written: string;
+} => ({
   adopted: resolveAdoptedSentence(sourceName),
+  batch: resolveBatchSentence(sourceName),
   conflict: resolveConflictSentence(sourceName),
   hidden: resolveHiddenSentence(resolveHiddenFields(exclusions)),
   written: `Editing a copy changes the original event on ${sourceName}: its `

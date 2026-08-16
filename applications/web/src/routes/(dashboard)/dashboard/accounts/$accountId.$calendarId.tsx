@@ -590,6 +590,7 @@ function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
       {summary.hidden ? `${summary.hidden} ` : ""}
       Only the fields you actually change are written back. Repeating events stay one-way.
       {` ${summary.adopted}`}
+      {` ${summary.batch}`}
     </Text>
   );
 }

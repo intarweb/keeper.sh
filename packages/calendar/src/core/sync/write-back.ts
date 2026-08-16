@@ -11,6 +11,8 @@ import {
 import { resolveIsAllDayEvent } from "../events/all-day";
 import { DEFAULT_EVENT_NAME } from "../events/default-event-name";
 import {
+  TWO_WAY_EDIT_ABSOLUTE_CEILING,
+  TWO_WAY_EDIT_ABSOLUTE_FLOOR,
   TWO_WAY_WRITE_BACK_DAILY_CAP,
   TWO_WAY_WRITE_BACK_DAILY_WINDOW_MS,
 } from "@keeper.sh/constants";
@@ -37,25 +39,7 @@ const TWO_WAY_DELETE_GRACE_MS = 10 * MINUTE_MS;
 const TWO_WAY_DELETE_MIN_OBSERVATIONS = 2;
 const TWO_WAY_DELETE_ABSOLUTE_FLOOR = 5;
 const TWO_WAY_DELETE_RATIO = 0.2;
-/*
- * An edit destroys the previous values of a real event as surely as a deletion destroys
- * the event, and it leaves no tombstone to restore from. One destination-side event can
- * move every copy at once — a calendar timezone change, a tzdata update, an import over
- * the mirror — and read as the user having edited all of them. The floor sits above what
- * a person plausibly edits inside one pass, and the ratio above what a bulk provider-side
- * shift leaves untouched, so a real editing session still writes through.
- */
-const TWO_WAY_EDIT_ABSOLUTE_FLOOR = 10;
 const TWO_WAY_EDIT_RATIO = 0.5;
-/*
- * A ratio alone cannot see a shift that moved a large minority of a large calendar, and a
- * large minority of real events is exactly what nobody can put back: an edit carries no
- * confirmation, no per-event probe, no tombstone and no per-calendar daily cap, so the
- * count in a single pass is the only bound there is. The same figure the floor already
- * calls more than a person plausibly edits inside one pass is therefore also the most any
- * one source calendar may take from one pass, whatever the calendar's size.
- */
-const TWO_WAY_EDIT_ABSOLUTE_CEILING = TWO_WAY_EDIT_ABSOLUTE_FLOOR;
 const TWO_WAY_EPOCH_QUARANTINE_LIMIT = 5;
 const TWO_WAY_EPOCH_WINDOW_MS = 60 * MINUTE_MS;
 const FIRST_OBSERVATION = 1;
@@ -1394,12 +1378,14 @@ const runMappingPass = (input: {
     /*
      * The pair is waiting on a human answer about copies that vanished. Acting on any of
      * them would pre-empt the answer, and letting the missing ones be re-created would
-     * reset the very pending state the answer applies to.
+     * reset the very pending state the answer applies to. The copies that are still there
+     * are held for the same span: the pair writes nothing back while it waits, so
+     * rebuilding one would silently discard an edit the user made on it — with no
+     * write-back to carry that edit anywhere — while they were being asked about
+     * something else entirely.
      */
     if (policy.paused) {
-      if (!input.remoteEventsByMappingId.has(mapping.id)) {
-        result.suppressedMappingIds.push(mapping.id);
-      }
+      result.suppressedMappingIds.push(mapping.id);
       continue;
     }
     const outcome = classifyMapping(

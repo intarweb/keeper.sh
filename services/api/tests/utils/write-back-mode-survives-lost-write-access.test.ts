@@ -28,8 +28,18 @@ const { getWriteBackModesForSource, sourceSupportsWriteBack } = await import(
 const USER_ID = "user-1";
 
 const DDL = `
+create table caldav_credentials (
+  "id" uuid primary key default gen_random_uuid(),
+  "username" text not null
+);
+create table calendar_accounts (
+  "id" uuid primary key default gen_random_uuid(),
+  "caldavCredentialId" uuid,
+  "email" text
+);
 create table calendars (
   "id" uuid primary key default gen_random_uuid(),
+  "accountId" uuid,
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
   "userId" text not null
@@ -71,6 +81,8 @@ const insertMapping = async (
 beforeEach(async () => {
   await client.exec(`drop table if exists source_destination_mappings cascade;`);
   await client.exec(`drop table if exists calendars cascade;`);
+  await client.exec(`drop table if exists calendar_accounts cascade;`);
+  await client.exec(`drop table if exists caldav_credentials cascade;`);
   await client.exec(DDL);
 });
 

@@ -49,6 +49,26 @@ const TWO_WAY_WRITE_BACK_DAILY_WINDOW_MS = MS_PER_DAY;
  * before anything else could go wrong unattended.
  */
 const TWO_WAY_DELETE_APPROVAL_TTL_MS = 30 * MS_PER_MINUTE;
+/*
+ * An edit destroys the previous values of a real event as surely as a deletion destroys
+ * the event, and it leaves no tombstone to restore from. One destination-side event can
+ * move every copy at once — a calendar timezone change, a tzdata update, an import over
+ * the mirror — and read as the user having edited all of them. The floor sits above what
+ * a person plausibly edits inside one pass, and the ratio above what a bulk provider-side
+ * shift leaves untouched, so a real editing session still writes through.
+ */
+const TWO_WAY_EDIT_ABSOLUTE_FLOOR = 10;
+/*
+ * A ratio alone cannot see a shift that moved a large minority of a large calendar, and a
+ * large minority of real events is exactly what nobody can put back: an edit carries no
+ * confirmation, no per-event probe, no tombstone and no per-calendar daily cap, so the
+ * count in a single pass is the only bound there is. The same figure the floor already
+ * calls more than a person plausibly edits inside one pass is therefore also the most any
+ * one source calendar may take from one pass, whatever the calendar's size. The dashboard
+ * discloses this number, so it lives beside the other bounds the product states rather
+ * than inside the classifier that enforces it.
+ */
+const TWO_WAY_EDIT_ABSOLUTE_CEILING = TWO_WAY_EDIT_ABSOLUTE_FLOOR;
 const PROVIDER_INGEST_REQUEST_TIMEOUT_MS = 90_000;
 const INGEST_SOURCE_TIMEOUT_MS = 120_000;
 
@@ -76,6 +96,8 @@ export {
   TWO_WAY_DELETE_APPROVAL_TTL_MS,
   TWO_WAY_DELETE_DAILY_CAP,
   TWO_WAY_DELETE_DAILY_WINDOW_MS,
+  TWO_WAY_EDIT_ABSOLUTE_CEILING,
+  TWO_WAY_EDIT_ABSOLUTE_FLOOR,
   TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
   TWO_WAY_WRITE_BACK_DAILY_CAP,
   TWO_WAY_WRITE_BACK_DAILY_WINDOW_MS,

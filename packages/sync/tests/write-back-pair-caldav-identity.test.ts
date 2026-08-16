@@ -44,10 +44,19 @@ const store = createDatabaseWriteBackStore({
   userId: USER_ID,
 });
 
-const seed = async (disabled: boolean): Promise<void> => {
+const seed = async (username: string): Promise<void> => {
+  const credential = await client.query<{ id: string }>(
+    `insert into caldav_credentials ("username") values ($1) returning "id"`,
+    [username],
+  );
+  const account = await client.query<{ id: string }>(
+    `insert into calendar_accounts ("caldavCredentialId") values ($1) returning "id"`,
+    [credential.rows[0]?.id],
+  );
   await client.query(
-    `insert into calendars ("id", "capabilities", "disabled") values ($1, $2, $3)`,
-    [SOURCE_CALENDAR_ID, ["pull", "push"], disabled],
+    `insert into calendars ("id", "accountId", "calendarType", "capabilities")
+     values ($1, $2, 'caldav', $3)`,
+    [SOURCE_CALENDAR_ID, account.rows[0]?.id, ["pull", "push"]],
   );
   await client.query(
     `insert into calendars ("id", "capabilities") values ($1, $2)`,
@@ -78,20 +87,22 @@ beforeEach(async () => {
 
 /*
  * The gate taken under the source lock, immediately before a real calendar is written. A
- * paused source is one Keeper.sh has stopped reading, so the snapshot every downstream
- * "refuse if the original moved" guard compares against is frozen and cannot dissent.
+ * CalDAV account carries no stored email, so the login is the only address it is known by.
+ * On a server that authenticates by username there is no address at all, and the
+ * authorship guard then refuses every event carrying an ORGANIZER — quarantining the pair
+ * on the user's own event and rebuilding the edit that triggered it away.
  */
-describe("the last write-back gate for a paused source", () => {
-  it("reads the pair as off while the source is paused", async () => {
-    await seed(true);
+describe("the last write-back gate for a CalDAV source with no address to compare", () => {
+  it("reads the pair as off when the login is a bare username", async () => {
+    await seed("nextcloud-admin");
 
     const pair = await readPair();
 
     expect(pair?.writeBackMode).toBe("off");
   });
 
-  it("still reads the stored mode while the source is running", async () => {
-    await seed(false);
+  it("still reads the stored mode when the login is an address", async () => {
+    await seed("me@fastmail.com");
 
     const pair = await readPair();
 

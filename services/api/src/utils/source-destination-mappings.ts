@@ -1,4 +1,6 @@
 import {
+  caldavCredentialsTable,
+  calendarAccountsTable,
   calendarsTable,
   eventMappingsTable,
   sourceDestinationMappingsTable,
@@ -812,6 +814,13 @@ const resolveWriteBackEnabledAt = (writeBackMode: string): Date | null => {
   return new Date();
 };
 
+/*
+ * A CalDAV account is stored without an email, so the login the credential was created
+ * with is the only address the account is known by — and on a server that authenticates by
+ * username it is not an address at all. The authorship guard has nothing to weigh an
+ * ORGANIZER against without it, so the identity travels with the capabilities and the mode
+ * is refused rather than accepted and quarantined on the first organized event.
+ */
 const sourceSupportsWriteBack = async (
   userId: string,
   sourceCalendarId: string,
@@ -819,17 +828,34 @@ const sourceSupportsWriteBack = async (
   const { database } = await import("@/context");
   const [source] = await database
     .select({
+      accountEmail: calendarAccountsTable.email,
       calendarType: calendarsTable.calendarType,
       capabilities: calendarsTable.capabilities,
+      caldavUsername: caldavCredentialsTable.username,
     })
     .from(calendarsTable)
+    .leftJoin(
+      calendarAccountsTable,
+      eq(calendarsTable.accountId, calendarAccountsTable.id),
+    )
+    .leftJoin(
+      caldavCredentialsTable,
+      eq(calendarAccountsTable.caldavCredentialId, caldavCredentialsTable.id),
+    )
     .where(and(
       eq(calendarsTable.id, sourceCalendarId),
       eq(calendarsTable.userId, userId),
     ))
     .limit(1);
 
-  return isWriteBackCapableSource(source ?? null);
+  if (!source) {
+    return false;
+  }
+  return isWriteBackCapableSource({
+    calendarType: source.calendarType,
+    capabilities: source.capabilities,
+    writeBackIdentity: source.accountEmail ?? source.caldavUsername,
+  });
 };
 
 const clearDestinationWitness = async (
