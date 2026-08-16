@@ -237,7 +237,7 @@ interface WriteBackStore {
   ) => Promise<TResult>;
 }
 
-type DeleteBlockedReason = "probe_unavailable" | "still_present";
+type DeleteBlockedReason = "probe_unavailable" | "probe_unreachable" | "still_present";
 
 interface WriteBackPassInput {
   calendarId: string;
@@ -378,16 +378,26 @@ const isPairStillAuthorized = async (
 
 type Outcome = "abandoned" | "applied" | "quarantined" | "withheld";
 
+/*
+ * What happened to the classification, and whether the pair stopped accepting work
+ * because of it. The two are separate because a write can reach the real calendar and
+ * trip a stop on the way out: the pair must pause, and the source event must still be
+ * reported as changed to everything that mirrors it.
+ */
+interface ClassificationOutcome {
+  outcome: Outcome;
+  pausesPair: boolean;
+}
+
 const quarantineRunaway = async (
   input: WriteBackPassInput,
   target: WriteBackTarget,
-): Promise<Outcome> => {
+): Promise<void> => {
   await input.store.quarantineMapping(
     target.sourceCalendarId,
     target.destinationCalendarId,
     "runaway_write_back",
   );
-  return "quarantined";
 };
 
 const runLockedUpdate = (
@@ -486,13 +496,17 @@ const applyUpdate = async (
   target: WriteBackTarget,
   writer: CalendarSourceWriter,
   classification: Extract<InboundClassification, { type: "write-back" }>,
-): Promise<Outcome> => {
+): Promise<ClassificationOutcome> => {
   const outcome = await runBudgetedUpdate(input, target, writer, classification);
   if (outcome.kind === "refused") {
-    return quarantineRefusal(input, target, outcome.refusal);
+    return {
+      outcome: await quarantineRefusal(input, target, outcome.refusal),
+      pausesPair: true,
+    };
   }
   if (outcome.kind === "over-budget") {
-    return quarantineRunaway(input, target);
+    await quarantineRunaway(input, target);
+    return { outcome: "quarantined", pausesPair: true };
   }
   /*
    * The classifier stops handing this mapping work the moment its daily count reaches the
@@ -506,9 +520,37 @@ const applyUpdate = async (
       || outcome.dailyCount >= TWO_WAY_WRITE_BACK_DAILY_CAP
     )
   ) {
-    return quarantineRunaway(input, target);
+    await quarantineRunaway(input, target);
+    /*
+     * The write already reached the real calendar; only the stop came after it. Reporting
+     * it as a quarantine alone would tell the rest of the pass that no source event
+     * changed, so the other destinations mirroring that source are never woken and the
+     * pass that modified a real calendar reports having written nothing.
+     */
+    return { outcome: "applied", pausesPair: true };
   }
-  return outcome.state;
+  return { outcome: outcome.state, pausesPair: false };
+};
+
+/*
+ * A probe that throws has not said the copy is gone; it has said it could not look. That
+ * is the provider declining a read, on a path where nothing was written and no source
+ * calendar was contacted, so it must not be spent as the permanent defect that turns
+ * two-way sync off for the pair and hands the edited copies back to the one-way repair.
+ * It is reported and answered as "cannot confirm", which pauses the pair with a question
+ * for the user once the retries run out.
+ */
+const readPresence = async (
+  input: WriteBackPassInput,
+  target: WriteBackTarget,
+  probe: (target: WriteBackTarget) => Promise<RemoteEventPresence>,
+): Promise<RemoteEventPresence | null> => {
+  try {
+    return await probe(target);
+  } catch (error) {
+    input.onError?.(error, { mappingId: target.mappingId });
+    return null;
+  }
 };
 
 /*
@@ -529,9 +571,16 @@ const isAbsenceConfirmed = async (
     return false;
   }
 
-  const presence = await probe(target);
+  const presence = await readPresence(input, target, probe);
   if (presence === "absent") {
     return true;
+  }
+  if (presence === null) {
+    input.onDeleteBlocked?.({
+      mappingId: target.mappingId,
+      reason: "probe_unreachable",
+    });
+    return false;
   }
   input.onDeleteBlocked?.({ mappingId: target.mappingId, reason: "still_present" });
   return false;
@@ -626,15 +675,18 @@ const applyDelete = async (
   });
 };
 
-const applyClassification = (
+const applyClassification = async (
   input: WriteBackPassInput,
   target: WriteBackTarget,
   writer: CalendarSourceWriter,
   classification: ActionableClassification,
   now: Date,
-): Promise<Outcome> => {
+): Promise<ClassificationOutcome> => {
   if (classification.type === "delete") {
-    return applyDelete(input, target, writer, classification, now);
+    return {
+      outcome: await applyDelete(input, target, writer, classification, now),
+      pausesPair: false,
+    };
   }
   return applyUpdate(input, target, writer, classification);
 };
@@ -732,10 +784,22 @@ const runWriteBackPass = async (
         );
       }
 
-      const outcome = await applyClassification(input, target, writer, classification, readNow());
+      const { outcome, pausesPair } = await applyClassification(
+        input,
+        target,
+        writer,
+        classification,
+        readNow(),
+      );
 
+      /*
+       * One classification, one counter: the totals bound the pass against its own cap.
+       * A write that landed and then tripped a stop counts as applied, because that is the
+       * half of it a real calendar can see; the pause it caused is carried by pausesPair
+       * and by the pair's own recorded state.
+       */
       result[outcome] += 1;
-      if (outcome === "quarantined" || outcome === "withheld") {
+      if (pausesPair || outcome === "quarantined" || outcome === "withheld") {
         quarantinedPairKeys.add(createPairKey(target));
       }
       if (outcome === "applied") {

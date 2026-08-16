@@ -65,17 +65,21 @@ const resolveConflictSentence = (sourceName: string): string =>
   + " the copy is rebuilt from the original and the edit made on the copy is replaced.";
 
 /*
- * A pass that sees more edited copies of one calendar than the ceiling writes none of them
- * back and rebuilds all of them: the batch reads as something moving the whole calendar
- * rather than as edits a person made. Every other exception is stated here, so leaving
- * this one out is what makes it a surprise — the user drags a day of meetings and learns
- * the rule afterwards, from a status line, with the edits already gone.
+ * A pass that sees more edited copies than the ceiling writes none of them back and
+ * rebuilds all of them: the batch reads as something moving the whole calendar rather than
+ * as edits a person made. The count is taken over the receiving calendar, across every
+ * calendar copied into it, because a batch spread thinly across several sources is exactly
+ * the shape the ceiling exists to catch. Stating it as a per-calendar rule would hand the
+ * user a number twice the one the classifier holds at whenever two calendars share a
+ * receiving calendar — the ordinary shape of this product — and they would learn the real
+ * one afterwards, from a status line, with the edits already gone.
  */
 const resolveBatchSentence = (sourceName: string): string =>
   `Editing more than ${TWO_WAY_EDIT_ABSOLUTE_CEILING} copies before Keeper.sh next checks`
-  + " reads as something moving the whole calendar rather than as edits you made: none of"
-  + ` those edits reach ${sourceName}, those copies are rebuilt from it, and two-way sync`
-  + " pauses until you switch it on again.";
+  + " — counted across every calendar copied into the same receiving calendar, not just"
+  + " this one — reads as something moving the whole calendar rather than as edits you"
+  + ` made: none of those edits reach ${sourceName}, those copies are rebuilt from it, and`
+  + " two-way sync pauses on every calendar in that batch until you switch it on again.";
 
 /*
  * The other half of the same defence, and the half a person is far more likely to walk

@@ -48,7 +48,9 @@ There is one window where an edit is neither written back nor undone: a copy Kee
 
 An edit destroys the previous values of a real event and there is nothing to restore them from, so a change that looks like a machine rather than a person is refused outright.
 
-Editing more than 10 copies of the same calendar before Keeper.sh next checks reads as something moving the whole calendar — a timezone change, an import over the top of the copies — rather than as edits you made. None of those edits reach the original, those copies are rebuilt from it, and two-way sync pauses until you switch it on again.
+Editing more than 10 copies before Keeper.sh next checks reads as something moving the whole calendar — a timezone change, an import over the top of the copies — rather than as edits you made. None of those edits reach the original, those copies are rebuilt from it, and two-way sync pauses until you switch it on again.
+
+The 10 are counted on the receiving calendar, across every calendar copied into it, and not per calendar: if two calendars are copied into the same one, six edits on each is twelve, which is over the ceiling, and both connections pause. A batch spread thinly across several calendars is the same event the ceiling exists to catch, so it is counted where it lands.
 
 The same applies to one copy edited over and over. Several write-backs to a single copy within a few minutes, or more than 20 in a day, read as that copy changing by itself rather than as edits you made: two-way sync pauses and the copies are rebuilt from the original, so an edit that had not reached it yet is replaced.
 
@@ -59,7 +61,7 @@ Only **Two-way, including deletions** deletes anything, and only after Keeper.sh
 Two situations stop the deletions and ask you instead:
 
 - Every copy on the receiving calendar is gone at once.
-- More than 5 copies of the same calendar disappeared between two readings, however large the calendar is.
+- More than 5 copies disappeared between two readings, however large the calendar is — counted for one calendar on its own, and again across every calendar copied into the receiving calendar.
 - A large number of copies disappeared at once.
 
 While Keeper.sh waits for your answer, the whole connection holds: nothing is written back, and no copy is rebuilt. Your answer is good for 30 minutes.

@@ -431,7 +431,12 @@ describe("runWriteBackPass: a runaway destination is quarantined", () => {
       store: harness.store,
     });
 
-    expect(result).toMatchObject({ quarantined: 1 });
+    /*
+     * The write reached the real calendar and the stop fired on the way out, so the pass
+     * counts it as applied. The pair pausing is the assertion below it: that is where the
+     * quarantine is recorded, and it is the fact a user or an operator acts on.
+     */
+    expect(result).toMatchObject({ applied: 1 });
     expect(harness.quarantines).toEqual([
       { reason: "runaway_write_back", sourceCalendarId: SOURCE_CALENDAR_ID },
     ]);

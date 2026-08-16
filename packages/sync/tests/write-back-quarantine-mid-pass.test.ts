@@ -164,7 +164,13 @@ describe("a pair quarantined mid-pass stops being written to for the rest of the
       { reason: "runaway_write_back", sourceCalendarId: SOURCE_CALENDAR_ID },
     ]);
     expect(harness.deleted).toEqual([]);
-    expect(result.applied).toBe(0);
+    /*
+     * The runaway write-back reached the real calendar before the stop fired, so the pass
+     * reports one applied write beside the quarantine. What the quarantine has to stop is
+     * everything after it, which the empty delete list above is the assertion for.
+     */
+    expect(harness.updated).toHaveLength(1);
+    expect(result.applied).toBe(1);
   });
 
   it("writes nothing more on the source after a repeated-failure quarantine", async () => {
