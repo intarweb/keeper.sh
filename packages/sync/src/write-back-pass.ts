@@ -67,6 +67,7 @@ class SourceWriteRejectedError extends Error {
 
 const QUARANTINE_REASONS_BY_REFUSAL: Record<string, string> = {
   event_authored_by_someone_else: "source_event_authored_by_someone_else",
+  event_body_is_rich_text: "source_event_rich_body",
   event_has_attendees: "source_event_has_attendees",
 };
 

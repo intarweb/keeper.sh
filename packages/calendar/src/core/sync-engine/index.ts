@@ -19,6 +19,7 @@ import type {
   DeleteConfirmationRequest,
   InboundClassification,
   InboundCounters,
+  WriteBackHoldRequest,
 } from "../sync/write-back";
 import type { CalendarSyncProvider, PendingChanges, PendingUpdate } from "./types";
 
@@ -722,6 +723,7 @@ interface SyncCalendarOptions {
     input: ApplyInboundChangesInput,
   ) => Promise<ApplyInboundChangesResult>;
   requestDeleteConfirmation?: (request: DeleteConfirmationRequest) => Promise<void>;
+  holdWriteBack?: (request: WriteBackHoldRequest) => Promise<void>;
   now?: () => Date;
   onSyncEvent?: (event: Record<string, unknown>) => void;
   onProgress?: (update: SyncProgressUpdate) => void;
@@ -845,6 +847,7 @@ const appendTwoWayFields = (
     ["two_way.blocked_redacted_field_count", counters.blockedRedactedField],
     ["two_way.conflict_source_wins_count", counters.conflictSourceWins],
     ["two_way.delete_breaker_tripped_count", counters.deleteBreakerTripped],
+    ["two_way.edit_breaker_tripped_count", counters.editBreakerTripped],
   ];
 
   for (const [field, count] of fields) {
@@ -941,6 +944,16 @@ const reportDeleteConfirmation = async (
   await report(request);
 };
 
+const reportWriteBackHold = async (
+  request: WriteBackHoldRequest | null,
+  report?: (request: WriteBackHoldRequest) => Promise<void>,
+): Promise<void> => {
+  if (!request || !report) {
+    return;
+  }
+  await report(request);
+};
+
 const NO_APPLIED_CHANGES = 0;
 
 const isApplierActionable = (classification: InboundClassification): boolean =>
@@ -1010,6 +1023,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     flush,
     applyInboundChanges,
     requestDeleteConfirmation,
+    holdWriteBack,
     now,
     onSyncEvent,
     onProgress,
@@ -1075,6 +1089,7 @@ const syncCalendar = async (options: SyncCalendarOptions): Promise<SyncCalendarR
     });
     appendTwoWayFields(wideEvent, inbound.counters, inbound.readHealth);
     await reportDeleteConfirmation(inbound.deleteConfirmation, requestDeleteConfirmation);
+    await reportWriteBackHold(inbound.writeBackHold, holdWriteBack);
     const inboundMappingUpdates = collectInboundMappingUpdates(inbound.classifications);
     const actionableInboundChanges = inbound.classifications.filter(isApplierActionable);
 

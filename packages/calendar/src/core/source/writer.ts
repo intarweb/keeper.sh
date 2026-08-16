@@ -12,7 +12,10 @@ interface SourceEventUpdate {
  * A refusal is not a failure. The provider was reachable and the write was understood; it
  * was declined because applying it would reach past the user, and no retry can change that.
  */
-type SourceWriteRefusal = "event_authored_by_someone_else" | "event_has_attendees";
+type SourceWriteRefusal =
+  | "event_authored_by_someone_else"
+  | "event_body_is_rich_text"
+  | "event_has_attendees";
 
 interface SourceWriteResult {
   error?: string;
@@ -49,7 +52,19 @@ const AUTHORSHIP_REFUSAL: SourceWriteResult = {
   success: false,
 };
 
-export { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL };
+/*
+ * Outlook hands Keeper.sh every body as text, so a body that carries markup was never
+ * stored and cannot be reconstructed. Writing the text projection back replaces the real
+ * event's links, formatting and the join block a meeting provider wrote into it, with
+ * nothing anywhere to restore them from.
+ */
+const RICH_BODY_REFUSAL: SourceWriteResult = {
+  error: "Keeper.sh does not replace a formatted source description with plain text.",
+  refused: "event_body_is_rich_text",
+  success: false,
+};
+
+export { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL, RICH_BODY_REFUSAL };
 export type {
   CalendarSourceWriter,
   SourceEventUpdate,

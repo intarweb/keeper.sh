@@ -7,7 +7,11 @@ import type { OutlookEventWithAttendees } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { instantToWallTime } from "../../../ics/utils/timezone-instant";
-import { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL } from "../../../core/source/writer";
+import {
+  ATTENDEE_REFUSAL,
+  AUTHORSHIP_REFUSAL,
+  RICH_BODY_REFUSAL,
+} from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -61,6 +65,30 @@ const isAuthoredBySomeoneElse = (
     return false;
   }
   return !isSameAddress(organizerAddress, accountEmail);
+};
+
+const HTML_BODY_CONTENT_TYPE = "html";
+const MARKUP_PATTERN = /<[^>]*>/gu;
+const HTML_ENTITY_PATTERN = /&[a-z]+;|&#\d+;/giu;
+const EMPTY_LENGTH = 0;
+
+/*
+ * An html body Graph reports as empty of text and of anchors carries nothing a plain-text
+ * write could destroy, so the description still travels there. Anything else is treated as
+ * markup Keeper.sh never held: every body it reads arrives rendered to text, so it cannot
+ * tell a bolded word from an unbolded one, and a write would replace both with the text.
+ */
+const carriesUnreadableMarkup = (event: OutlookEventWithAttendees): boolean => {
+  const { body } = event;
+  if (!body || body.contentType !== HTML_BODY_CONTENT_TYPE) {
+    return false;
+  }
+  const content = body.content ?? "";
+  const text = content
+    .replaceAll(MARKUP_PATTERN, " ")
+    .replaceAll(HTML_ENTITY_PATTERN, " ")
+    .trim();
+  return text.length > EMPTY_LENGTH || content.includes("<a ") || content.includes("<img");
 };
 
 const buildHeaders = (accessToken: string): Record<string, string> => ({
@@ -198,6 +226,7 @@ const createOutlookSourceWriter = (
   const resolveWritableEventId = (
     lookup: { event: OutlookEventWithAttendees | null },
     reference: { sourceEventId: string | null },
+    writesDescription: boolean,
   ): { eventId: string | null } | { refusal: SourceWriteResult } => {
     const { event } = lookup;
     if (!event) {
@@ -208,6 +237,9 @@ const createOutlookSourceWriter = (
     }
     if (isAuthoredBySomeoneElse(event, config.accountEmail)) {
       return { refusal: AUTHORSHIP_REFUSAL };
+    }
+    if (writesDescription && carriesUnreadableMarkup(event)) {
+      return { refusal: RICH_BODY_REFUSAL };
     }
     return { eventId: event.id ?? reference.sourceEventId };
   };
@@ -222,7 +254,7 @@ const createOutlookSourceWriter = (
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const writable = resolveWritableEventId(lookup, reference);
+    const writable = resolveWritableEventId(lookup, reference, "description" in updates);
     if ("refusal" in writable) {
       return writable.refusal;
     }
@@ -262,7 +294,7 @@ const createOutlookSourceWriter = (
     if ("error" in lookup) {
       return { error: lookup.error, success: false };
     }
-    const writable = resolveWritableEventId(lookup, reference);
+    const writable = resolveWritableEventId(lookup, reference, false);
     if ("refusal" in writable) {
       return writable.refusal;
     }

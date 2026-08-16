@@ -15,7 +15,8 @@ import { spawnBackgroundJob } from "./background-task";
 import { assertAllIdsOwned } from "./owned-ids";
 import {
   DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
-  isDeleteApprovalApplicable,
+  NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
+  resolveConfirmationDisposition,
 } from "./delete-confirmation-policy";
 const EMPTY_LIST_COUNT = 0;
 const SINGLE_ROW = 1;
@@ -934,26 +935,36 @@ const resolveDeleteConfirmation = async (
     MAPPING_NOT_FOUND_ERROR_MESSAGE,
   );
 
-  const approved = decision === "apply";
+  let approved = false;
 
   await database.transaction(async (transactionClient) => {
-    if (approved) {
-      const [pending] = await transactionClient
-        .select({ writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason })
-        .from(sourceDestinationMappingsTable)
-        .where(and(
-          eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
-          eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
-        ))
-        .limit(SINGLE_ROW);
+    const [pending] = await transactionClient
+      .select({
+        writeBackState: sourceDestinationMappingsTable.writeBackState,
+        writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
+      })
+      .from(sourceDestinationMappingsTable)
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ))
+      .limit(SINGLE_ROW);
 
-      if (!pending) {
-        throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
-      }
-      if (!isDeleteApprovalApplicable(pending.writeBackStateReason)) {
-        throw new Error(DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE);
-      }
+    if (!pending) {
+      throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
     }
+
+    const disposition = resolveConfirmationDisposition(decision, pending);
+    if (disposition === "not_pending") {
+      throw new Error(NO_DELETE_CONFIRMATION_PENDING_MESSAGE);
+    }
+    if (disposition === "not_applicable") {
+      throw new Error(DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE);
+    }
+    if (disposition === "ignore") {
+      return;
+    }
+    approved = disposition === "approve";
 
     const updated = await transactionClient
       .update(sourceDestinationMappingsTable)

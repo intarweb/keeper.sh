@@ -1,4 +1,4 @@
-import type { WriteBackStatus } from "@/state/destination-ids";
+import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 
 type DeleteConfirmationAnswer = "apply" | "decline";
 
@@ -25,5 +25,36 @@ const resolveDeleteConfirmationAnswers = (
   return ["apply", "decline"];
 };
 
-export { PROBE_BLOCKED_REASON, resolveDeleteConfirmationAnswers };
-export type { DeleteConfirmationAnswer };
+const QUARANTINED_STATE = "quarantined";
+
+type ModeSelection = "commit" | "confirm_deletions" | "ignore";
+
+/*
+ * A quarantined pair keeps the mode it was paused on, so the control renders that mode as
+ * selected and an early return on "same mode" leaves the user pressing the only affordance
+ * they have with nothing happening. Re-picking it is how a pause is answered. A pair
+ * holding a question about copies that vanished is answered through the confirmation
+ * instead: committing the mode there would clear the state the answer applies to without
+ * the question ever being asked.
+ */
+const resolveModeSelection = (input: {
+  locked: boolean;
+  nextMode: WriteBackMode;
+  selectedMode: WriteBackMode;
+  status: WriteBackStatus | null;
+}): ModeSelection => {
+  if (input.locked && input.nextMode !== "off") {
+    return "ignore";
+  }
+  const restartable = input.status?.state === QUARANTINED_STATE;
+  if (input.nextMode === input.selectedMode && !restartable) {
+    return "ignore";
+  }
+  if (input.nextMode === "edits_and_deletes") {
+    return "confirm_deletions";
+  }
+  return "commit";
+};
+
+export { PROBE_BLOCKED_REASON, resolveDeleteConfirmationAnswers, resolveModeSelection };
+export type { DeleteConfirmationAnswer, ModeSelection };

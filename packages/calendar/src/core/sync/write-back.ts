@@ -37,6 +37,16 @@ const TWO_WAY_DELETE_GRACE_MS = 10 * MINUTE_MS;
 const TWO_WAY_DELETE_MIN_OBSERVATIONS = 2;
 const TWO_WAY_DELETE_ABSOLUTE_FLOOR = 5;
 const TWO_WAY_DELETE_RATIO = 0.2;
+/*
+ * An edit destroys the previous values of a real event as surely as a deletion destroys
+ * the event, and it leaves no tombstone to restore from. One destination-side event can
+ * move every copy at once — a calendar timezone change, a tzdata update, an import over
+ * the mirror — and read as the user having edited all of them. The floor sits above what
+ * a person plausibly edits inside one pass, and the ratio above what a bulk provider-side
+ * shift leaves untouched, so a real editing session still writes through.
+ */
+const TWO_WAY_EDIT_ABSOLUTE_FLOOR = 10;
+const TWO_WAY_EDIT_RATIO = 0.5;
 const TWO_WAY_EPOCH_QUARANTINE_LIMIT = 5;
 const TWO_WAY_EPOCH_WINDOW_MS = 60 * MINUTE_MS;
 const FIRST_OBSERVATION = 1;
@@ -48,6 +58,7 @@ type ReadHealth = "ambiguous_empty" | "healthy" | "live_empty";
 type WriteBackRejectionReason =
   | "availability_clamped"
   | "availability_not_writable"
+  | "bulk_edit_breaker"
   | "never_observed"
   | "recurring_event"
   | "redacted_field"
@@ -142,10 +153,22 @@ interface InboundCounters {
   blockedRedactedField: number;
   conflictSourceWins: number;
   deleteBreakerTripped: number;
+  editBreakerTripped: number;
 }
 
 interface DeleteConfirmationRequest {
   reason: "all_copies_missing" | "delete_breaker_tripped";
+  sourceCalendarIds: string[];
+}
+
+/*
+ * A held edit has no answer a user could give that would make it safe to apply: the
+ * previous values of the real events are already gone from everywhere but the source
+ * itself, so there is nothing to confirm and nothing to restore. The pair stops writing
+ * and says why, and the copies go back to matching the source.
+ */
+interface WriteBackHoldRequest {
+  reason: "bulk_edit_breaker";
   sourceCalendarIds: string[];
 }
 
@@ -156,6 +179,7 @@ interface InboundClassificationResult {
   deleteConfirmation: DeleteConfirmationRequest | null;
   readHealth: ReadHealth;
   suppressedMappingIds: string[];
+  writeBackHold: WriteBackHoldRequest | null;
 }
 
 interface ClassifyInboundChangesInput {
@@ -229,6 +253,7 @@ const createCounters = (): InboundCounters => ({
   blockedRedactedField: 0,
   conflictSourceWins: 0,
   deleteBreakerTripped: 0,
+  editBreakerTripped: 0,
 });
 
 const isRecurringMapping = (mapping: EventMapping): boolean =>
@@ -472,6 +497,18 @@ const createBreakerConfirmation = (
   };
 };
 
+const createWriteBackHold = (
+  trippedSourceCalendarIds: ReadonlySet<string>,
+): WriteBackHoldRequest | null => {
+  if (trippedSourceCalendarIds.size === NO_OBSERVATIONS) {
+    return null;
+  }
+  return {
+    reason: "bulk_edit_breaker",
+    sourceCalendarIds: [...trippedSourceCalendarIds],
+  };
+};
+
 /*
  * Holding withholds the mirror as well as the deletion, so it is spent only where a
  * deletion is actually on the table: a pair that can never delete a source event has
@@ -538,21 +575,20 @@ const countBySourceCalendar = (
  */
 const resolveTrippedSourceCalendarIds = (
   eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
-  unapprovedDeletes: PendingDelete[],
+  candidates: { mapping: EventMapping }[],
+  floor: number,
+  ratio: number,
 ): Set<string> => {
-  const deleteCounts = countBySourceCalendar(unapprovedDeletes);
-  if (
-    unapprovedDeletes.length > TWO_WAY_DELETE_ABSOLUTE_FLOOR
-    && unapprovedDeletes.length / eligible.length > TWO_WAY_DELETE_RATIO
-  ) {
-    return new Set(deleteCounts.keys());
+  const candidateCounts = countBySourceCalendar(candidates);
+  if (candidates.length > floor && candidates.length / eligible.length > ratio) {
+    return new Set(candidateCounts.keys());
   }
 
   const eligibleCounts = countBySourceCalendar(eligible);
   const tripped = new Set<string>();
-  for (const [sourceCalendarId, deletes] of deleteCounts) {
-    const total = eligibleCounts.get(sourceCalendarId) ?? deletes;
-    if (deletes > TWO_WAY_DELETE_ABSOLUTE_FLOOR && deletes / total > TWO_WAY_DELETE_RATIO) {
+  for (const [sourceCalendarId, candidateCount] of candidateCounts) {
+    const total = eligibleCounts.get(sourceCalendarId) ?? candidateCount;
+    if (candidateCount > floor && candidateCount / total > ratio) {
       tripped.add(sourceCalendarId);
     }
   }
@@ -1048,6 +1084,56 @@ const classifyPresentMirror = (
   };
 };
 
+interface PendingWriteBack {
+  classification: Extract<InboundClassification, { type: "write-back" }>;
+  mapping: EventMapping;
+  suppress: boolean;
+}
+
+/*
+ * The witness is deliberately left alone on a held edit. Recording the destination's
+ * values as the new baseline would accept a change nobody asked for and leave nothing
+ * anywhere to notice; leaving it means the copies are rebuilt from the source by the
+ * ordinary repair, which is the one direction that destroys nothing.
+ */
+const resolveEditBreaker = (
+  eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
+  pendingWriteBacks: PendingWriteBack[],
+): {
+  classifications: InboundClassification[];
+  suppressedMappingIds: string[];
+  trippedSourceCalendarIds: Set<string>;
+} => {
+  const trippedSourceCalendarIds = resolveTrippedSourceCalendarIds(
+    eligible,
+    pendingWriteBacks,
+    TWO_WAY_EDIT_ABSOLUTE_FLOOR,
+    TWO_WAY_EDIT_RATIO,
+  );
+  const classifications: InboundClassification[] = [];
+  const suppressedMappingIds: string[] = [];
+
+  for (const { classification, mapping, suppress } of pendingWriteBacks) {
+    const heldByBreaker = mapping.sourceCalendarId !== null
+      && trippedSourceCalendarIds.has(mapping.sourceCalendarId);
+    if (heldByBreaker) {
+      classifications.push({
+        mappingId: mapping.id,
+        observed: classification.observed,
+        reason: "bulk_edit_breaker",
+        type: "rejected",
+      });
+      continue;
+    }
+    classifications.push(classification);
+    if (suppress) {
+      suppressedMappingIds.push(mapping.id);
+    }
+  }
+
+  return { classifications, suppressedMappingIds, trippedSourceCalendarIds };
+};
+
 const readObservedState = (
   remoteEvent: RemoteEvent,
 ): ObservedDestinationState | null => {
@@ -1086,6 +1172,77 @@ const classifyMapping = (
   return classifyPresentMirror(context, remoteEvent, observed);
 };
 
+interface MappingPassResult {
+  classifications: InboundClassification[];
+  pendingDeletes: PendingDelete[];
+  pendingWriteBacks: PendingWriteBack[];
+  suppressedMappingIds: string[];
+}
+
+const runMappingPass = (input: {
+  counters: InboundCounters;
+  eligible: { mapping: EventMapping; policy: WriteBackPolicy }[];
+  heldSourceCalendarIds: ReadonlySet<string>;
+  localEventsById: ReadonlyMap<string | null, MaterializedSyncableEvent>;
+  now: Date;
+  remoteEventsByMappingId: ReadonlyMap<string, RemoteEvent>;
+  scope: ReconciliationScope;
+}): MappingPassResult => {
+  const result: MappingPassResult = {
+    classifications: [],
+    pendingDeletes: [],
+    pendingWriteBacks: [],
+    suppressedMappingIds: [],
+  };
+
+  for (const { mapping, policy } of input.eligible) {
+    const held = mapping.sourceCalendarId !== null
+      && input.heldSourceCalendarIds.has(mapping.sourceCalendarId);
+    const localEvent = input.localEventsById.get(mapping.syncEventId);
+    if (held || !localEvent) {
+      continue;
+    }
+    /*
+     * The pair is waiting on a human answer about copies that vanished. Acting on any of
+     * them would pre-empt the answer, and letting the missing ones be re-created would
+     * reset the very pending state the answer applies to.
+     */
+    if (policy.paused) {
+      if (!input.remoteEventsByMappingId.has(mapping.id)) {
+        result.suppressedMappingIds.push(mapping.id);
+      }
+      continue;
+    }
+    const outcome = classifyMapping(
+      { counters: input.counters, localEvent, mapping, now: input.now, policy, scope: input.scope },
+      input.remoteEventsByMappingId.get(mapping.id),
+    );
+    /*
+     * A write-back is held back until the pass has counted every one of them: a change
+     * that moved the whole destination at once is only recognisable from the total.
+     */
+    if (outcome.classification?.type === "write-back") {
+      result.pendingWriteBacks.push({
+        classification: outcome.classification,
+        mapping,
+        suppress: outcome.suppress,
+      });
+      continue;
+    }
+    if (outcome.classification) {
+      result.classifications.push(outcome.classification);
+    }
+    if (outcome.pendingDelete) {
+      result.pendingDeletes.push(outcome.pendingDelete);
+    }
+    if (outcome.suppress) {
+      result.suppressedMappingIds.push(mapping.id);
+    }
+  }
+
+  return result;
+};
+
 const classifyInboundChanges = (
   input: ClassifyInboundChangesInput,
 ): InboundClassificationResult => {
@@ -1109,6 +1266,7 @@ const classifyInboundChanges = (
       deleteConfirmation: null,
       readHealth,
       suppressedMappingIds,
+      writeBackHold: null,
     };
   }
 
@@ -1141,40 +1299,24 @@ const classifyInboundChanges = (
     eligible.map(({ mapping }) => mapping),
     remoteEvents,
   );
-  const pendingDeletes: PendingDelete[] = [];
+  const pass = runMappingPass({
+    counters,
+    eligible,
+    heldSourceCalendarIds,
+    localEventsById,
+    now,
+    remoteEventsByMappingId,
+    scope,
+  });
+  classifications.push(...pass.classifications);
+  suppressedMappingIds.push(...pass.suppressedMappingIds);
+  const { pendingDeletes, pendingWriteBacks } = pass;
 
-  for (const { mapping, policy } of eligible) {
-    if (mapping.sourceCalendarId !== null && heldSourceCalendarIds.has(mapping.sourceCalendarId)) {
-      continue;
-    }
-    const localEvent = localEventsById.get(mapping.syncEventId);
-    if (!localEvent) {
-      continue;
-    }
-    /*
-     * The pair is waiting on a human answer about copies that vanished. Acting on any of
-     * them would pre-empt the answer, and letting the missing ones be re-created would
-     * reset the very pending state the answer applies to.
-     */
-    if (policy.paused) {
-      if (!remoteEventsByMappingId.has(mapping.id)) {
-        suppressedMappingIds.push(mapping.id);
-      }
-      continue;
-    }
-    const outcome = classifyMapping(
-      { counters, localEvent, mapping, now, policy, scope },
-      remoteEventsByMappingId.get(mapping.id),
-    );
-    if (outcome.classification) {
-      classifications.push(outcome.classification);
-    }
-    if (outcome.pendingDelete) {
-      pendingDeletes.push(outcome.pendingDelete);
-    }
-    if (outcome.suppress) {
-      suppressedMappingIds.push(mapping.id);
-    }
+  const editBreaker = resolveEditBreaker(eligible, pendingWriteBacks);
+  classifications.push(...editBreaker.classifications);
+  suppressedMappingIds.push(...editBreaker.suppressedMappingIds);
+  if (editBreaker.trippedSourceCalendarIds.size > NO_OBSERVATIONS) {
+    counters.editBreakerTripped = FIRST_OBSERVATION;
   }
 
   /*
@@ -1183,7 +1325,12 @@ const classifyInboundChanges = (
    * given, and the pair could never finish the bulk deletion it was asked about.
    */
   const unapprovedDeletes = pendingDeletes.filter(({ deleteApproved }) => !deleteApproved);
-  const trippedSourceCalendarIds = resolveTrippedSourceCalendarIds(eligible, unapprovedDeletes);
+  const trippedSourceCalendarIds = resolveTrippedSourceCalendarIds(
+    eligible,
+    unapprovedDeletes,
+    TWO_WAY_DELETE_ABSOLUTE_FLOOR,
+    TWO_WAY_DELETE_RATIO,
+  );
   const deleteBreakerTripped = trippedSourceCalendarIds.size > NO_OBSERVATIONS;
 
   if (deleteBreakerTripped) {
@@ -1215,6 +1362,7 @@ const classifyInboundChanges = (
       ?? createBreakerConfirmation(trippedSourceCalendarIds),
     readHealth,
     suppressedMappingIds,
+    writeBackHold: createWriteBackHold(editBreaker.trippedSourceCalendarIds),
   };
 };
 
@@ -1227,6 +1375,8 @@ export {
   TWO_WAY_DELETE_GRACE_MS,
   TWO_WAY_DELETE_MIN_OBSERVATIONS,
   TWO_WAY_DELETE_RATIO,
+  TWO_WAY_EDIT_ABSOLUTE_FLOOR,
+  TWO_WAY_EDIT_RATIO,
   TWO_WAY_EPOCH_QUARANTINE_LIMIT,
   TWO_WAY_EPOCH_WINDOW_MS,
 };
@@ -1239,5 +1389,6 @@ export type {
   InboundCounters,
   ObservedDestinationState,
   ReadHealth,
+  WriteBackHoldRequest,
   WriteBackRejectionReason,
 };

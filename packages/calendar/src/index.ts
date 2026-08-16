@@ -396,6 +396,7 @@ export type {
   ExpectedSourceFields,
   InboundClassification,
   InboundClassificationResult,
+  WriteBackHoldRequest,
 } from "./core/sync/write-back";
 export {
   createEditableEventContentHash,

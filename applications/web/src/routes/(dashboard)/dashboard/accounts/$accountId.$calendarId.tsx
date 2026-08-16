@@ -57,7 +57,7 @@ import {
 } from "@/state/calendar-detail";
 import type { ExcludeField } from "@/state/calendar-detail";
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
-import { resolveDeleteConfirmationAnswers } from "@/lib/write-back-answers";
+import { resolveDeleteConfirmationAnswers, resolveModeSelection } from "@/lib/write-back-answers";
 import { buildWriteBackFieldSummary } from "@/features/dashboard/components/write-back-summary";
 import type { DeleteConfirmationAnswer } from "@/lib/write-back-answers";
 import {
@@ -614,10 +614,16 @@ function WriteBackModeControl({
   const locked = Boolean(entitlements && !entitlements.canUseTwoWaySync);
 
   const applyMode = (nextMode: WriteBackMode) => {
-    if (nextMode === mode || (locked && nextMode !== "off")) {
+    const selection = resolveModeSelection({
+      locked,
+      nextMode,
+      selectedMode: mode,
+      status,
+    });
+    if (selection === "ignore") {
       return;
     }
-    if (nextMode === "edits_and_deletes") {
+    if (selection === "confirm_deletions") {
       setPendingDeletionConsent(true);
       return;
     }
@@ -727,7 +733,14 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
   delete_daily_cap:
     "Two-way sync to {destination} is paused: more originals on {source} were being"
     + " deleted in a day than Keeper.sh will apply unattended.",
-  plan_downgraded: "Two-way sync to {destination} is paused because the plan changed.",
+  bulk_edit_breaker:
+    "Copies on {destination} changed all at once, which reads as something moving the whole"
+    + " calendar rather than as edits you made. Keeper.sh did not rewrite the originals on"
+    + " {source} and paused two-way sync; the copies go back to matching {source}.",
+  plan_downgraded: "Two-way sync to {destination} is paused because the plan changed."
+    + " Pick the two-way option again to restart it.",
+  source_event_rich_body:
+    "A copy on {destination} was changed, but the original on {source} has a formatted description — links, styling, or a meeting join block. Keeper.sh only ever reads it as plain text, so writing the change back would flatten it. Nothing on {source} was touched and two-way sync to {destination} is paused.",
   source_event_has_attendees:
     "A copy on {destination} was changed, but the original on {source} is a meeting other"
     + " people are invited to. Keeper.sh will not cancel or move a meeting on their behalf,"

@@ -21,6 +21,7 @@ import type { RedisRateLimiter } from "@keeper.sh/calendar";
 import type {
   CalendarSyncProvider,
   DeleteConfirmationRequest,
+  WriteBackHoldRequest,
   EventMapping,
   WriteBackPolicy,
   DestinationEventReadDiagnostics,
@@ -672,6 +673,30 @@ const createWriteBackApplier = (
  * A blocked deletion that nobody can see is a support ticket. The mapping reverts to
  * one-way until the user says whether the copies really are gone.
  */
+/*
+ * The pair stops writing to the real calendar and says why. There is nothing to confirm:
+ * the values the destination replaced are only on the source now, so the safe answer is
+ * to write nothing and let the user decide whether two-way sync goes back on.
+ */
+const createWriteBackHoldRecorder = (
+  database: BunSQLDatabase,
+  destinationCalendarId: string,
+) => async (request: WriteBackHoldRequest): Promise<void> => {
+  if (request.sourceCalendarIds.length === 0) {
+    return;
+  }
+  await database
+    .update(sourceDestinationMappingsTable)
+    .set({
+      writeBackState: "quarantined",
+      writeBackStateReason: request.reason,
+    })
+    .where(and(
+      eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      inArray(sourceDestinationMappingsTable.sourceCalendarId, request.sourceCalendarIds),
+    ));
+};
+
 const createDeleteConfirmationRecorder = (
   database: BunSQLDatabase,
   destinationCalendarId: string,
@@ -688,6 +713,48 @@ const createDeleteConfirmationRecorder = (
     .where(and(
       eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
       inArray(sourceDestinationMappingsTable.sourceCalendarId, request.sourceCalendarIds),
+    ));
+};
+
+const PLAN_DOWNGRADED_REASON = "plan_downgraded";
+
+/*
+ * The pause a lapsed plan installs is the one quarantine whose cause ends without the
+ * user doing anything, and nothing else in the product ever clears it: the dashboard
+ * renders the stored mode as still selected, and pressing it changes nothing. Left here,
+ * a subscriber who missed a payment for a day never writes back again. Every other
+ * quarantine reason is a safety stop about the calendars themselves, and paying for the
+ * plan is no answer to any of them, so only this one is lifted.
+ */
+const restorePlanQuarantinedPairs = async (
+  database: BunSQLDatabase,
+  destinationCalendarId: string,
+): Promise<void> => {
+  const paused = await database
+    .select({
+      sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId,
+      writeBackState: sourceDestinationMappingsTable.writeBackState,
+      writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
+    })
+    .from(sourceDestinationMappingsTable)
+    .where(eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId));
+
+  const restorable = paused
+    .filter((pair) =>
+      pair.writeBackState === "quarantined"
+      && pair.writeBackStateReason === PLAN_DOWNGRADED_REASON)
+    .map((pair) => pair.sourceCalendarId);
+
+  if (restorable.length === 0) {
+    return;
+  }
+
+  await database
+    .update(sourceDestinationMappingsTable)
+    .set({ writeBackState: "ok", writeBackStateReason: null })
+    .where(and(
+      eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      inArray(sourceDestinationMappingsTable.sourceCalendarId, restorable),
     ));
 };
 
@@ -717,6 +784,7 @@ const resolveWriteBackPolicies = async (
     );
     return new Map<string, WriteBackPolicy>();
   }
+  await restorePlanQuarantinedPairs(database, destinationCalendarId);
   return getWriteBackPoliciesForDestination(database, destinationCalendarId);
 };
 
@@ -971,6 +1039,7 @@ const syncDestinationsForUser = async (
             database,
             destination.calendarId,
           ),
+          holdWriteBack: createWriteBackHoldRecorder(database, destination.calendarId),
           onProgress: callbacks?.onProgress,
           onSyncEvent: (event) => {
             const enrichedEvent = {
