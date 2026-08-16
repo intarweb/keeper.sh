@@ -14,8 +14,8 @@ export { withinGoogleWindow } from "./window/membership";
 export { googleFingerprintContract } from "./fingerprint";
 
 export { decodePushSignal, pushRejections } from "./push/receiver";
-export type { PushRejection, PushSignal } from "./push/receiver";
+export type { KnownChannel, PushRejection, PushSignal, ReceiverInputs } from "./push/receiver";
 export { verifyChannelToken } from "./push/secret";
-export { googleWatchProfile } from "./push/profile";
+export { googleWatchProfile, renewalInstantOf, staggerOffsetMs } from "./push/profile";
 export { registerWatchChannel, renewWatchChannel, stopWatchChannel } from "./push/watch";
-export type { StopOutcome, WatchChannel, WatchRequest } from "./push/watch";
+export type { RenewedChannel, StopOutcome, WatchChannel, WatchRequest } from "./push/watch";

@@ -6,6 +6,7 @@ const googleListingLimits = {
   maximumCoverageMs: 366 * dayMs,
   diagnosticSampleEntries: 20,
   diagnosticSampleUtf16Length: 2048,
+  mintedIdMemory: 4096,
 } as const;
 
 type GoogleListingLimits = typeof googleListingLimits;

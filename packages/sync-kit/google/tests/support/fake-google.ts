@@ -33,6 +33,7 @@ interface FakeGoogle {
   readonly seedFromProvider: (seed: ProviderSeed) => void;
   readonly putItems: (items: readonly calendar_v3.Schema$Event[]) => void;
   readonly cancelItem: (id: string) => void;
+  readonly stripInstallationStamp: (id: string) => void;
   readonly items: () => readonly calendar_v3.Schema$Event[];
   readonly requests: () => readonly RecordedRequest[];
   readonly listCallCount: () => number;
@@ -492,6 +493,16 @@ const createFakeGoogle = (options: FakeGoogleOptions): FakeGoogle => {
         return;
       }
       replaceAt(position, { ...existing, status: "cancelled" });
+    },
+    stripInstallationStamp: (id: string) => {
+      const position = lastIndexOfId(id);
+      const existing = stored.at(position);
+      if (position === -1 || !existing) {
+        return;
+      }
+      const held = existing.extendedProperties?.private ?? {};
+      const { "keeper.sh/installation": _dropped, ...kept } = held;
+      replaceAt(position, { ...existing, extendedProperties: { private: kept } });
     },
     items: () => [...stored],
     requests: () => [...recorded],

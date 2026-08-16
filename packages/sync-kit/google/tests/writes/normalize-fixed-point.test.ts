@@ -1,5 +1,6 @@
 import type { EditableContent } from "@keeper.sh/sync-protocol";
 import { describe, expect, test } from "vitest";
+import { googleCapabilities } from "../../src/capabilities";
 import { normalizeForGoogle } from "../../src/write/normalize";
 import { createHarness } from "../support/harness";
 import { allDayContent, timedContent } from "../support/intents";
@@ -36,16 +37,23 @@ describe("shaping happens once, at one seam, and is a fixed point", () => {
     expect(twice).toEqual(once);
   });
 
-  test("GOOG-O28: a zero-duration range is the typed refusal, never a silent widening", () => {
+  test("GOOG-O28: a zero-duration range is widened once, to the span the capability declares", () => {
     const harness = createHarness();
 
-    const refused = normalizeForGoogle(zeroDuration, harness.environment.hash);
+    const [once, twice] = normalizedTwice(zeroDuration, harness.environment.hash);
+    const widened = normalizeForGoogle(zeroDuration, harness.environment.hash);
 
-    expect(refused.ok).toBe(false);
-    if (refused.ok) {
-      throw new Error("a zero-duration range was accepted");
+    expect(twice).toEqual(once);
+    if (!widened.ok || widened.value.content.recurrence !== null) {
+      throw new Error("a zero-duration range was refused rather than widened");
     }
-    expect(refused.failure).toEqual({ kind: "unrepresentable", constraint: "minimumSpan" });
+    const { time } = widened.value.content;
+    if (time.kind !== "timed") {
+      throw new Error("a timed range shaped into an all-day range");
+    }
+    expect(Date.parse(time.end.value) - Date.parse(time.start.value)).toBe(
+      googleCapabilities.representableRange.minimumSpanSeconds * 1000,
+    );
   });
 
   test("GOOG-O28: an inverted range is refused rather than clamped", () => {

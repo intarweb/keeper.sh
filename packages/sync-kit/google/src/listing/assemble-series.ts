@@ -1,5 +1,6 @@
 import type { calendar_v3 } from "@googleapis/calendar";
 import { compareCodeUnits } from "../canonical";
+import { exceptionDateLine, originalStartOf as originalStartKeyOf } from "../decode/instance-key";
 
 interface SeriesKey {
   readonly seriesId: string;
@@ -15,6 +16,7 @@ interface SeriesAssembly {
   readonly series: readonly AssembledSeries[];
   readonly standalone: readonly calendar_v3.Schema$Event[];
   readonly orphanedOverrides: readonly SeriesKey[];
+  readonly exceptionDates: ReadonlyMap<string, readonly string[]>;
 }
 
 const originalStartOf = (item: calendar_v3.Schema$Event): string | null => {
@@ -32,6 +34,26 @@ const seriesKeyOf = (item: calendar_v3.Schema$Event): SeriesKey | null => {
     return null;
   }
   return { seriesId, originalStart };
+};
+
+const exceptionDatesOf = (
+  overrides: readonly calendar_v3.Schema$Event[],
+): ReadonlyMap<string, readonly string[]> => {
+  const collected = new Map<string, string[]>();
+  for (const override of overrides) {
+    const key = seriesKeyOf(override);
+    const start = originalStartKeyOf(override);
+    if (key === null || start === null) {
+      continue;
+    }
+    const line = exceptionDateLine(start);
+    const held = collected.get(key.seriesId) ?? [];
+    if (held.includes(line)) {
+      continue;
+    }
+    collected.set(key.seriesId, [...held, line]);
+  }
+  return collected;
 };
 
 const isOverride = (item: calendar_v3.Schema$Event): boolean => seriesKeyOf(item) !== null;
@@ -68,6 +90,7 @@ const assembleSeries = (items: readonly calendar_v3.Schema$Event[]): SeriesAssem
     series: masters.map((master) => ({ master, overrides: overridesFor(master, overrides) })),
     standalone: rest.filter((item) => (item.recurrence ?? []).length === 0),
     orphanedOverrides: orphansOf(overrides, masters),
+    exceptionDates: exceptionDatesOf(overrides),
   };
 };
 

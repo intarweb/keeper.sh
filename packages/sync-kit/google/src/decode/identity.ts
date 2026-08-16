@@ -6,6 +6,7 @@ import type {
   RemoteVersion,
   Revision,
 } from "@keeper.sh/sync-protocol";
+import { instanceUidSuffix, originalStartOf } from "./instance-key";
 
 const mirroredUidPropertyKey = "keeper.sh/uid";
 
@@ -46,12 +47,19 @@ const revisionOfVersion = (version: RemoteVersion): Revision => {
 const mirroredUidOf = (item: calendar_v3.Schema$Event): string | null =>
   nonEmpty(item.extendedProperties?.private?.[mirroredUidPropertyKey]);
 
+const isSeriesInstance = (item: calendar_v3.Schema$Event): boolean =>
+  nonEmpty(item.recurringEventId) !== null;
+
 const uidOf = (item: calendar_v3.Schema$Event): EventUid | null => {
   const named = mirroredUidOf(item) ?? nonEmpty(item.iCalUID);
   if (named === null) {
     return null;
   }
-  return { kind: "eventUid", value: named };
+  const start = originalStartOf(item);
+  if (start === null || !isSeriesInstance(item)) {
+    return { kind: "eventUid", value: named };
+  }
+  return { kind: "eventUid", value: `${named}${instanceUidSuffix(start)}` };
 };
 
 const decodeIdentity = (item: calendar_v3.Schema$Event): DecodedIdentity | null => {

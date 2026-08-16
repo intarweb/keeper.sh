@@ -4,25 +4,29 @@ import type {
   InstallationId,
   ListingScope,
   RemoteEvent,
+  Provenance,
   RemoteEventFacts,
   Removal,
   WithheldEvent,
+  WithholdReason,
 } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
+import { compareCodeUnits } from "../canonical";
 import { contentOfPatch, decodeEvent } from "../decode/decode-event";
-import type { DecodedItem, EventPatch } from "../decode/decode-event";
+import type { DecodedItem } from "../decode/decode-event";
 import { decodeEventTime } from "../decode/event-time";
 import { decodeProvenance } from "../decode/provenance";
 import { fingerprintContent } from "../fingerprint";
 import { withinGoogleWindow } from "../window/membership";
 import { assembleSeries } from "./assemble-series";
-import { collapseRevisions } from "./collapse-revisions";
+import { collapseRevisions, supersededIds } from "./collapse-revisions";
 
 interface FeedInputs {
   readonly items: readonly calendar_v3.Schema$Event[];
   readonly scope: ListingScope;
   readonly installation: InstallationId;
   readonly hash: (input: string) => string;
+  readonly mintedIds: ReadonlySet<string>;
 }
 
 interface ResolvedFeed {
@@ -33,21 +37,6 @@ interface ResolvedFeed {
   readonly selfAuthored: readonly string[];
 }
 
-const assembledOverrideIds = (
-  items: readonly calendar_v3.Schema$Event[],
-): ReadonlySet<string> => {
-  const assembly = assembleSeries(items);
-  const assembled = new Set<string>();
-  for (const series of assembly.series) {
-    for (const override of series.overrides) {
-      if (typeof override.id === "string") {
-        assembled.add(override.id);
-      }
-    }
-  }
-  return assembled;
-};
-
 const removalOfCancellation = (
   decoded: Extract<DecodedItem, { kind: "cancelled" }>,
 ): Removal => {
@@ -57,16 +46,28 @@ const removalOfCancellation = (
   return { kind: "cancelled", id: decoded.id, uid: decoded.uid };
 };
 
+const withholdReasonOf = (
+  decoded: Extract<DecodedItem, { kind: "undecodable" }>,
+  superseded: boolean,
+): WithholdReason => {
+  if (superseded) {
+    return "supersededRevisionUnbuildable";
+  }
+  return decoded.reason;
+};
+
 const withheldOf = (
   decoded: Extract<DecodedItem, { kind: "undecodable" }>,
+  superseded: boolean,
 ): WithheldEvent | null => {
+  const reason = withholdReasonOf(decoded, superseded);
   if (decoded.uid !== null) {
-    return { uid: decoded.uid, id: decoded.id, reason: decoded.reason };
+    return { uid: decoded.uid, id: decoded.id, reason };
   }
   if (decoded.id === null) {
     return null;
   }
-  return { uid: null, id: decoded.id, reason: decoded.reason };
+  return { uid: null, id: decoded.id, reason };
 };
 
 const staysInScope = (scope: ListingScope, content: EditableContent): boolean => {
@@ -77,26 +78,27 @@ const staysInScope = (scope: ListingScope, content: EditableContent): boolean =>
   return withinGoogleWindow(bounds, content.time);
 };
 
-const remoteEventOf = (
-  item: calendar_v3.Schema$Event,
-  fields: EventPatch,
+const withExceptionDates = (
   content: EditableContent,
-  inputs: FeedInputs,
-): RemoteEvent => {
-  const facts: RemoteEventFacts = {
-    id: { kind: "remoteEventId", value: item.id ?? "" },
-    deleteHandle: { kind: "deleteHandle", value: item.id ?? "" },
-    uid: fields.uid,
-    calendar: inputs.scope.calendar,
-    revision: fields.revision,
-    version: fields.version,
-    content,
-    fingerprint: fingerprintContent(content, inputs.hash),
+  lines: readonly string[],
+): EditableContent => {
+  if (content.recurrence === null || lines.length === 0) {
+    return content;
+  }
+  const merged = new Set([...content.recurrence.exceptions, ...lines]);
+  return {
+    ...content,
+    recurrence: { ...content.recurrence, exceptions: [...merged].toSorted(compareCodeUnits) },
   };
-  const provenance = decodeProvenance(item, {
+};
+
+const provenanceOf = (item: calendar_v3.Schema$Event, inputs: FeedInputs): Provenance =>
+  decodeProvenance(item, {
     installation: inputs.installation,
-    deterministicIds: new Set(),
+    deterministicIds: inputs.mintedIds,
   });
+
+const withProvenance = (facts: RemoteEventFacts, provenance: Provenance): RemoteEvent => {
   switch (provenance.kind) {
     case "ours": {
       return { ...facts, provenance };
@@ -113,27 +115,62 @@ const remoteEventOf = (
   }
 };
 
+const remoteEventOf = (
+  item: calendar_v3.Schema$Event,
+  decoded: Extract<DecodedItem, { kind: "patch" }>,
+  content: EditableContent,
+  inputs: FeedInputs,
+): RemoteEvent => {
+  const facts: RemoteEventFacts = {
+    id: decoded.id,
+    deleteHandle: decoded.deleteHandle,
+    uid: decoded.fields.uid,
+    calendar: inputs.scope.calendar,
+    revision: decoded.fields.revision,
+    version: decoded.fields.version,
+    content,
+    fingerprint: fingerprintContent(content, inputs.hash),
+  };
+  return withProvenance(facts, provenanceOf(item, inputs));
+};
+
+const exceptionDatesFor = (
+  item: calendar_v3.Schema$Event,
+  dates: ReadonlyMap<string, readonly string[]>,
+): readonly string[] => {
+  if (typeof item.id !== "string") {
+    return [];
+  }
+  return dates.get(item.id) ?? [];
+};
+
 const resolveFeed = (inputs: FeedInputs): ResolvedFeed => {
   const collapsed = collapseRevisions(inputs.items);
-  const assembled = assembledOverrideIds(collapsed.winners);
+  const superseded = supersededIds(collapsed);
+  const { exceptionDates } = assembleSeries(collapsed.winners);
   const events: RemoteEvent[] = [];
   const removals: Removal[] = [];
   const withheld: WithheldEvent[] = [];
   const selfAuthored: string[] = [];
   let unnamedDiscards = 0;
 
+  const claimedByUs = (item: calendar_v3.Schema$Event): boolean =>
+    provenanceOf(item, inputs).kind === "ours";
+
   for (const item of collapsed.winners) {
-    if (typeof item.id === "string" && assembled.has(item.id)) {
-      continue;
-    }
     const decoded = decodeEvent(item, decodeEventTime);
     switch (decoded.kind) {
       case "cancelled": {
+        if (claimedByUs(item)) {
+          selfAuthored.push(decoded.id.value);
+          break;
+        }
         removals.push(removalOfCancellation(decoded));
         break;
       }
       case "undecodable": {
-        const entry = withheldOf(decoded);
+        const wasSuperseded = decoded.id !== null && superseded.has(decoded.id.value);
+        const entry = withheldOf(decoded, wasSuperseded);
         if (entry === null) {
           unnamedDiscards += 1;
           break;
@@ -142,12 +179,15 @@ const resolveFeed = (inputs: FeedInputs): ResolvedFeed => {
         break;
       }
       case "patch": {
-        const content = contentOfPatch(decoded.fields);
+        const content = withExceptionDates(
+          contentOfPatch(decoded.fields),
+          exceptionDatesFor(item, exceptionDates),
+        );
         if (!staysInScope(inputs.scope, content)) {
           removals.push({ kind: "outOfScope", id: decoded.id });
           break;
         }
-        const event = remoteEventOf(item, decoded.fields, content, inputs);
+        const event = remoteEventOf(item, decoded, content, inputs);
         events.push(event);
         if (event.provenance.kind === "ours") {
           selfAuthored.push(event.uid.value);

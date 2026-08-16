@@ -1,7 +1,7 @@
 import type {
   NormalizedContent,
   OperationContext,
-  RemoteVersion,
+  ProviderFailure,
   Result,
   WriteIntent,
   WriteOutcome,
@@ -12,12 +12,16 @@ import { echoVerdict } from "./echo";
 import { normalizeForGoogle } from "./normalize";
 import { ifMatchHeader } from "./precondition";
 import { fetchEvent, remoteRefOf, writeFailure } from "./remote";
-import { serializeEvent } from "./serialize";
+import { patchBodyOf } from "./serialize";
 import type { WriteSurroundings } from "./surroundings";
 
 type UpdateIntent = Extract<WriteIntent<"google">, { kind: "update" }>;
 
-const unversioned: RemoteVersion = { kind: "remoteVersion", value: "unknown" };
+const unobservedVersion: ProviderFailure = {
+  kind: "transport",
+  status: null,
+  disposition: "permanent",
+};
 
 const spentPrecondition = async (
   intent: UpdateIntent,
@@ -69,7 +73,7 @@ const patchEvent = async (
       {
         calendarId: intent.calendar.key.calendar.value,
         eventId: intent.target.value,
-        requestBody: serializeEvent(shaped, null),
+        requestBody: patchBodyOf(shaped),
       },
       { headers, signal },
     ),
@@ -86,12 +90,16 @@ const patchEvent = async (
     }
     case "answered": {
       const returned = answered.value.data;
+      const version = versionOfEtag(returned.etag);
+      if (version === null) {
+        return { ok: false, failure: unobservedVersion };
+      }
       return {
         ok: true,
         value: {
           kind: "updated",
           remote: remoteRefOf(intent.target.value),
-          version: versionOfEtag(returned.etag) ?? unversioned,
+          version,
           echo: echoVerdict(shaped, returned, surroundings.dependencies.hash),
         },
       };

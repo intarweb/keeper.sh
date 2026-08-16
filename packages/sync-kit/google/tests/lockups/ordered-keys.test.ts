@@ -1,6 +1,5 @@
 import type { ListingScope } from "@keeper.sh/sync-protocol";
 import { describe, expect, test } from "vitest";
-import { orderedKeys } from "../../src/client/single-flight";
 import { listingOf } from "../support/expect";
 import {
   createHarness,
@@ -53,7 +52,17 @@ describe("two callers taking two scopes in opposite orders cannot deadlock", () 
     expect(listingOf(second).scope.window.end.value).toBe(decadeWindow.end.value);
   }, 3000);
 
-  test("GOOG-L6: keys are acquired in one stable order whichever order they arrive in", () => {
-    expect(orderedKeys(["beta", "alpha"])).toEqual(orderedKeys(["alpha", "beta"]));
-  });
+  test("GOOG-L6: two callers over one key share a single request, so no second key is ever held", async () => {
+    const harness = createHarness();
+    harness.fake.seedFromProvider(seedOf(seeded()));
+    const narrow = scopeOver(marchWindow);
+
+    const [first, second] = await Promise.all([
+      listingOver(harness, narrow),
+      listingOver(harness, narrow),
+    ]);
+
+    expect([first?.ok, second?.ok]).toEqual([true, true]);
+    expect(harness.fake.listCallCount()).toBe(1);
+  }, 3000);
 });

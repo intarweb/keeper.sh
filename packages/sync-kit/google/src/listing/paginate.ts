@@ -62,7 +62,10 @@ const paginateEvents = async (options: PaginateOptions): Promise<PageWalk> => {
   let pagesFetched = 0;
   while (pagesFetched < options.maxPages) {
     if (outOfTime(options)) {
-      return { kind: "notAttempted", reason: "budgetExhausted" };
+      if (pageToken === null) {
+        return { kind: "notAttempted", reason: "budgetExhausted" };
+      }
+      return { kind: "truncated", items: collected, pageToken, pagesFetched };
     }
     const answered: PageAnswer = await options.fetchPage(pageToken);
     switch (answered.kind) {

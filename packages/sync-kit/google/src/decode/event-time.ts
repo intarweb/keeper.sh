@@ -81,7 +81,7 @@ const decodeTimed = (
   if (from === null || until === null) {
     return undecodable("unrepresentableTime");
   }
-  if (Date.parse(until.value) <= Date.parse(from.value)) {
+  if (Date.parse(until.value) < Date.parse(from.value)) {
     return undecodable("unrepresentableTime");
   }
   return {

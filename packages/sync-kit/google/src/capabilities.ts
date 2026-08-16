@@ -13,8 +13,8 @@ const googleCapabilities = {
     { status: 429, hasRetryAfter: true },
   ],
   representableRange: {
-    minimumSpanSeconds: 0,
-    zeroDuration: "reject",
+    minimumSpanSeconds: 60,
+    zeroDuration: "accept",
     invertedRange: "reject",
     allDayGrid: "utcDay",
   },

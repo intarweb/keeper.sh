@@ -1,6 +1,3 @@
-const sha256Hex = (input: string): string =>
-  new Bun.CryptoHasher("sha256").update(input).digest("hex");
-
 const equalsInConstantTime = (left: string, right: string): boolean => {
   if (left.length !== right.length) {
     return false;
@@ -12,11 +9,15 @@ const equalsInConstantTime = (left: string, right: string): boolean => {
   return differences === 0;
 };
 
-const verifyChannelToken = (presented: string, storedHash: string): boolean => {
+const verifyChannelToken = (
+  presented: string,
+  storedHash: string,
+  hash: (input: string) => string,
+): boolean => {
   if (presented.length === 0 || storedHash.length === 0) {
     return false;
   }
-  return equalsInConstantTime(sha256Hex(presented), storedHash);
+  return equalsInConstantTime(hash(presented), storedHash);
 };
 
 export { verifyChannelToken };

@@ -15,6 +15,7 @@ import { requestShapeFingerprint } from "../cursor/fingerprint";
 import type { GoogleDependencies } from "../dependencies";
 import { toProviderFailure } from "../errors/to-provider-failure";
 import { googleListingLimits } from "../limits";
+import type { MintedEventIds } from "../write/minted-ids";
 import { resolveFeed } from "./build-feed";
 import { provenCoverage } from "./coverage";
 import { listingDiagnostics } from "./diagnostics";
@@ -32,6 +33,7 @@ interface ListingSurroundings {
   readonly requests: RequestSeam;
   readonly flights: SingleFlight<Result<ChangeListing>>;
   readonly frontier: CursorFrontier;
+  readonly mintedIds: MintedEventIds;
 }
 
 type Resumption =
@@ -149,7 +151,13 @@ const completedListing = (
   surroundings: ListingSurroundings,
 ): ChangeListing => {
   const { hash, installation } = surroundings.dependencies;
-  const feed = resolveFeed({ items: walk.items, scope, installation, hash });
+  const feed = resolveFeed({
+    items: walk.items,
+    scope,
+    installation,
+    hash,
+    mintedIds: surroundings.mintedIds.known(),
+  });
   const diagnostics = listingDiagnostics({
     withheld: feed.withheld,
     unnamedDiscards: feed.unnamedDiscards,
@@ -180,7 +188,13 @@ const truncatedListing = (
   surroundings: ListingSurroundings,
 ): ChangeListing => {
   const { hash, installation } = surroundings.dependencies;
-  const feed = resolveFeed({ items: walk.items, scope, installation, hash });
+  const feed = resolveFeed({
+    items: walk.items,
+    scope,
+    installation,
+    hash,
+    mintedIds: surroundings.mintedIds.known(),
+  });
   return {
     kind: "partial",
     scope,
@@ -215,6 +229,7 @@ const answeredWalk = (
         failure: toProviderFailure(walk.failure, {
           operation: "listChanges",
           calendar: scope.calendar,
+          account: scope.calendar.account,
           scope,
         }),
       };
@@ -273,13 +288,14 @@ const listGoogleChanges = async (
     return { ok: true, value: cursorLostListing(scope) };
   }
   const key = flightKeyOf(request, surroundings);
-  const raced = await raceDeadline(context, surroundings.dependencies.clock, (signal) =>
-    surroundings.flights.run(key, () =>
-      leadListing(scope, resumption, { ...context, signal }, surroundings),
+  const raced = await raceDeadline(context, surroundings.dependencies.clock, (joiner) =>
+    surroundings.flights.run(
+      key,
+      (shared) => leadListing(scope, resumption, { ...context, signal: shared }, surroundings),
+      joiner,
     ),
   );
   if (raced.kind === "notAttempted") {
-    surroundings.flights.abandon(key);
     return { ok: false, failure: { kind: "notAttempted", reason: raced.reason } };
   }
   return structuredClone(raced.value);

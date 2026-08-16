@@ -1,6 +1,7 @@
 import type { calendar_v3 } from "@googleapis/calendar";
 import type {
   Availability,
+  DeleteHandle,
   EditableContent,
   EventTime,
   EventUid,
@@ -41,7 +42,12 @@ interface EventPatch {
 
 type DecodedItem =
   | { readonly kind: "cancelled"; readonly id: RemoteEventId; readonly uid: EventUid | null }
-  | { readonly kind: "patch"; readonly id: RemoteEventId; readonly fields: EventPatch }
+  | {
+      readonly kind: "patch";
+      readonly id: RemoteEventId;
+      readonly deleteHandle: DeleteHandle;
+      readonly fields: EventPatch;
+    }
   | {
       readonly kind: "undecodable";
       readonly id: RemoteEventId | null;
@@ -108,6 +114,9 @@ const occurrenceOf = (
   }
 };
 
+const carriesNoOccurrence = (item: calendar_v3.Schema$Event): boolean =>
+  !item.start && !item.end && (item.recurrence ?? []).length === 0;
+
 const isOccurrence = (
   decoded: DecodedOccurrence | WithholdReason,
 ): decoded is DecodedOccurrence => typeof decoded !== "string";
@@ -122,6 +131,9 @@ const decodeEvent = (item: calendar_v3.Schema$Event, decodeTime: TimeDecoder): D
   }
   if (identity.uid === null || identity.version === null) {
     return withheld(identity.id, identity.uid, "missingIdentity");
+  }
+  if (carriesNoOccurrence(item)) {
+    return withheld(identity.id, identity.uid, "unparseable");
   }
   const eventType = readEventType(item.eventType ?? "default");
   if (eventType === null) {
@@ -138,6 +150,7 @@ const decodeEvent = (item: calendar_v3.Schema$Event, decodeTime: TimeDecoder): D
   return {
     kind: "patch",
     id: identity.id,
+    deleteHandle: identity.deleteHandle,
     fields: {
       title: item.summary ?? "",
       description: item.description ?? null,

@@ -14,6 +14,7 @@ interface GoogleDependencies {
   readonly installation: InstallationId;
   readonly concurrency: number;
   readonly randomId: () => string;
+  readonly randomFraction: () => number;
 }
 
 export type { GoogleClock, GoogleDependencies };

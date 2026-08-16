@@ -34,7 +34,12 @@ const remoteRefOf = (id: string): RemoteRef => ({
 });
 
 const writeFailure = (failure: GoogleFailure, calendar: CalendarKey): ProviderFailure =>
-  toProviderFailure(failure, { operation: "write", calendar, scope: null });
+  toProviderFailure(failure, {
+    operation: "write",
+    calendar,
+    account: calendar.account,
+    scope: null,
+  });
 
 const stateOf = (
   item: calendar_v3.Schema$Event,

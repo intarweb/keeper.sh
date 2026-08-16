@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
+import { resolveFeed } from "../../src/listing/build-feed";
 import { collapseRevisions } from "../../src/listing/collapse-revisions";
+import { marchWindow, scopeOver } from "../support/harness";
 import { timedItem } from "../support/items";
 
 const older = timedItem({
@@ -52,5 +54,40 @@ describe("the newest revision of an id wins whichever page carried it", () => {
 
     expect(collapsed.winners).toHaveLength(1);
     expect(collapsed.winners.at(0)?.etag).toBe('"v3-twice-changed"');
+  });
+
+  test("GOOG-O18: a revision with no updated stamp falls back to created, never to feed order", () => {
+    const { updated: _stampless, ...withoutUpdated } = older;
+    const createdOnly = { ...withoutUpdated, created: "2026-03-11T13:00:00.000Z" };
+
+    const forwards = collapseRevisions([newer, createdOnly]);
+    const backwards = collapseRevisions([createdOnly, newer]);
+
+    expect(forwards.winners.at(0)?.created).toBe("2026-03-11T13:00:00.000Z");
+    expect(backwards.winners.at(0)?.created).toBe("2026-03-11T13:00:00.000Z");
+  });
+
+  test("GOOG-O18: two revisions stamped at the same instant resolve the same way in either order", () => {
+    const twin = { ...newer, etag: '"v2b-twice-changed"' };
+
+    const forwards = collapseRevisions([newer, twin]);
+    const backwards = collapseRevisions([twin, newer]);
+
+    expect(forwards.winners.at(0)?.etag).toBe(backwards.winners.at(0)?.etag);
+  });
+
+  test("GOOG-O18: an unbuildable winner that superseded a buildable loser is withheld as superseded", () => {
+    const feed = resolveFeed({
+      items: [older, newer, unbuildableNewest],
+      scope: scopeOver(marchWindow),
+      installation: { kind: "installationId", value: "google-tests" },
+      hash: (input: string) => `hashed:${input}`,
+      mintedIds: new Set(),
+    });
+
+    expect(feed.events).toEqual([]);
+    expect(feed.withheld.map((entry) => entry.reason)).toEqual([
+      "supersededRevisionUnbuildable",
+    ]);
   });
 });

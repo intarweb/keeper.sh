@@ -12,7 +12,9 @@ import { assertNever } from "@keeper.sh/sync-protocol";
 import type { RequestSeam } from "../client/request";
 import { decodeZoneId } from "../decode/event-time";
 import { toProviderFailure } from "../errors/to-provider-failure";
+import type { FailureSurroundings } from "../errors/to-provider-failure";
 import type { GoogleDependencies } from "../dependencies";
+import { googleListingLimits } from "../limits";
 
 interface EnumerationSurroundings {
   readonly dependencies: GoogleDependencies;
@@ -50,19 +52,38 @@ const refOf = (
   };
 };
 
-const enumerationOf = (
+const refsOn = (
   page: calendar_v3.Schema$CalendarList,
   account: AccountId,
-): CalendarEnumeration => ({
-  kind: "snapshot",
-  account,
-  calendars: (page.items ?? []).flatMap((entry) => {
+): readonly CalendarRef[] =>
+  (page.items ?? []).flatMap((entry) => {
     const ref = refOf(entry, account);
     if (ref === null) {
       return [];
     }
     return [ref];
-  }),
+  });
+
+const nextTokenOf = (page: calendar_v3.Schema$CalendarList): string | null => {
+  const token = page.nextPageToken;
+  if (typeof token !== "string" || token.length === 0) {
+    return null;
+  }
+  return token;
+};
+
+const listParameters = (pageToken: string | null): calendar_v3.Params$Resource$Calendarlist$List => {
+  if (pageToken === null) {
+    return {};
+  }
+  return { pageToken };
+};
+
+const enumerationFailure = (account: AccountId): FailureSurroundings => ({
+  operation: "listCalendars",
+  calendar: null,
+  account,
+  scope: null,
 });
 
 const listGoogleCalendars = async (
@@ -70,30 +91,38 @@ const listGoogleCalendars = async (
   context: OperationContext,
   surroundings: EnumerationSurroundings,
 ): Promise<Result<CalendarEnumeration>> => {
-  const answered = await surroundings.requests.send("listCalendars", context, (signal) =>
-    surroundings.dependencies.calendar.calendarList.list({}, { signal }),
-  );
-  switch (answered.kind) {
-    case "answered": {
-      return { ok: true, value: enumerationOf(answered.value.data, account) };
+  const fetchPage = (token: string | null) =>
+    surroundings.requests.send("listCalendars", context, (signal) =>
+      surroundings.dependencies.calendar.calendarList.list(listParameters(token), { signal }),
+    );
+  const collected: CalendarRef[] = [];
+  let pageToken: string | null = null;
+  for (let page = 0; page < googleListingLimits.maxPages; page += 1) {
+    const answered = await fetchPage(pageToken);
+    switch (answered.kind) {
+      case "notAttempted": {
+        return { ok: false, failure: { kind: "notAttempted", reason: answered.reason } };
+      }
+      case "failed": {
+        return {
+          ok: false,
+          failure: toProviderFailure(answered.failure, enumerationFailure(account)),
+        };
+      }
+      case "answered": {
+        collected.push(...refsOn(answered.value.data, account));
+        pageToken = nextTokenOf(answered.value.data);
+        break;
+      }
+      default: {
+        return assertNever(answered);
+      }
     }
-    case "notAttempted": {
-      return { ok: false, failure: { kind: "notAttempted", reason: answered.reason } };
-    }
-    case "failed": {
-      return {
-        ok: false,
-        failure: toProviderFailure(answered.failure, {
-          operation: "listCalendars",
-          calendar: keyOf(account, "primary"),
-          scope: null,
-        }),
-      };
-    }
-    default: {
-      return assertNever(answered);
+    if (pageToken === null) {
+      return { ok: true, value: { kind: "snapshot", account, calendars: collected } };
     }
   }
+  return { ok: false, failure: { kind: "notAttempted", reason: "budgetExhausted" } };
 };
 
 export { listGoogleCalendars };

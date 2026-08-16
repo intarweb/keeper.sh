@@ -1,6 +1,5 @@
-import type { ObservedPrecondition, RemoteVersion } from "@keeper.sh/sync-protocol";
+import type { ObservedPrecondition } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
-import { versionOfEtag } from "../decode/identity";
 
 type PreconditionHeader =
   | { readonly kind: "conditional"; readonly headers: Record<string, string> }
@@ -20,7 +19,5 @@ const ifMatchHeader = (precondition: ObservedPrecondition): PreconditionHeader =
   }
 };
 
-const versionOfEtagHeader = (etag: string | null): RemoteVersion | null => versionOfEtag(etag);
-
-export { ifMatchHeader, versionOfEtagHeader };
+export { ifMatchHeader };
 export type { PreconditionHeader };

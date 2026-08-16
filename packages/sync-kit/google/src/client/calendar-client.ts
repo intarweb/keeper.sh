@@ -14,10 +14,12 @@ interface GoogleClientOptions {
   readonly timeoutMs: number;
 }
 
+const noPreconnect = (): void => globalThis.undefined;
+
 const forwardingFetch = (send: FetchImplementation): typeof fetch =>
   Object.assign(
     (input: string | URL | Request, init?: RequestInit): Promise<Response> => send(input, init),
-    { preconnect: (url: string | URL): void => globalThis.fetch.preconnect(url) },
+    { preconnect: noPreconnect },
   );
 
 const createGoogleClient = (options: GoogleClientOptions): calendar_v3.Calendar =>

@@ -5,9 +5,11 @@ import type {
   EditableContent,
   ListChangesRequest,
   OperationContext,
+  RemoteEvent,
   Result,
   WriteIntent,
 } from "@keeper.sh/sync-protocol";
+import { assertNever } from "@keeper.sh/sync-protocol";
 import { createRequestSeam } from "./client/request";
 import type { RequestSeam } from "./client/request";
 import { createSemaphore } from "./client/semaphore";
@@ -19,6 +21,9 @@ import type { GoogleDependencies } from "./dependencies";
 import { listGoogleCalendars } from "./calendars/list-calendars";
 import type { CursorFrontier } from "./listing/list-changes";
 import { listGoogleChanges } from "./listing/list-changes";
+import { googleListingLimits } from "./limits";
+import { createMintedEventIds } from "./write/minted-ids";
+import type { MintedEventIds } from "./write/minted-ids";
 import { normalizeForGoogle } from "./write/normalize";
 import { writeToGoogle } from "./write/write";
 
@@ -27,6 +32,7 @@ interface GoogleInternals {
   readonly requests: RequestSeam;
   readonly permits: Semaphore;
   readonly flights: SingleFlight<Result<ChangeListing>>;
+  readonly mintedIds: MintedEventIds;
   readonly inFlightKeys: () => readonly string[];
   readonly deletionCalendars: () => readonly string[];
 }
@@ -41,24 +47,30 @@ const createCursorFrontier = (): CursorFrontier => {
   };
 };
 
-const coveredCalendars = (listing: ChangeListing): readonly string[] => {
-  if (!listing.coverage) {
-    return [];
+const eventCalendars = (events: readonly RemoteEvent[]): readonly string[] =>
+  events.map((event) => event.calendar.calendar.value);
+
+const provenCalendars = (listing: ChangeListing): readonly string[] => {
+  switch (listing.kind) {
+    case "delta":
+    case "snapshot": {
+      return [...eventCalendars(listing.events), listing.coverage.calendar.calendar.value];
+    }
+    case "partial":
+    case "cursorLost": {
+      return [];
+    }
+    default: {
+      return assertNever(listing);
+    }
   }
-  return [listing.coverage.calendar.calendar.value];
 };
 
 const calendarsBehind = (answered: Result<ChangeListing>): readonly string[] => {
   if (!answered.ok) {
     return [];
   }
-  const listing = answered.value;
-  return [
-    ...new Set([
-      ...(listing.events ?? []).map((event) => event.calendar.calendar.value),
-      ...coveredCalendars(listing),
-    ]),
-  ];
+  return [...new Set(provenCalendars(answered.value))];
 };
 
 const createGoogleInternals = (dependencies: GoogleDependencies): GoogleInternals => {
@@ -66,6 +78,7 @@ const createGoogleInternals = (dependencies: GoogleDependencies): GoogleInternal
   const requests = createRequestSeam({ dependencies, permits });
   const flights = createSingleFlight<Result<ChangeListing>>();
   const frontier = createCursorFrontier();
+  const mintedIds = createMintedEventIds(googleListingLimits.mintedIdMemory);
   let observed: readonly string[] = [];
 
   const listChanges = async (
@@ -77,6 +90,7 @@ const createGoogleInternals = (dependencies: GoogleDependencies): GoogleInternal
       requests,
       flights,
       frontier,
+      mintedIds,
     });
     observed = calendarsBehind(answered);
     return answered;
@@ -90,11 +104,12 @@ const createGoogleInternals = (dependencies: GoogleDependencies): GoogleInternal
       listChanges,
       normalize: (content: EditableContent) => normalizeForGoogle(content, dependencies.hash),
       write: (intent: WriteIntent<"google">, context: OperationContext) =>
-        writeToGoogle(intent, context, { dependencies, requests }),
+        writeToGoogle(intent, context, { dependencies, requests, mintedIds }),
     },
     requests,
     permits,
     flights,
+    mintedIds,
     inFlightKeys: () => flights.inFlightKeys(),
     deletionCalendars: () => observed,
   };

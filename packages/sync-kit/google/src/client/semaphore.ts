@@ -37,11 +37,25 @@ const createSemaphore = (permits: number): Semaphore => {
     next.resume();
   };
 
-  const runHolding = async <Value>(body: () => Promise<Value>): Promise<Value> => {
+  const runHolding = async <Value>(
+    signal: AbortSignal,
+    body: () => Promise<Value>,
+  ): Promise<Value> => {
+    let released = false;
+    const releaseOnce = (): void => {
+      if (released) {
+        return;
+      }
+      released = true;
+      release();
+    };
+    const holding = new AbortController();
+    signal.addEventListener("abort", releaseOnce, { once: true, signal: holding.signal });
     try {
       return await body();
     } finally {
-      release();
+      holding.abort();
+      releaseOnce();
     }
   };
 
@@ -67,7 +81,7 @@ const createSemaphore = (permits: number): Semaphore => {
       },
       { once: true, signal: listening.signal },
     );
-    return turn.promise.then(() => runHolding(body));
+    return turn.promise.then(() => runHolding(signal, body));
   };
 
   return {
@@ -77,7 +91,7 @@ const createSemaphore = (permits: number): Semaphore => {
       }
       if (held < permits) {
         held += 1;
-        return runHolding(body);
+        return runHolding(signal, body);
       }
       return queued(signal, body);
     },

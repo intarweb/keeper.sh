@@ -106,6 +106,7 @@ const googleDependenciesOver = (
       issued += 1;
       return `random-${issued}`;
     },
+    randomFraction: () => 0.5,
   };
 };
 

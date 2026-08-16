@@ -1,4 +1,5 @@
 import type {
+  AccountId,
   CalendarKey,
   ListingScope,
   OperationName,
@@ -9,9 +10,17 @@ import type { GoogleFailure } from "./classify";
 
 interface FailureSurroundings {
   readonly operation: OperationName;
-  readonly calendar: CalendarKey;
+  readonly calendar: CalendarKey | null;
+  readonly account: AccountId;
   readonly scope: ListingScope | null;
 }
+
+const missingResource = (surroundings: FailureSurroundings): ProviderFailure => {
+  if (surroundings.calendar === null) {
+    return { kind: "transport", status: 404, disposition: "permanent" };
+  }
+  return { kind: "notFound", calendar: surroundings.calendar, event: null };
+};
 
 const lostCursor = (surroundings: FailureSurroundings): ProviderFailure => {
   const { scope } = surroundings;
@@ -31,7 +40,7 @@ const toProviderFailure = (
     }
     case "resourceGone":
     case "notFound": {
-      return { kind: "notFound", calendar: surroundings.calendar, event: null };
+      return missingResource(surroundings);
     }
     case "rateLimited": {
       return { kind: "rateLimited", retryAfter: failure.retryAfter, scope: "perUser" };
@@ -49,7 +58,7 @@ const toProviderFailure = (
       };
     }
     case "authExpired": {
-      return { kind: "reauthRequired", account: surroundings.calendar.account };
+      return { kind: "reauthRequired", account: surroundings.account };
     }
     case "unsupported": {
       return { kind: "unsupported", operation: surroundings.operation };

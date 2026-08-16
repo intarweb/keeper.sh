@@ -1,4 +1,5 @@
 import type {
+  CalendarDate,
   EditableContent,
   EventTime,
   Instant,
@@ -12,24 +13,29 @@ import { assertNever } from "@keeper.sh/sync-protocol";
 import { decodeZoneId } from "../decode/event-time";
 import { fingerprintContent } from "../fingerprint";
 
-const conferenceDelimiter = /^-::~.*::-$/;
+/*
+ * Google owns the region between these markers and deletes everything it holds on write, so a
+ * mirrored copy that keeps the markers loses the meeting details Google put there. Dropping only
+ * the markers hands the details back as ordinary content, which Google keeps. A source may have
+ * wrapped a marker in markup, so the marker is the anchor rather than the line it sits on.
+ * https://developers.google.com/workspace/calendar/api/guides/create-events
+ */
+const conferenceDelimiter = /(\n[^\S\n]*)?-::~:~::[-:~]{40,}::~:~::-[^\S\n]*(\n)?/g;
 
-const isDelimiter = (line: string): boolean => conferenceDelimiter.test(line);
-
-const withoutConferenceRegion = (lines: readonly string[]): readonly string[] => {
-  const opening = lines.findIndex((line) => isDelimiter(line));
-  const closing = lines.findLastIndex((line) => isDelimiter(line));
-  if (opening === -1 || closing === opening) {
-    return lines;
+const delimiterGap = (before?: string, after?: string): string => {
+  if (before === globalThis.undefined || after === globalThis.undefined) {
+    return "";
   }
-  return [...lines.slice(0, opening), ...lines.slice(closing + 1)];
+  return "\n";
 };
 
 const projectDescription = (description: string | null): string | null => {
   if (description === null) {
     return null;
   }
-  return withoutConferenceRegion(description.split("\n")).join("\n");
+  return description.replaceAll(conferenceDelimiter, (_match, before?: string, after?: string) =>
+    delimiterGap(before, after),
+  );
 };
 
 const canonicalInstant = (instant: Instant): Instant => ({
@@ -37,16 +43,40 @@ const canonicalInstant = (instant: Instant): Instant => ({
   value: new Date(Date.parse(instant.value)).toISOString(),
 });
 
+const pointInTimeMs = 60 * 1000;
+
+const widenedEnd = (start: Instant, end: Instant): Instant => {
+  const from = Date.parse(start.value);
+  if (Date.parse(end.value) > from) {
+    return canonicalInstant(end);
+  }
+  return { kind: "instant", value: new Date(from + pointInTimeMs).toISOString() };
+};
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+const widenedEndDate = (startDate: CalendarDate, endDateExclusive: CalendarDate): CalendarDate => {
+  const from = Date.parse(`${startDate.value}T00:00:00.000Z`);
+  if (Date.parse(`${endDateExclusive.value}T00:00:00.000Z`) > from) {
+    return endDateExclusive;
+  }
+  return { kind: "calendarDate", value: new Date(from + dayMs).toISOString().slice(0, 10) };
+};
+
 const shapedTime = (time: EventTime): EventTime => {
   switch (time.kind) {
     case "allDay": {
-      return time;
+      return {
+        kind: "allDay",
+        startDate: time.startDate,
+        endDateExclusive: widenedEndDate(time.startDate, time.endDateExclusive),
+      };
     }
     case "timed": {
       return {
         kind: "timed",
         start: canonicalInstant(time.start),
-        end: canonicalInstant(time.end),
+        end: widenedEnd(time.start, time.end),
         zone: time.zone,
       };
     }
@@ -102,9 +132,6 @@ const timedViolation = (
   if (until < from) {
     return "invertedRange";
   }
-  if (until === from) {
-    return "minimumSpan";
-  }
   return null;
 };
 
@@ -118,9 +145,6 @@ const allDayViolation = (
   }
   if (until < from) {
     return "invertedRange";
-  }
-  if (until === from) {
-    return "minimumSpan";
   }
   return null;
 };

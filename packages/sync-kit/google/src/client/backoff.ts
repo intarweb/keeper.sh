@@ -13,8 +13,11 @@ interface BackoffOptions<Value> {
   readonly clock: GoogleClock;
   readonly context: OperationContext;
   readonly signal: AbortSignal;
+  readonly randomFraction: () => number;
   readonly attempt: (attemptNumber: number) => Promise<Attempt<Value>>;
 }
+
+type SleepOutcome = "slept" | "aborted" | "refused";
 
 type BackoffOutcome<Value> =
   | { readonly kind: "answered"; readonly value: Value }
@@ -37,24 +40,33 @@ const askedDelayMs = (
   return Date.parse(failure.retryAfter.value) - Date.parse(clock.now().value);
 };
 
+const jitteredMs = (milliseconds: number, fraction: number): number => {
+  const bounded = Math.min(1, Math.max(0, fraction));
+  return Math.round(milliseconds * (0.5 + bounded / 2));
+};
+
 const retryDelayMs = (
   failure: GoogleFailure,
-  options: Pick<BackoffOptions<unknown>, "clock" | "context">,
+  options: Pick<BackoffOptions<unknown>, "clock" | "context" | "randomFraction">,
   attemptNumber: number,
 ): number => {
   const ceiling = options.context.retryBudget.retryDelayCeilingMs;
-  return Math.max(0, Math.min(ceiling, askedDelayMs(failure, options.clock, attemptNumber)));
+  const asked = askedDelayMs(failure, options.clock, attemptNumber);
+  return Math.max(0, Math.min(ceiling, jitteredMs(asked, options.randomFraction())));
 };
 
 const sleptBetweenAttempts = async (
   milliseconds: number,
   options: BackoffOptions<unknown>,
-): Promise<boolean> => {
+): Promise<SleepOutcome> => {
   try {
     await options.clock.sleep(milliseconds, options.signal);
-    return true;
+    return "slept";
   } catch {
-    return false;
+    if (options.signal.aborted) {
+      return "aborted";
+    }
+    return "refused";
   }
 };
 
@@ -85,8 +97,11 @@ const withBackoff = async <Value>(
           retryDelayMs(attempted.failure, options, attemptNumber),
           options,
         );
-        if (!slept) {
+        if (slept === "aborted") {
           return { kind: "aborted" };
+        }
+        if (slept === "refused") {
+          return { kind: "failed", failure: attempted.failure };
         }
         break;
       }
@@ -98,5 +113,5 @@ const withBackoff = async <Value>(
   return { kind: "exhausted", attempts: ceiling };
 };
 
-export { retryDelayMs, withBackoff };
-export type { Attempt, BackoffOptions, BackoffOutcome };
+export { jitteredMs, retryDelayMs, withBackoff };
+export type { Attempt, BackoffOptions, BackoffOutcome, SleepOutcome };

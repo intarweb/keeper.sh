@@ -1,7 +1,7 @@
 import type {
   NormalizedContent,
   OperationContext,
-  RemoteVersion,
+  ProviderFailure,
   Result,
   WriteIntent,
   WriteOutcome,
@@ -17,7 +17,11 @@ import type { WriteSurroundings } from "./surroundings";
 
 type CreateIntent = Extract<WriteIntent<"google">, { kind: "create" }>;
 
-const unversioned: RemoteVersion = { kind: "remoteVersion", value: "unknown" };
+const unobservedVersion: ProviderFailure = {
+  kind: "transport",
+  status: null,
+  disposition: "permanent",
+};
 
 const resolveDuplicate = async (
   intent: CreateIntent,
@@ -30,7 +34,7 @@ const resolveDuplicate = async (
   const fetched = await fetchEvent(intent.calendar.key, eventId, context, surroundings);
   switch (fetched.kind) {
     case "absent": {
-      return { ok: true, value: { kind: "alreadyExists", remote, version: unversioned } };
+      return { ok: false, failure: unobservedVersion };
     }
     case "failed": {
       return { ok: false, failure: writeFailure(fetched.failure, intent.calendar.key) };
@@ -90,12 +94,16 @@ const insertEvent = async (
     }
     case "answered": {
       const returned = answered.value.data;
+      const version = versionOfEtag(returned.etag);
+      if (version === null) {
+        return { ok: false, failure: unobservedVersion };
+      }
       return {
         ok: true,
         value: {
           kind: "created",
           remote: remoteRefOf(eventId),
-          version: versionOfEtag(returned.etag) ?? unversioned,
+          version,
           echo: echoVerdict(shaped, returned, surroundings.dependencies.hash),
         },
       };
@@ -120,6 +128,7 @@ const createEvent = (
   if (eventId.kind === "outOfRange") {
     return Promise.resolve({ ok: false, failure: { kind: "unsupported", operation: "write" } });
   }
+  surroundings.mintedIds.remember(eventId.value);
   return insertEvent(intent, eventId.value, shaped.value, context, surroundings);
 };
 

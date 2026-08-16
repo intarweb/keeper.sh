@@ -32,7 +32,7 @@ interface WatchSurroundings {
 type StopOutcome = { readonly kind: "stopped" } | { readonly kind: "alreadyGone" };
 
 const watchFailure = (calendar: CalendarKey) =>
-  ({ operation: "write", calendar, scope: null }) as const;
+  ({ operation: "write", calendar, account: calendar.account, scope: null }) as const;
 
 const expirationOf = (
   channel: calendar_v3.Schema$Channel,
@@ -72,11 +72,15 @@ const registerWatchChannel = async (
   switch (answered.kind) {
     case "answered": {
       const channel = answered.value.data;
+      const { resourceId } = channel;
+      if (typeof resourceId !== "string" || resourceId.length === 0) {
+        return { ok: false, failure: { kind: "transport", status: null, disposition: "permanent" } };
+      }
       return {
         ok: true,
         value: {
           channelId: channel.id ?? channelId,
-          resourceId: channel.resourceId ?? "",
+          resourceId,
           calendar: request.calendar,
           expiration: expirationOf(channel, surroundings),
         },
@@ -130,19 +134,24 @@ const stopWatchChannel = async (
   }
 };
 
+interface RenewedChannel {
+  readonly channel: WatchChannel;
+  readonly superseded: Result<StopOutcome>;
+}
+
 const renewWatchChannel = async (
   channel: WatchChannel,
   request: WatchRequest,
   context: OperationContext,
   surroundings: WatchSurroundings,
-): Promise<Result<WatchChannel>> => {
+): Promise<Result<RenewedChannel>> => {
   const registered = await registerWatchChannel(request, context, surroundings);
   if (!registered.ok) {
     return registered;
   }
-  await stopWatchChannel(channel, context, surroundings);
-  return registered;
+  const superseded = await stopWatchChannel(channel, context, surroundings);
+  return { ok: true, value: { channel: registered.value, superseded } };
 };
 
 export { registerWatchChannel, renewWatchChannel, stopWatchChannel };
-export type { StopOutcome, WatchChannel, WatchRequest, WatchSurroundings };
+export type { RenewedChannel, StopOutcome, WatchChannel, WatchRequest, WatchSurroundings };

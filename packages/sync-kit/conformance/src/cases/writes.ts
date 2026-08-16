@@ -474,6 +474,7 @@ const writeCases = <Provider extends ProviderId>(
         replayed.value.kind === "conflict",
         "a write whose precondition was already spent was accepted a second time",
       );
+      assertConflictNotOverwrite(replayed);
     },
   ),
 ];

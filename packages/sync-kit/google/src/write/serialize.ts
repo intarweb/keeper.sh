@@ -7,6 +7,7 @@ import type {
   NormalizedContent,
   OccurrenceDuration,
   RecurrenceAnchor,
+  RecurrencePayload,
 } from "@keeper.sh/sync-protocol";
 import { assertNever } from "@keeper.sh/sync-protocol";
 import { mirroredUidPropertyKey } from "../decode/identity";
@@ -112,15 +113,42 @@ const asRuleLine = (value: string): string => {
   return `RRULE:${value}`;
 };
 
+const recurrenceLinesOf = (recurrence: RecurrencePayload): readonly string[] => [
+  asRuleLine(recurrence.value),
+  ...recurrence.exceptions,
+];
+
 const occurrenceFields = (content: EditableContent): calendar_v3.Schema$Event => {
   if (content.recurrence === null) {
     return { ...spanOfTime(content.time) };
   }
-  return {
-    ...spanOfAnchor(content.anchor),
-    recurrence: [asRuleLine(content.recurrence.value), ...content.recurrence.exceptions],
-  };
+  return { ...spanOfAnchor(content.anchor), recurrence: [...recurrenceLinesOf(content.recurrence)] };
 };
+
+/*
+ * Google's patch semantics leave an omitted field unchanged and overwrite an array field that is
+ * present, so a series is demoted to a single occurrence only by sending an empty recurrence array.
+ * https://developers.google.com/workspace/calendar/api/v3/reference/events/patch
+ */
+const patchedOccurrenceFields = (content: EditableContent): calendar_v3.Schema$Event => {
+  if (content.recurrence === null) {
+    return { ...spanOfTime(content.time), recurrence: [] };
+  }
+  return { ...spanOfAnchor(content.anchor), recurrence: [...recurrenceLinesOf(content.recurrence)] };
+};
+
+const describedFields = (content: NormalizedContent<"google">): calendar_v3.Schema$Event => ({
+  summary: content.content.title,
+  description: content.content.description,
+  location: content.content.location,
+  transparency: transparencyOf(content.content.availability),
+  visibility: content.content.visibility,
+});
+
+const patchBodyOf = (content: NormalizedContent<"google">): calendar_v3.Schema$Event => ({
+  ...describedFields(content),
+  ...patchedOccurrenceFields(content.content),
+});
 
 const stampOf = (identity: SerializedIdentity | null): calendar_v3.Schema$Event => {
   if (identity === null) {
@@ -140,15 +168,11 @@ const serializeEvent = (
   content: NormalizedContent<"google">,
   identity: SerializedIdentity | null,
 ): calendar_v3.Schema$Event => ({
-  summary: content.content.title,
-  description: content.content.description,
-  location: content.content.location,
+  ...describedFields(content),
   status: "confirmed",
-  transparency: transparencyOf(content.content.availability),
-  visibility: content.content.visibility,
   ...stampOf(identity),
   ...occurrenceFields(content.content),
 });
 
-export { serializeEvent };
+export { patchBodyOf, serializeEvent };
 export type { SerializedIdentity };

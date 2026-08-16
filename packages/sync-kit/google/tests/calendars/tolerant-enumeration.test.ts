@@ -51,6 +51,27 @@ describe("enumeration tolerates the shapes Google actually returns", () => {
     ]);
   });
 
+  test("GOOG-O23: a page that carries a next token is followed, never presented as a snapshot", async () => {
+    const harness = createHarness();
+    harness.fake.answerCalendarListWith({
+      kind: "calendar#calendarList",
+      nextPageToken: "there-is-more",
+      items: [{ id: "first-page-calendar", accessRole: "owner" }],
+    });
+
+    const answer = await harness.provider.listCalendars(
+      account,
+      operationContext(harness.environment, { deadlineMs: 2000 }),
+    );
+
+    expect(answer.ok).toBe(false);
+    if (answer.ok) {
+      throw new Error("a truncated enumeration was presented as a complete one");
+    }
+    expect(answer.failure).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
+    expect(harness.fake.requests().length).toBeGreaterThan(1);
+  }, 4000);
+
   test("GOOG-O23: an empty enumeration is a snapshot, not proof everything was deleted", async () => {
     const harness = createHarness();
     harness.fake.answerCalendarListWith({ kind: "calendar#calendarList", items: [] });

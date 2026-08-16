@@ -18,6 +18,12 @@ const carriesOurId = (item: calendar_v3.Schema$Event, inputs: ProvenanceInputs):
   return inputs.deterministicIds.has(item.id);
 };
 
+const carriesNoProperties = (item: calendar_v3.Schema$Event): boolean =>
+  (item.extendedProperties?.private ?? null) === null;
+
+const cannotCarryAStamp = (item: calendar_v3.Schema$Event): boolean =>
+  item.status === "cancelled" && carriesNoProperties(item);
+
 const decodeProvenance = (
   item: calendar_v3.Schema$Event,
   inputs: ProvenanceInputs,
@@ -26,11 +32,14 @@ const decodeProvenance = (
   if (stamped === inputs.installation.value) {
     return { kind: "ours", installation: inputs.installation };
   }
+  if (carriesOurId(item, inputs)) {
+    return { kind: "ours", installation: inputs.installation };
+  }
   if (stamped !== null) {
     return { kind: "foreign" };
   }
-  if (carriesOurId(item, inputs)) {
-    return { kind: "ours", installation: inputs.installation };
+  if (cannotCarryAStamp(item)) {
+    return { kind: "indeterminate" };
   }
   return { kind: "foreign" };
 };

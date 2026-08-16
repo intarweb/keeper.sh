@@ -162,6 +162,12 @@ const windowCases = <Provider extends ProviderId>(
         );
       }
 
+      insist(
+        "CONF-O27",
+        (listing.withheld ?? []).every((entry) => entry.reason.length > 0),
+        "a boundary event counted as present was withheld without a reason for withholding it",
+      );
+
       const second = listingOf("CONF-O27", await listChanges(context, scope));
       insist(
         "CONF-O27",
