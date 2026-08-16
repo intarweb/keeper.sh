@@ -7,7 +7,7 @@ import type { OutlookEventWithAttendees } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { instantToWallTime } from "../../../ics/utils/timezone-instant";
-import { ATTENDEE_REFUSAL } from "../../../core/source/writer";
+import { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -19,6 +19,7 @@ const SINGLE_RESULT = "1";
 
 interface OutlookSourceWriterConfig {
   accessToken: () => Promise<string>;
+  accountEmail?: string | null;
 }
 
 class OutlookSourceLookupError extends Error {
@@ -39,6 +40,28 @@ type EventLookup =
  */
 const hasAttendees = (event: OutlookEventWithAttendees): boolean =>
   (event.attendees ?? []).length > 0;
+
+const isSameAddress = (first: string, second: string): boolean =>
+  first.trim().toLowerCase() === second.trim().toLowerCase();
+
+/*
+ * A mailbox a colleague shared with write access carries their events, and Graph lets the
+ * grant delete one. Only positive evidence that somebody else owns the event refuses; an
+ * event Graph describes too thinly to place still writes, behind the attendee guard.
+ */
+const isAuthoredBySomeoneElse = (
+  event: OutlookEventWithAttendees,
+  accountEmail: string | null | undefined,
+): boolean => {
+  if (event.isOrganizer === false) {
+    return true;
+  }
+  const organizerAddress = event.organizer?.emailAddress?.address;
+  if (!accountEmail || !organizerAddress) {
+    return false;
+  }
+  return !isSameAddress(organizerAddress, accountEmail);
+};
 
 const buildHeaders = (accessToken: string): Record<string, string> => ({
   "Authorization": `Bearer ${accessToken}`,
@@ -182,6 +205,9 @@ const createOutlookSourceWriter = (
     }
     if (hasAttendees(event)) {
       return { refusal: ATTENDEE_REFUSAL };
+    }
+    if (isAuthoredBySomeoneElse(event, config.accountEmail)) {
+      return { refusal: AUTHORSHIP_REFUSAL };
     }
     return { eventId: event.id ?? reference.sourceEventId };
   };

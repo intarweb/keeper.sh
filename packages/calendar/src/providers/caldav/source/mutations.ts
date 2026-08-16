@@ -6,8 +6,9 @@ import {
   extractProperties,
   hasEventAttendees,
   patchIcsEvent,
+  readEventOrganizers,
 } from "./patch-ics";
-import { ATTENDEE_REFUSAL } from "../../../core/source/writer";
+import { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -38,9 +39,32 @@ interface CalDAVWriterClient {
 }
 
 interface CalDAVSourceWriterConfig {
+  accountEmail?: string | null;
   calendarUrl: string;
   client: () => Promise<CalDAVWriterClient>;
 }
+
+const MAILTO_PREFIX = "mailto:";
+
+const normalizeOrganizerAddress = (value: string): string => {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.startsWith(MAILTO_PREFIX)) {
+    return trimmed.slice(MAILTO_PREFIX.length);
+  }
+  return trimmed;
+};
+
+const isAuthoredBySomeoneElse = (
+  ics: string,
+  accountEmail: string | null | undefined,
+): boolean => {
+  const organizers = readEventOrganizers(ics);
+  if (!accountEmail || organizers.length === 0) {
+    return false;
+  }
+  const account = accountEmail.trim().toLowerCase();
+  return organizers.some((organizer) => normalizeOrganizerAddress(organizer) !== account);
+};
 
 const ensureTrailingSlash = (url: string): string => {
   if (url.endsWith("/")) {
@@ -214,6 +238,9 @@ const createCalDAVSourceWriter = (
     if (hasEventAttendees(object.data)) {
       return ATTENDEE_REFUSAL;
     }
+    if (isAuthoredBySomeoneElse(object.data, config.accountEmail)) {
+      return AUTHORSHIP_REFUSAL;
+    }
 
     const [event] = parseIcsString(object.data).events ?? [];
     if (!event) {
@@ -262,6 +289,9 @@ const createCalDAVSourceWriter = (
     }
     if (object.data && hasEventAttendees(object.data)) {
       return ATTENDEE_REFUSAL;
+    }
+    if (object.data && isAuthoredBySomeoneElse(object.data, config.accountEmail)) {
+      return AUTHORSHIP_REFUSAL;
     }
 
     const status = await client

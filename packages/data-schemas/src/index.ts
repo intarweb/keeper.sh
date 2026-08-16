@@ -101,7 +101,12 @@ type GoogleAttendee = typeof googleAttendeeSchema.infer;
 
 const googleEventWithAttendeesSchema = googleEventSchema.and({
   "attendees?": googleAttendeeSchema.array(),
-  "organizer?": { "email?": "string", "displayName?": "string" },
+  "creator?": { "email?": "string", "displayName?": "string", "self?": "boolean" },
+  "organizer?": {
+    "displayName?": "string",
+    "email?": "string",
+    "self?": "boolean",
+  },
 });
 type GoogleEventWithAttendees = typeof googleEventWithAttendeesSchema.infer;
 
@@ -190,6 +195,7 @@ type OutlookAttendee = typeof outlookAttendeeSchema.infer;
 
 const outlookEventWithAttendeesSchema = outlookEventSchema.and({
   "attendees?": outlookAttendeeSchema.array(),
+  "isOrganizer?": "boolean",
   "organizer?": { "emailAddress?": { "address?": "string", "name?": "string" } },
 });
 type OutlookEventWithAttendees = typeof outlookEventWithAttendeesSchema.infer;

@@ -5,7 +5,6 @@ import type {
   RemoteEvent,
 } from "../types";
 import {
-  createEditableEventContentHash,
   createSyncEventContentHash,
   normalizeText,
 } from "../events/content-hash";
@@ -631,7 +630,7 @@ const classifyMissingMirror = (context: MappingContext): MappingOutcome => {
 
 const createQuiescentOutcome = (
   mapping: EventMapping,
-  outbound: boolean,
+  released: boolean,
 ): MappingOutcome => ({
   classification: {
     mappingId: mapping.id,
@@ -650,14 +649,14 @@ const createQuiescentOutcome = (
    * destination that normalizes on write reads as permanently stale there. The witness
    * has already settled that question, so only a source-side change may still push.
    */
-  suppress: !outbound,
+  suppress: !released,
 });
 
 const createRejection = (
   mapping: EventMapping,
   observed: ObservedDestinationState,
   reason: WriteBackRejectionReason,
-  outbound: boolean,
+  released: boolean,
 ): MappingOutcome => ({
   classification: {
     mappingId: mapping.id,
@@ -666,7 +665,7 @@ const createRejection = (
     reason,
     type: "rejected",
   },
-  suppress: !outbound,
+  suppress: !released,
 });
 
 interface DriftResolution {
@@ -832,6 +831,25 @@ const isAvailabilityOnlyRejection = (
   && !drift.content
   && !drift.time;
 
+/*
+ * Rendering-tolerant, so it reports only what a destination re-encoding what we wrote
+ * cannot explain. It still cannot separate that from a user edit made before the copy
+ * was ever read: one observation carries no evidence either way, and the copy is adopted
+ * rather than rebuilt because rebuilding it loops forever against any destination that
+ * normalizes. The count is the whole of what this divergence surfaces today.
+ */
+const hasDivergedFromPush = (
+  localEvent: MaterializedSyncableEvent,
+  mapping: EventMapping,
+  observed: ObservedDestinationState,
+): boolean =>
+  hasFieldMoved(observed.summary, localEvent.summary)
+  || hasFieldMoved(observed.description, localEvent.description)
+  || hasFieldMoved(observed.location, localEvent.location)
+  || observed.isAllDay !== resolveLocalIsAllDay(localEvent)
+  || !isSameSerializedSecond(observed.startTime, mapping.startTime)
+  || !isSameSerializedSecond(observed.endTime, mapping.endTime);
+
 const classifyPresentMirror = (
   context: MappingContext,
   remoteEvent: RemoteEvent,
@@ -840,6 +858,15 @@ const classifyPresentMirror = (
   const { counters, localEvent, mapping, now, policy } = context;
   const drift = getDestinationDrift(mapping, remoteEvent);
   const outbound = mapping.syncEventHash !== createSyncEventContentHash(localEvent);
+  /*
+   * The copy answered under a delete identifier the mapping does not hold, so the
+   * recorded one is stale and every targeted read of the copy — the probe that guards
+   * every source deletion among them — would answer not-found on an event that is
+   * plainly there. Only the ordinary reconciliation path records the new identifier, so
+   * the mapping is released to it rather than held here.
+   */
+  const identityStale = remoteEvent.deleteId !== mapping.deleteIdentifier;
+  const released = outbound || identityStale;
 
   if (!isWitnessRecorded(mapping)) {
     if (outbound) {
@@ -850,7 +877,7 @@ const classifyPresentMirror = (
      * provider normalizing that push, so it is adopted rather than written back. The
      * divergence is counted so the swallowed edit is visible rather than silent.
      */
-    if (observed.contentHash !== createEditableEventContentHash(localEvent)) {
+    if (hasDivergedFromPush(localEvent, mapping, observed)) {
       counters.adoptWindowDivergence += FIRST_OBSERVATION;
     }
     return {
@@ -860,20 +887,20 @@ const classifyPresentMirror = (
         observed,
         type: "adopt-baseline",
       },
-      suppress: true,
+      suppress: !identityStale,
     };
   }
 
   if (!drift.availability && !drift.content && !drift.time) {
-    return createQuiescentOutcome(mapping, outbound);
+    return createQuiescentOutcome(mapping, released);
   }
 
   if (isRecurringMapping(mapping)) {
-    return createRejection(mapping, observed, "recurring_event", outbound);
+    return createRejection(mapping, observed, "recurring_event", released);
   }
 
   if (isBudgetSpent(mapping, now)) {
-    return createRejection(mapping, observed, "write_back_quarantined", outbound);
+    return createRejection(mapping, observed, "write_back_quarantined", released);
   }
 
   const eligibleFields = resolveWriteBackEligibleFields(policy);
@@ -927,7 +954,7 @@ const classifyPresentMirror = (
   }
 
   if (resolution.rejectionReason) {
-    return createRejection(mapping, observed, resolution.rejectionReason, outbound);
+    return createRejection(mapping, observed, resolution.rejectionReason, released);
   }
 
   /*
@@ -942,7 +969,7 @@ const classifyPresentMirror = (
       observed,
       type: "adopt-baseline",
     },
-    suppress: !outbound,
+    suppress: !released,
   };
 };
 

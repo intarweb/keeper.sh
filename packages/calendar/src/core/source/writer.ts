@@ -12,7 +12,7 @@ interface SourceEventUpdate {
  * A refusal is not a failure. The provider was reachable and the write was understood; it
  * was declined because applying it would reach past the user, and no retry can change that.
  */
-type SourceWriteRefusal = "event_has_attendees";
+type SourceWriteRefusal = "event_authored_by_someone_else" | "event_has_attendees";
 
 interface SourceWriteResult {
   error?: string;
@@ -38,7 +38,18 @@ const ATTENDEE_REFUSAL: SourceWriteResult = {
   success: false,
 };
 
-export { ATTENDEE_REFUSAL };
+/*
+ * A calendar shared with write access carries other people's events, and a provider will
+ * happily let the grant destroy one. Nobody but its author can put it back and its author
+ * is never told, so an event this account did not create is not a mirror to reconcile.
+ */
+const AUTHORSHIP_REFUSAL: SourceWriteResult = {
+  error: "Keeper.sh does not write to a source event someone else created.",
+  refused: "event_authored_by_someone_else",
+  success: false,
+};
+
+export { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL };
 export type {
   CalendarSourceWriter,
   SourceEventUpdate,

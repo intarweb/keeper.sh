@@ -7,7 +7,7 @@ import type { GoogleEventWithAttendees } from "@keeper.sh/data-schemas";
 import { HTTP_STATUS, TWO_WAY_SOURCE_WRITE_TIMEOUT_MS } from "@keeper.sh/constants";
 import { fetchWithTimeout } from "../../../core/utils/fetch-with-timeout";
 import { GOOGLE_CALENDAR_API, GONE_STATUS } from "../shared/api";
-import { ATTENDEE_REFUSAL } from "../../../core/source/writer";
+import { ATTENDEE_REFUSAL, AUTHORSHIP_REFUSAL } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
@@ -19,6 +19,7 @@ const ISO_DATE_LENGTH = 10;
 
 interface GoogleSourceWriterConfig {
   accessToken: () => Promise<string>;
+  accountEmail?: string | null;
   externalCalendarId: string | null;
 }
 
@@ -41,6 +42,30 @@ type EventLookup =
  */
 const hasOtherAttendees = (event: GoogleEventWithAttendees): boolean =>
   (event.attendees ?? []).some((attendee) => attendee.self !== true);
+
+const isSameAddress = (first: string, second: string): boolean =>
+  first.trim().toLowerCase() === second.trim().toLowerCase();
+
+/*
+ * A source calendar can be one a colleague shared with write access, and Google lets the
+ * writer role delete events the colleague created on it. Only positive evidence that
+ * somebody else owns the event refuses, so an event Google describes as this account's
+ * own — or describes too thinly to place — still writes: the attendee guard and the
+ * probe are what stand behind this one.
+ */
+const isAuthoredBySomeoneElse = (
+  event: GoogleEventWithAttendees,
+  accountEmail: string | null | undefined,
+): boolean => {
+  if (event.organizer?.self === false || event.creator?.self === false) {
+    return true;
+  }
+  const creatorEmail = event.creator?.email;
+  if (!accountEmail || !creatorEmail) {
+    return false;
+  }
+  return !isSameAddress(creatorEmail, accountEmail);
+};
 
 const buildHeaders = (accessToken: string): Record<string, string> => ({
   "Authorization": `Bearer ${accessToken}`,
@@ -192,6 +217,9 @@ const createGoogleSourceWriter = (
     }
     if (hasOtherAttendees(event)) {
       return { refusal: ATTENDEE_REFUSAL };
+    }
+    if (isAuthoredBySomeoneElse(event, config.accountEmail)) {
+      return { refusal: AUTHORSHIP_REFUSAL };
     }
     return { eventId: event.id ?? reference.sourceEventId };
   };

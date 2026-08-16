@@ -47,6 +47,17 @@ import type {
 } from "./write-back-pass";
 
 const TOMBSTONE_RETENTION_MS = 30 * 86_400_000;
+const ABANDONED_TOMBSTONE_STATE = "abandoned";
+
+/*
+ * A tombstone reaches "abandoned" only on the paths where the provider was never asked to
+ * destroy anything. Every other state is a deletion Keeper asked for, whether or not the
+ * bookkeeping that follows it committed, and the daily cap is the last bound on how many
+ * of those a runaway pair can perform.
+ */
+const countsTowardDeleteCap = (state: string): boolean =>
+  state !== ABANDONED_TOMBSTONE_STATE;
+
 const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
 const OAUTH_PROVIDERS = new Set(["google", "outlook"]);
 const CALDAV_PROVIDERS = new Set(["caldav", "fastmail", "icloud"]);
@@ -170,6 +181,7 @@ const resolveOAuthSourceWriter = async (
   const [credentials] = await config.database
     .select({
       accessToken: oauthCredentialsTable.accessToken,
+      accountEmail: calendarAccountsTable.email,
       accountId: calendarAccountsTable.id,
       credentialId: oauthCredentialsTable.id,
       expiresAt: oauthCredentialsTable.expiresAt,
@@ -198,10 +210,11 @@ const resolveOAuthSourceWriter = async (
   if (provider === "google") {
     return createGoogleSourceWriter({
       accessToken,
+      accountEmail: credentials.accountEmail,
       externalCalendarId: credentials.externalCalendarId,
     });
   }
-  return createOutlookSourceWriter({ accessToken });
+  return createOutlookSourceWriter({ accessToken, accountEmail: credentials.accountEmail });
 };
 
 /*
@@ -226,6 +239,7 @@ const resolveCalDAVSourceWriter = async (
 ): Promise<CalendarSourceWriter | null> => {
   const [credentials] = await config.database
     .select({
+      accountEmail: calendarAccountsTable.email,
       authMethod: caldavCredentialsTable.authMethod,
       calendarUrl: calendarsTable.calendarUrl,
       encryptedPassword: caldavCredentialsTable.encryptedPassword,
@@ -251,6 +265,7 @@ const resolveCalDAVSourceWriter = async (
   );
   const { calendarUrl } = credentials;
   return createCalDAVSourceWriter({
+    accountEmail: credentials.accountEmail,
     calendarUrl,
     client: () => {
       /*
@@ -494,14 +509,19 @@ const createDatabaseWriteBackStore = (
       .set({ state: "abandoned" })
       .where(eq(eventWriteBackTombstonesTable.id, tombstoneId));
   },
+  /*
+   * Windowed on observedAt rather than appliedAt, because the rows this must not miss are
+   * exactly the ones that never reached "applied": a source write the client-side timeout
+   * aborted after the provider processed it, or a commit that lost its transaction.
+   */
   countRecentDeletes: async (sourceCalendarId, since) => {
     const [row] = await config.database
       .select({ total: count() })
       .from(eventWriteBackTombstonesTable)
       .where(and(
         eq(eventWriteBackTombstonesTable.sourceCalendarId, sourceCalendarId),
-        eq(eventWriteBackTombstonesTable.state, "applied"),
-        gte(eventWriteBackTombstonesTable.appliedAt, since),
+        ne(eventWriteBackTombstonesTable.state, ABANDONED_TOMBSTONE_STATE),
+        gte(eventWriteBackTombstonesTable.observedAt, since),
       ));
     return row?.total ?? NO_OBSERVATIONS;
   },
@@ -689,6 +709,7 @@ const createInboundWriteBackApplier = (config: WriteBackApplierConfig) => {
 
 export {
   clearDestinationWitnesses,
+  countsTowardDeleteCap,
   createDatabaseWriteBackStore,
   createInboundWriteBackApplier,
   createSiblingNotifier,

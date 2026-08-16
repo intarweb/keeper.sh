@@ -343,13 +343,9 @@ describe("classifyInboundChanges: recording what the destination reported", () =
       destinationEndTime: null,
       destinationStartTime: null,
     });
-    const remoteEvent = createRemoteEvent(mapping, event, {
+    const rendered = createLocalEvent({ description: "Bring the notes  \n\n" });
+    const remoteEvent = createRemoteEvent(mapping, rendered, {
       editableAvailability: "free",
-      editableContentHash: createEditableEventContentHash(
-        createLocalEvent({ summary: "Whatever the destination normalized it to" }),
-      ),
-      endTime: MOVED_END_TIME,
-      startTime: MOVED_START_TIME,
     });
 
     const result = classifyInboundChanges(createInput({
@@ -362,11 +358,38 @@ describe("classifyInboundChanges: recording what the destination reported", () =
       observed: {
         availability: "free",
         contentHash: remoteEvent.editableContentHash,
-        endTime: MOVED_END_TIME,
-        startTime: MOVED_START_TIME,
+        endTime: mapping.endTime,
+        startTime: mapping.startTime,
       },
       type: "adopt-baseline",
     }]);
+  });
+
+  /*
+   * The divergence is swallowed by design: one observation cannot separate a user's edit
+   * from the destination re-encoding the push. The count is what keeps it from being
+   * silent, so it is pinned here.
+   */
+  it("counts an unverified copy that moved while still adopting what it reports", () => {
+    const event = createLocalEvent();
+    const mapping = createMapping(event, {
+      destinationAvailability: null,
+      destinationContentHash: null,
+      destinationEndTime: null,
+      destinationStartTime: null,
+    });
+    const remoteEvent = createRemoteEvent(mapping, event, {
+      endTime: MOVED_END_TIME,
+      startTime: MOVED_START_TIME,
+    });
+
+    const result = classifyInboundChanges(createInput({
+      existingMappings: [mapping],
+      remoteEvents: [remoteEvent],
+    }));
+
+    expect(result.classifications).toMatchObject([{ type: "adopt-baseline" }]);
+    expect(result.counters.adoptWindowDivergence).toBe(1);
   });
 
   it("never records a content hash without the matching observed times", () => {

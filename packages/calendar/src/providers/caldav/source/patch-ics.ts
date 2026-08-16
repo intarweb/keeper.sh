@@ -224,9 +224,27 @@ const hasEventAttendees = (ics: string): boolean => {
     .some((block) => collectSpans(lines, block).has("ATTENDEE"));
 };
 
+/*
+ * A calendar collection shared with write access carries other people's objects, and the
+ * grant is enough for the server to accept a delete of one. ORGANIZER is the only thing
+ * in the object that names its owner, so it is read here and the write is refused when it
+ * names anybody but this account.
+ */
+const readEventOrganizers = (ics: string): string[] => {
+  const lines = splitLines(ics);
+  const organizers: string[] = [];
+  for (const block of collectVEventBlocks(lines)) {
+    for (const span of collectSpans(lines, block).get("ORGANIZER") ?? []) {
+      organizers.push(readPropertyValue(lines[span.start] ?? "").trim());
+    }
+  }
+  return organizers;
+};
+
 export {
   collectDefinedTimezoneIds,
   extractProperties,
   hasEventAttendees,
   patchIcsEvent,
+  readEventOrganizers,
 };

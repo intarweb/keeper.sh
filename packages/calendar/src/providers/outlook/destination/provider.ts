@@ -56,6 +56,9 @@ interface OutlookSyncProviderConfig {
   signal?: AbortSignal;
 }
 
+const EMPTY_PROBE_RESULT = 0;
+const SINGLE_PROBE_RESULT = "1";
+
 const createCaughtFailure = (error: unknown): PushResult | DeleteResult => {
   if (isThrottledError(error)) {
     return {
@@ -377,6 +380,35 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
   const getThrottleMetrics = (): ProviderThrottleMetrics => ({ ...throttleMetrics });
 
   /*
+   * A Graph event id is not stable: restoring the item from Deleted Items, moving it
+   * between folders or migrating the mailbox reassigns it while the iCalUId survives. A
+   * 404 on the recorded id therefore says nothing about the copy, and reading it as an
+   * absence would let two-way sync destroy an original whose copy is plainly there.
+   */
+  const findEventByUid = async (uid: string): Promise<RemoteEventPresence> => {
+    const url = new URL(`${MICROSOFT_GRAPH_API}/me/events`);
+    url.searchParams.set("$filter", `iCalUId eq '${uid.replaceAll("'", "''")}'`);
+    url.searchParams.set("$select", "id");
+    url.searchParams.set("$top", SINGLE_PROBE_RESULT);
+
+    const response = await fetchWithTimeout(url, {
+      headers: { Authorization: `Bearer ${tokenState.accessToken}` },
+      method: "GET",
+    }, PROVIDER_PUSH_REQUEST_TIMEOUT_MS, config.signal);
+
+    if (!response.ok) {
+      const body = await response.json();
+      const { error } = microsoftApiErrorSchema.assert(body);
+      throw new Error(error?.message ?? response.statusText);
+    }
+    const { value } = outlookEventListSchema.assert(await response.json());
+    if ((value ?? []).length === EMPTY_PROBE_RESULT) {
+      return "absent";
+    }
+    return "present";
+  };
+
+  /*
    * Graph pages the list read and a user can strip the Keeper.sh category from a copy,
    * so a mapping missing from the listing is only a candidate. The original on the
    * source is destroyed only once Graph answers not-found for the copy itself.
@@ -397,7 +429,7 @@ const createOutlookSyncProvider = (config: OutlookSyncProviderConfig) => {
 
     if (response.status === HTTP_STATUS.NOT_FOUND) {
       await response.body?.cancel?.();
-      return "absent";
+      return findEventByUid(reference.uid);
     }
     if (!response.ok) {
       const body = await response.json();
