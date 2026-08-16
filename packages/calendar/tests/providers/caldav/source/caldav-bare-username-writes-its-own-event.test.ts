@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { createCalDAVSourceWriter } from "../../../../src/providers/caldav/source/mutations";
 
-const CALENDAR_URL = "https://caldav.example.com/calendars/team";
+const CALENDAR_URL = "https://caldav.example.com/calendars/rida";
 const SOURCE_EVENT_UID = "source-event-uid-1";
-const ACCOUNT_EMAIL = "me@example.com";
 const NO_CONTENT_STATUS = 204;
+const FORBIDDEN_STATUS = 403;
 const OBJECT_URL = `${CALENDAR_URL}/${SOURCE_EVENT_UID}.ics`;
 
 /*
- * An object on a collection shared with write access. The server answered the ownership
- * question when it granted the write, and every native CalDAV client lets the user make
- * this edit, so ORGANIZER naming a colleague is no longer a reason to refuse one.
+ * Nextcloud, Radicale, Baikal, Synology and Zimbra authenticate by bare username, and
+ * nothing in the CalDAV connect flow stores an email, so this is the writer production
+ * builds on every one of them: no address to weigh an ORGANIZER against. The event is the
+ * user's own, on the user's own collection, and the server granted the write.
  */
 const buildIcs = (lines: string[]): string => [
   "BEGIN:VCALENDAR",
@@ -27,25 +28,25 @@ const buildIcs = (lines: string[]): string => [
   "END:VCALENDAR",
 ].join("\r\n");
 
-const COLLEAGUES_EVENT = buildIcs(["ORGANIZER;CN=Colleague:mailto:colleague@example.com"]);
+const OWN_EVENT = buildIcs(["ORGANIZER;CN=Rida:mailto:rida@example.com"]);
 
-const COLLEAGUES_MEETING = buildIcs([
-  "ORGANIZER;CN=Colleague:mailto:colleague@example.com",
-  "ATTENDEE;CN=Someone;PARTSTAT=ACCEPTED:mailto:someone@example.com",
+const MEETING = buildIcs([
+  "ORGANIZER;CN=Rida:mailto:rida@example.com",
+  "ATTENDEE;CN=Colleague;PARTSTAT=ACCEPTED:mailto:colleague@example.com",
 ]);
 
-const createWriter = (data: string) => {
+const createWriter = (data: string, writeStatus = NO_CONTENT_STATUS) => {
   const deleted: string[] = [];
   const updated: { data: string; url: string }[] = [];
   const client = {
     deleteCalendarObject: (request: { calendarObject: { url: string } }) => {
       deleted.push(request.calendarObject.url);
-      return Promise.resolve(new Response(null, { status: NO_CONTENT_STATUS }));
+      return Promise.resolve(new Response(null, { status: writeStatus }));
     },
     fetchCalendarObjects: () => Promise.resolve([{ data, url: OBJECT_URL }]),
     updateCalendarObject: (request: { calendarObject: { data: string; url: string } }) => {
       updated.push(request.calendarObject);
-      return Promise.resolve(new Response(null, { status: NO_CONTENT_STATUS }));
+      return Promise.resolve(new Response(null, { status: writeStatus }));
     },
   };
 
@@ -53,16 +54,17 @@ const createWriter = (data: string) => {
     deleted,
     updated,
     writer: createCalDAVSourceWriter({
-      accountEmail: ACCOUNT_EMAIL,
+      accountEmail: null,
+      accountUsername: "rida",
       calendarUrl: CALENDAR_URL,
       client: () => Promise.resolve(client),
     }),
   };
 };
 
-describe("a CalDAV source write on a collection somebody else owns", () => {
-  it("edits an object another address organizes when nobody is invited to it", async () => {
-    const { updated, writer } = createWriter(COLLEAGUES_EVENT);
+describe("a CalDAV server that signs the user in by username", () => {
+  it("edits the user's own event rather than refusing it", async () => {
+    const { updated, writer } = createWriter(OWN_EVENT);
 
     const result = await writer.updateEvent(
       { sourceEventId: null, sourceEventUid: SOURCE_EVENT_UID },
@@ -74,8 +76,8 @@ describe("a CalDAV source write on a collection somebody else owns", () => {
     expect(updated).toHaveLength(1);
   });
 
-  it("deletes an object another address organizes when nobody is invited to it", async () => {
-    const { deleted, writer } = createWriter(COLLEAGUES_EVENT);
+  it("deletes the user's own event rather than refusing it", async () => {
+    const { deleted, writer } = createWriter(OWN_EVENT);
 
     const result = await writer.deleteEvent({
       sourceEventId: null,
@@ -87,8 +89,13 @@ describe("a CalDAV source write on a collection somebody else owns", () => {
     expect(deleted).toEqual([OBJECT_URL]);
   });
 
-  it("still refuses to delete an object other people are invited to", async () => {
-    const { deleted, writer } = createWriter(COLLEAGUES_MEETING);
+  /*
+   * The one refusal that survives. Cancelling this event mails the colleague and no
+   * answer here can recall that, so the attendee the writer can plainly see decides it —
+   * not the organizer it has nothing to compare against.
+   */
+  it("still refuses to delete a meeting other people are invited to", async () => {
+    const { deleted, writer } = createWriter(MEETING);
 
     const result = await writer.deleteEvent({
       sourceEventId: null,
@@ -99,15 +106,20 @@ describe("a CalDAV source write on a collection somebody else owns", () => {
     expect(deleted).toEqual([]);
   });
 
-  it("still refuses to edit an object other people are invited to", async () => {
-    const { updated, writer } = createWriter(COLLEAGUES_MEETING);
+  /*
+   * Deferring to the server's ACL means the server's answer is the one that stands. A
+   * write it rejects is still a failed write and still reaches the user.
+   */
+  it("reports the server's own rejection of an edit as a failure", async () => {
+    const { writer } = createWriter(OWN_EVENT, FORBIDDEN_STATUS);
 
     const result = await writer.updateEvent(
       { sourceEventId: null, sourceEventUid: SOURCE_EVENT_UID },
       { summary: "Renamed on the destination" },
     );
 
-    expect(result.refused).toBe("event_has_attendees");
-    expect(updated).toEqual([]);
+    expect(result.success).toBe(false);
+    expect(result.refused).toBeUndefined();
+    expect(result.error).toContain(String(FORBIDDEN_STATUS));
   });
 });

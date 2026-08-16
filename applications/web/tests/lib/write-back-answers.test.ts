@@ -4,11 +4,13 @@ import { resolveDeleteConfirmationAnswers } from "@/lib/write-back-answers";
 describe("what a paused pair can be answered with", () => {
   it("offers both answers while the question is whether the copies are really gone", () => {
     expect(resolveDeleteConfirmationAnswers({
+      deletesUnlocked: true,
       reason: "all_copies_missing",
       state: "delete_confirmation_required",
     })).toEqual(["apply", "decline"]);
 
     expect(resolveDeleteConfirmationAnswers({
+      deletesUnlocked: true,
       reason: "delete_breaker_tripped",
       state: "delete_confirmation_required",
     })).toEqual(["apply", "decline"]);
@@ -22,6 +24,7 @@ describe("what a paused pair can be answered with", () => {
    */
   it("offers no way to approve deletions the destination says are not gone", () => {
     expect(resolveDeleteConfirmationAnswers({
+      deletesUnlocked: true,
       reason: "delete_probe_blocked",
       state: "delete_confirmation_required",
     })).toEqual(["decline"]);
@@ -29,6 +32,7 @@ describe("what a paused pair can be answered with", () => {
 
   it("offers nothing at all when the pair is not waiting on an answer", () => {
     expect(resolveDeleteConfirmationAnswers({
+      deletesUnlocked: true,
       reason: "runaway_write_back",
       state: "quarantined",
     })).toEqual([]);

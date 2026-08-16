@@ -17,7 +17,6 @@ const PERSISTED_REASONS = [
   "delete_probe_blocked",
   "plan_downgraded",
   "runaway_write_back",
-  "source_event_authored_by_someone_else",
   "source_event_has_attendees",
   "source_event_rich_body",
   "source_write_refused",
