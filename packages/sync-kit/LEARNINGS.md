@@ -2950,3 +2950,80 @@ tests/state/           dedupe, observed.test-d
 tests/limits/          pairing-ceiling, large-state, deep-series
 tests/hygiene/         purity, no-bun-sleep, one-predicate
 ```
+
+## Red phase addenda (sync-reconcile)
+
+Recorded while writing the failing suite, before any implementation exists. Each entry is a
+correction or an addition to the design above; the review phase should hold the implementation to
+these as well as to RECON-I1..I62.
+
+### RECON-I63. The planner must derive a `SourceIdentity` from an observed `RemoteEvent`, and the design had no module for it
+
+The module map went straight from `identity/source-identity.ts` (the key builder) to the plan,
+with no step that answers "which identity is this observed event?". Every write, every dedupe and
+every absence check needs that answer. Closed by `src/identity/observed-identity.ts`, exporting
+`observedSourceIdentity(event: RemoteEvent): SourceIdentity | null`. The `null` arm is load-bearing:
+an event with no resolvable identity reaches `unresolved/missingIdentity` and is never guessed at,
+per RECON-I21. Proved by `tests/identity/ambiguity.test.ts`.
+
+Note the derivation the tests pin: recurring content yields `master`, single-occurrence content
+yields `slot(uid, start, end)`. The protocol's `RemoteEvent` carries no recurrence-id, so the
+`override` shape can only reach the planner through `KnownState` and `MappingSet`. That asymmetry
+is real and the implementation must not paper over it.
+
+### RECON-I64. `PlannedWrite` carries its `SourceIdentity`
+
+The published `publicApi` gave `PlannedWrite` only `at` and the intent(s). RECON-I23 requires the
+total order to break ties on the identity key, and RECON-I29 requires every input identity to land
+in exactly one bucket — neither is expressible without the identity on the entry. Added to both
+arms of the union. Proved by `tests/order/write-order.test.ts` and `tests/plan/closure.test.ts`.
+
+### RECON-I65. `SourceIdentity` reaches reconcile as a type-only import, so the one-file rule is a rule about *value* imports
+
+RECON-I56 says sync-ical is imported in exactly one file. `SourceIdentity` is sync-ical's
+`EventIdentity` and RECON-I9 forbids redefining it, so `src/identity/source-identity.ts` carries
+`import type { EventIdentity } from "@keeper.sh/sync-ical"`. A type-only import is erased and
+creates no runtime edge, so the invariant that survives is the stronger, checkable one: exactly one
+file — `src/policy.ts` — may import a *value* from sync-ical. `tests/hygiene/one-predicate.test.ts`
+asserts that list is exactly `["src/policy.ts"]`.
+
+### RECON-I66. Microsoft Graph's `@removed` may name events outside the requested window
+
+Graph documents that within a `calendarView` delta round, `@removed` with reason `deleted` covers
+both events inside the date range that were deleted, and events *outside* the range that were
+added, deleted or updated since the previous call
+(https://learn.microsoft.com/en-us/graph/delta-query-events). The tempting defence — filter
+removals by the mirror window before honouring them — is wrong in the other direction: it drops
+authoritative removals we asked for. The design already separates `outsideMirrorWindow` (a mirror
+retirement) from `explicitRemoval` (a source deletion) as distinct tombstone causes, which is
+exactly the distinction Graph forces; RECON-O7 is the test that keeps them from collapsing, and
+`removalBasis` must never window-filter `listing.removals`.
+
+### RECON-I67. RFC 6578 truncation is a 507 *inside* a 207, and the sync-token it returns is still valid
+
+RFC 6578 §3.6 has the server answer a truncated `sync-collection` with 207 Multi-Status carrying a
+507 for the request URI, and requires the returned `DAV:sync-token` to represent the correct state
+for the partial set returned (https://www.rfc-editor.org/rfc/rfc6578). So truncation is not cursor
+loss and it is not an empty calendar: it is `partial` with a continuation, and the honest cursor
+decision is `hold`/`listingIncomplete` until the client has walked the continuation. RECON-O1 and
+`tests/cursor/independence.test.ts` pin both halves.
+
+### RECON-I68. Google's own recovery advice is "drop the token and full-sync", never "delete the local rows"
+
+Google's sync guide has a 410 `fullSyncRequired` invalidate the stored `syncToken`, after which the
+client re-runs a full `events.list` with `timeMin` reset
+(https://developers.google.com/workspace/calendar/api/guides/sync). Nothing in that advice licenses
+a deletion, yet the shape of the advice — "start over" — is what tempts an implementation to clear
+the store first. RECON-O2 forces the opposite: ten populated rows, a `cursorLost` listing, zero
+tombstones, `reset`/`cursorLost`, and coverage back to `unproven` so the *next* run cannot infer a
+deletion either.
+
+### RECON-I69. Type-level tests are green in the red phase, and that is the correct outcome
+
+Seven `.test-d.ts` files (28 assertions) pass against the unimplemented skeleton, because their
+subject is the type declaration and the declarations *are* the specification, not the
+implementation. They are regression guards, not red-phase evidence. Ten further assertions pass for
+the same structural reason — `as const` set sizes, source greps, and the demonstration that
+sync-ical's pipe-joined `eventIdentityKey` really does collide. Every one of them sits in a file
+whose behavioural siblings are red. The behavioural count that matters is 238 failing assertions,
+all of them reaching a named `unimplemented` throw.
