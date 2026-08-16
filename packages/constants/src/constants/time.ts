@@ -69,6 +69,23 @@ const TWO_WAY_EDIT_ABSOLUTE_FLOOR = 10;
  * than inside the classifier that enforces it.
  */
 const TWO_WAY_EDIT_ABSOLUTE_CEILING = TWO_WAY_EDIT_ABSOLUTE_FLOOR;
+/*
+ * How old the stored copy of a source calendar may be before two-way sync stops writing to
+ * it. Every guard that refuses a write-back because the original moved compares the copy on
+ * the destination against that stored copy, so once it stops being refreshed those guards
+ * are comparing it against itself and will happily overwrite or delete an original the user
+ * changed in the meantime. A source is re-read about once a minute, and an ingest that
+ * starts failing backs off for up to six hours per attempt, so this sits far above the
+ * healthy interval and far below the gap a broken one opens.
+ */
+const TWO_WAY_SOURCE_INGEST_MAX_AGE_MS = 30 * MS_PER_MINUTE;
+/*
+ * Two write-backs to the same event closer together than this are counted as one run. A
+ * destination generating changes on its own produces one on every pass, roughly a minute
+ * apart; a person editing the same event produces one per edit. Counting only the closely
+ * spaced ones is what keeps an ordinary editing session out of the runaway detector.
+ */
+const TWO_WAY_WRITE_BACK_RUNAWAY_GAP_MS = 3 * MS_PER_MINUTE;
 const PROVIDER_INGEST_REQUEST_TIMEOUT_MS = 90_000;
 const INGEST_SOURCE_TIMEOUT_MS = 120_000;
 
@@ -98,10 +115,12 @@ export {
   TWO_WAY_DELETE_DAILY_WINDOW_MS,
   TWO_WAY_EDIT_ABSOLUTE_CEILING,
   TWO_WAY_EDIT_ABSOLUTE_FLOOR,
+  TWO_WAY_SOURCE_INGEST_MAX_AGE_MS,
   TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
   TWO_WAY_WRITE_BACK_DAILY_CAP,
   TWO_WAY_WRITE_BACK_DAILY_WINDOW_MS,
   TWO_WAY_WRITE_BACK_PASS_BUDGET_MS,
+  TWO_WAY_WRITE_BACK_RUNAWAY_GAP_MS,
   PROVIDER_INGEST_REQUEST_TIMEOUT_MS,
   INGEST_SOURCE_TIMEOUT_MS,
   KEEPER_EVENT_SUFFIX,

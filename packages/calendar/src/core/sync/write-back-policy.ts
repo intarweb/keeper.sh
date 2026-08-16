@@ -1,3 +1,4 @@
+import { TWO_WAY_SOURCE_INGEST_MAX_AGE_MS } from "@keeper.sh/constants";
 import { resolveWriteBackFieldNames } from "@keeper.sh/data-schemas";
 import type {
   WriteBackFieldExclusions,
@@ -63,6 +64,7 @@ const WRITE_BACK_WITNESS_RESET = {
   writeBackDailyWindowStart: null,
   writeBackEpoch: NO_WRITE_BACKS,
   writeBackEpochWindowStart: null,
+  writeBackLastAppliedAt: null,
 } as const;
 
 interface WriteBackUpdates {
@@ -79,6 +81,27 @@ const isWriteBackMode = (value: string): value is WriteBackMode =>
   WRITE_BACK_MODES.includes(value as WriteBackMode);
 
 const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
+
+/*
+ * Everything two-way sync knows about a source event is the copy the last ingest stored.
+ * Every guard that refuses to overwrite or delete an original because it moved — the drift
+ * comparison in the classifier, the expected-source check taken under the source lock, the
+ * field coverage a deletion is authorised by — reads that same stored copy, so once it
+ * stops being refreshed they all agree with themselves and authorise a write against a
+ * calendar nobody has looked at for hours. An unknown age reads as too old: a source that
+ * has never recorded a successful read is exactly the one whose stored copy cannot be
+ * trusted.
+ */
+const isSourceSnapshotFresh = (
+  source: { ingestLastSucceededAt?: Date | null } | null,
+  now: Date,
+): boolean => {
+  const succeededAt = source?.ingestLastSucceededAt;
+  if (!(succeededAt instanceof Date) || !Number.isFinite(succeededAt.getTime())) {
+    return false;
+  }
+  return now.getTime() - succeededAt.getTime() <= TWO_WAY_SOURCE_INGEST_MAX_AGE_MS;
+};
 
 /*
  * A quarantined pair reverts to one-way outright. A pair waiting on a human answer about
@@ -164,6 +187,7 @@ const assertWriteBackPayload = (
 
 export {
   assertWriteBackPayload,
+  isSourceSnapshotFresh,
   isWriteBackMode,
   resolveWriteBackEligibleFields,
   resolveWriteBackPolicyState,

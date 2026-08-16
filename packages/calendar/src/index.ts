@@ -404,6 +404,7 @@ export {
   normalizeText,
 } from "./core/events/content-hash";
 export {
+  isSourceSnapshotFresh,
   isWriteBackMode,
   resolveWriteBackPolicyState,
   WRITE_BACK_MODES,

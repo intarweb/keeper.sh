@@ -47,6 +47,7 @@ const activeMappingRow = {
   excludeEventDescription: false,
   excludeEventLocation: false,
   excludeEventName: false,
+  ingestLastSucceededAt: new Date(),
   sourceCalendarId: SOURCE_CALENDAR_ID,
   writeBackMode: "edits",
   writeBackState: "ok",

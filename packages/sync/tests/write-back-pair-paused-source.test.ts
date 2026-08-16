@@ -26,7 +26,8 @@ create table calendars (
   "accountId" uuid,
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
-  "disabled" boolean not null default false
+  "disabled" boolean not null default false,
+  "ingestLastSucceededAt" timestamp not null default now()
 );
 create table source_destination_mappings (
   "id" uuid primary key default gen_random_uuid(),

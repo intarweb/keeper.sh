@@ -110,6 +110,19 @@ const resetIngestBackoff = async (calendarId: string): Promise<void> => {
     .where(eq(calendarsTable.id, calendarId)));
 };
 
+/*
+ * Written on every clean read, not only on the ones that change something. Two-way sync
+ * refuses to overwrite or delete a real source event whose stored copy is older than the
+ * freshness bound, so a run that confirms the copy is current has to say so even when it
+ * found nothing to change.
+ */
+const recordIngestSuccess = async (calendarId: string): Promise<void> => {
+  await measureDatabaseWrite(() => database
+    .update(calendarsTable)
+    .set({ ingestLastSucceededAt: new Date() })
+    .where(eq(calendarsTable.id, calendarId)));
+};
+
 const applyIngestBackoff = async (
   calendarId: string,
   currentFailureCount: number,
@@ -162,8 +175,11 @@ const runSourceIngest = async <TResult>(
     }
     try {
       const result = await work(lockResult.handle.isCurrent);
-      if (attempt.failureCount > 0 && await lockResult.handle.isCurrent()) {
-        await resetIngestBackoff(calendarId);
+      if (await lockResult.handle.isCurrent()) {
+        if (attempt.failureCount > 0) {
+          await resetIngestBackoff(calendarId);
+        }
+        await recordIngestSuccess(calendarId);
       }
       return result;
     } catch (error) {

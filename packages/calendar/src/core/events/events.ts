@@ -17,7 +17,11 @@ import { TWO_WAY_DELETE_APPROVAL_TTL_MS } from "@keeper.sh/constants";
 import { resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
 import { parseAvailability } from "./availability";
 import { DEFAULT_EVENT_NAME } from "./default-event-name";
-import { isWriteBackMode, resolveWriteBackPolicyState } from "../sync/write-back-policy";
+import {
+  isSourceSnapshotFresh,
+  isWriteBackMode,
+  resolveWriteBackPolicyState,
+} from "../sync/write-back-policy";
 import type { WriteBackPolicy } from "../sync/write-back-policy";
 import { parseStoredRecurrenceForMaterialization } from "./stored-recurrence";
 import { materializeRecurrenceEvents } from "./recurrence-materializer";
@@ -169,6 +173,7 @@ const getWriteBackPoliciesForDestination = async (
       excludeEventDescription: calendarsTable.excludeEventDescription,
       excludeEventLocation: calendarsTable.excludeEventLocation,
       excludeEventName: calendarsTable.excludeEventName,
+      ingestLastSucceededAt: calendarsTable.ingestLastSucceededAt,
       sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId,
       writeBackMode: sourceDestinationMappingsTable.writeBackMode,
       writeBackState: sourceDestinationMappingsTable.writeBackState,
@@ -207,17 +212,28 @@ const getWriteBackPoliciesForDestination = async (
       disabled: row.disabled,
       writeBackIdentity: row.accountEmail ?? row.caldavUsername,
     });
+    /*
+     * A stale snapshot pauses the pair rather than turning it off. Turning it off hands
+     * every mapping back to the one-way repair, which rebuilds the copies from the same
+     * stale snapshot and discards whatever the user changed on them — the one outcome
+     * worse than writing nothing. Pausing writes nothing and rebuilds nothing, and the
+     * pair resumes on its own the moment the source is read again.
+     */
+    const state = resolveWriteBackPolicyState(effectiveMode, row.writeBackState, {
+      approvedAt: row.deleteConfirmationApprovedAt,
+      now,
+      ttlMs: TWO_WAY_DELETE_APPROVAL_TTL_MS,
+    });
+    const staleSource = state.writeBackMode !== "off"
+      && !isSourceSnapshotFresh(row, now);
     policies.set(row.sourceCalendarId, {
       destinationCalendarId,
       excludeEventDescription: row.excludeEventDescription,
       excludeEventLocation: row.excludeEventLocation,
       excludeEventName: row.excludeEventName,
       sourceCalendarId: row.sourceCalendarId,
-      ...resolveWriteBackPolicyState(effectiveMode, row.writeBackState, {
-        approvedAt: row.deleteConfirmationApprovedAt,
-        now,
-        ttlMs: TWO_WAY_DELETE_APPROVAL_TTL_MS,
-      }),
+      ...state,
+      ...(staleSource && { deleteApproved: false, paused: true }),
     });
   }
   return policies;

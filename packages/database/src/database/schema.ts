@@ -134,6 +134,15 @@ const calendarsTable = pgTable(
     ingestNextAttemptAt: timestamp(),
     ingestFutureRange: text().notNull().default(DEFAULT_FUTURE_SYNC_RANGE),
     ingestHistoricRange: text().notNull().default(DEFAULT_HISTORIC_SYNC_RANGE),
+    /*
+     * When this calendar was last read from its provider without error. Distinct from
+     * ingestWindowRecordedAt, which describes the coverage the reads asked for and is
+     * deliberately rewritten only when that coverage moves — about once a day — so it
+     * cannot say how old the stored copy of this calendar is. Two-way sync judges a real
+     * source event against that stored copy before overwriting or deleting it, so it needs
+     * an age it can bound. Null means unknown, which reads as too old.
+     */
+    ingestLastSucceededAt: timestamp(),
     ingestWindowEnd: timestamp(),
     ingestWindowRecordedAt: timestamp(),
     ingestWindowStart: timestamp(),
@@ -383,6 +392,13 @@ const eventMappingsTable = pgTable(
     writeBackDailyWindowStart: timestamp(),
     writeBackEpoch: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackEpochWindowStart: timestamp(),
+    /*
+     * When this mapping last carried a write to its source. The runaway detector counts
+     * write-backs that follow one another closely enough to be a machine rather than a
+     * person, so it needs the gap between consecutive writes and not merely how many
+     * happened in an hour.
+     */
+    writeBackLastAppliedAt: timestamp(),
   },
   (table) => [
     uniqueIndex("event_mappings_sync_event_cal_idx")

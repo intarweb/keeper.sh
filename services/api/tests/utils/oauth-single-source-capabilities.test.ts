@@ -100,6 +100,7 @@ create table calendars (
   "ingestNextAttemptAt" timestamp,
   "ingestWindowEnd" timestamp,
   "ingestWindowRecordedAt" timestamp,
+  "ingestLastSucceededAt" timestamp,
   "ingestWindowStart" timestamp,
   "lastFailureAt" timestamp,
   "name" text not null,

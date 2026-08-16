@@ -68,7 +68,8 @@ create table event_mappings (
   "writeBackDailyCount" integer not null default 0,
   "writeBackDailyWindowStart" timestamp,
   "writeBackEpoch" integer not null default 0,
-  "writeBackEpochWindowStart" timestamp
+  "writeBackEpochWindowStart" timestamp,
+  "writeBackLastAppliedAt" timestamp
 );
 create table user_sync_requests (
   "requestId" uuid not null default gen_random_uuid(),

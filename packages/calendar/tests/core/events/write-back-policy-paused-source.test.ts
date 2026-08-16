@@ -26,6 +26,7 @@ create table calendars (
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
   "disabled" boolean not null default false,
+  "ingestLastSucceededAt" timestamp not null default now(),
   "excludeEventDescription" boolean not null default false,
   "excludeEventLocation" boolean not null default false,
   "excludeEventName" boolean not null default false,

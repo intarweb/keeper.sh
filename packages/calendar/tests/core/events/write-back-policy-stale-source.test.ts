@@ -2,13 +2,18 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
+import { TWO_WAY_SOURCE_INGEST_MAX_AGE_MS } from "@keeper.sh/constants";
 import { getWriteBackPoliciesForDestination } from "../../../src/core/events/events";
+import type { WriteBackPolicy } from "../../../src/core/sync/write-back-policy";
 
 const client = new PGlite();
 const database = drizzle(client);
 
 const SOURCE_CALENDAR_ID = "11111111-1111-4111-8111-111111111111";
 const DESTINATION_CALENDAR_ID = "22222222-2222-4222-8222-222222222222";
+const MINUTE_MS = 60_000;
+const STALE_MS = TWO_WAY_SOURCE_INGEST_MAX_AGE_MS + MINUTE_MS;
+const FRESH_MS = MINUTE_MS;
 
 const DDL = `
 create table caldav_credentials (
@@ -26,10 +31,10 @@ create table calendars (
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
   "disabled" boolean not null default false,
-  "ingestLastSucceededAt" timestamp not null default now(),
   "excludeEventDescription" boolean not null default false,
   "excludeEventLocation" boolean not null default false,
   "excludeEventName" boolean not null default false,
+  "ingestLastSucceededAt" timestamp,
   "userId" text not null default 'user-1'
 );
 create table source_destination_mappings (
@@ -42,10 +47,11 @@ create table source_destination_mappings (
 );
 `;
 
-const seed = async (capabilities: string[], calendarType = "google"): Promise<void> => {
+const seed = async (ingestLastSucceededAt: Date | null): Promise<void> => {
   await client.query(
-    `insert into calendars ("id", "calendarType", "capabilities") values ($1, $2, $3)`,
-    [SOURCE_CALENDAR_ID, calendarType, capabilities],
+    `insert into calendars ("id", "capabilities", "ingestLastSucceededAt")
+     values ($1, $2, $3)`,
+    [SOURCE_CALENDAR_ID, ["pull", "push"], ingestLastSucceededAt],
   );
   await client.query(
     `insert into calendars ("id", "capabilities") values ($1, $2)`,
@@ -53,18 +59,19 @@ const seed = async (capabilities: string[], calendarType = "google"): Promise<vo
   );
   await client.query(
     `insert into source_destination_mappings
-       ("destinationCalendarId", "sourceCalendarId", "writeBackMode")
-     values ($1, $2, 'edits_and_deletes')`,
+       ("destinationCalendarId", "sourceCalendarId", "writeBackMode",
+        "deleteConfirmationApprovedAt")
+     values ($1, $2, 'edits_and_deletes', now())`,
     [DESTINATION_CALENDAR_ID, SOURCE_CALENDAR_ID],
   );
 };
 
-const readPolicyMode = async (): Promise<string | undefined> => {
+const readPolicy = async (): Promise<WriteBackPolicy | undefined> => {
   const policies = await getWriteBackPoliciesForDestination(
     database as unknown as BunSQLDatabase,
     DESTINATION_CALENDAR_ID,
   );
-  return policies.get(SOURCE_CALENDAR_ID)?.writeBackMode;
+  return policies.get(SOURCE_CALENDAR_ID);
 };
 
 beforeEach(async () => {
@@ -76,27 +83,40 @@ beforeEach(async () => {
 });
 
 /*
- * Calendar rediscovery rewrites a source's capabilities when the provider stops granting
- * write access. Nothing rewrites the mode the pair is carrying, so the write-back pass
- * would keep classifying edits and deletions against a calendar Keeper.sh may only read,
- * firing them at the provider until enough rejections quarantine the pair.
+ * The classifier judges a copy on the destination against the copy of the source its last
+ * ingest stored, and writes the difference to the user's real event. An ingest in backoff
+ * leaves that stored copy frozen for hours while the destination pass keeps running, so
+ * the difference it measures is against a calendar nobody has looked at — and the guards
+ * meant to refuse when the original moved read the same frozen row.
+ *
+ * The pair pauses rather than reverting to one-way: reverting hands every mapping back to
+ * the repair path, which would rebuild the copies from that same frozen snapshot and
+ * discard whatever the user changed on them.
  */
-describe("write-back policies for a source whose write access was revoked", () => {
-  it("stops offering an active mode once the source can only be read", async () => {
-    await seed(["pull"]);
+describe("the write-back policy of a source nobody has read lately", () => {
+  it("pauses the pair once the stored copy has aged out", async () => {
+    await seed(new Date(Date.now() - STALE_MS));
 
-    expect(await readPolicyMode()).toBe("off");
+    expect(await readPolicy()).toMatchObject({
+      deleteApproved: false,
+      paused: true,
+      writeBackMode: "edits_and_deletes",
+    });
   });
 
-  it("stops offering an active mode for a source whose type can never be written", async () => {
-    await seed(["pull", "push"], "ical");
+  it("pauses a pair whose source never recorded a read", async () => {
+    await seed(null);
 
-    expect(await readPolicyMode()).toBe("off");
+    expect(await readPolicy()).toMatchObject({ paused: true });
   });
 
-  it("still carries the mode of a source the account can write", async () => {
-    await seed(["pull", "push"]);
+  it("leaves the pair active while the source is being read", async () => {
+    await seed(new Date(Date.now() - FRESH_MS));
 
-    expect(await readPolicyMode()).toBe("edits_and_deletes");
+    expect(await readPolicy()).toMatchObject({
+      deleteApproved: true,
+      paused: false,
+      writeBackMode: "edits_and_deletes",
+    });
   });
 });

@@ -2,6 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
+import { TWO_WAY_SOURCE_INGEST_MAX_AGE_MS } from "@keeper.sh/constants";
 import { createDatabaseWriteBackStore } from "../src/write-back";
 
 const client = new PGlite();
@@ -10,6 +11,9 @@ const database = drizzle(client);
 const USER_ID = "user-id";
 const SOURCE_CALENDAR_ID = "11111111-1111-4111-8111-111111111111";
 const DESTINATION_CALENDAR_ID = "22222222-2222-4222-8222-222222222222";
+const MINUTE_MS = 60_000;
+const STALE_MS = TWO_WAY_SOURCE_INGEST_MAX_AGE_MS + MINUTE_MS;
+const FRESH_MS = MINUTE_MS;
 
 const DDL = `
 create table caldav_credentials (
@@ -27,7 +31,7 @@ create table calendars (
   "calendarType" text not null default 'google',
   "capabilities" text[] not null default '{pull}',
   "disabled" boolean not null default false,
-  "ingestLastSucceededAt" timestamp not null default now()
+  "ingestLastSucceededAt" timestamp
 );
 create table source_destination_mappings (
   "id" uuid primary key default gen_random_uuid(),
@@ -45,10 +49,11 @@ const store = createDatabaseWriteBackStore({
   userId: USER_ID,
 });
 
-const seed = async (capabilities: string[]): Promise<void> => {
+const seed = async (ingestLastSucceededAt: Date | null): Promise<void> => {
   await client.query(
-    `insert into calendars ("id", "capabilities") values ($1, $2)`,
-    [SOURCE_CALENDAR_ID, capabilities],
+    `insert into calendars ("id", "capabilities", "ingestLastSucceededAt")
+     values ($1, $2, $3)`,
+    [SOURCE_CALENDAR_ID, ["pull", "push"], ingestLastSucceededAt],
   );
   await client.query(
     `insert into calendars ("id", "capabilities") values ($1, $2)`,
@@ -78,22 +83,32 @@ beforeEach(async () => {
 });
 
 /*
- * The gate taken under the source lock, immediately before a real calendar is written. A
- * source regraded to read-only after two-way was switched on still carries its stored
- * mode, and reading that mode alone would send edits and deletions at a provider that can
- * only reject them.
+ * An ingest that keeps failing backs off for hours at a time while the destination pass
+ * carries on to its own schedule. Everything that stands between a destination-side edit
+ * and the user's real event — the drift comparison, the expected-source check, the field
+ * coverage a deletion is authorised by — is read from the copy that ingest stored, so once
+ * it stops being refreshed they all agree with themselves and a rename the user made on
+ * the original in the meantime is overwritten without any of them dissenting.
  */
-describe("the last write-back gate for a source that can no longer be written", () => {
-  it("reads the pair as off once the source only carries read access", async () => {
-    await seed(["pull"]);
+describe("the last write-back gate for a source nobody has read lately", () => {
+  it("reads the pair as off once the stored copy has aged out", async () => {
+    await seed(new Date(Date.now() - STALE_MS));
 
     const pair = await readPair();
 
     expect(pair?.writeBackMode).toBe("off");
   });
 
-  it("still reads the stored mode while the source can be written", async () => {
-    await seed(["pull", "push"]);
+  it("reads the pair as off for a source that never recorded a read", async () => {
+    await seed(null);
+
+    const pair = await readPair();
+
+    expect(pair?.writeBackMode).toBe("off");
+  });
+
+  it("still reads the stored mode while the source is being read", async () => {
+    await seed(new Date(Date.now() - FRESH_MS));
 
     const pair = await readPair();
 

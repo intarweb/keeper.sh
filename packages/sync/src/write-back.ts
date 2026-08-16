@@ -5,6 +5,7 @@ import {
   createGoogleTokenRefresher,
   createMicrosoftTokenRefresher,
   createOutlookSourceWriter,
+  isSourceSnapshotFresh,
   TWO_WAY_EPOCH_WINDOW_MS,
   withSourceIngestLocks,
   WRITE_BACK_WITNESS_RESET,
@@ -22,6 +23,7 @@ import { createSafeFetch } from "@keeper.sh/calendar/safe-fetch";
 import {
   TWO_WAY_SOURCE_WRITE_TIMEOUT_MS,
   TWO_WAY_WRITE_BACK_DAILY_WINDOW_MS,
+  TWO_WAY_WRITE_BACK_RUNAWAY_GAP_MS,
 } from "@keeper.sh/constants";
 import { decryptPassword } from "@keeper.sh/database";
 import {
@@ -363,15 +365,23 @@ const readSourceEventFrom = async (
 };
 
 /*
- * The epoch window rolls: a mapping whose window opened over an hour ago starts a fresh
- * budget rather than carrying an ancient count. Postgres evaluates every assignment
- * against the pre-update row, so both branches read the same window start.
+ * The epoch counts a run of write-backs, and what makes them one run is that each follows
+ * the last closely enough to be a machine. A destination generating changes on its own
+ * produces one every pass; a person editing the same event produces one per edit, minutes
+ * apart, and starts a fresh run each time — five deliberate edits inside an hour are not a
+ * runaway and must not revert the pair to one-way. The hour is still the outer bound, so a
+ * run that somehow stays unbroken for one starts again rather than carrying an ancient
+ * count. Postgres evaluates every assignment against the pre-update row, so all three
+ * branches read the same columns.
  */
 const buildEpochAssignment = (): Record<string, unknown> => {
   const staleWindow = sql`(
     ${eventMappingsTable.writeBackEpochWindowStart} is null
     or ${eventMappingsTable.writeBackEpochWindowStart}
       < now() - (interval '1 millisecond' * ${TWO_WAY_EPOCH_WINDOW_MS})
+    or ${eventMappingsTable.writeBackLastAppliedAt} is null
+    or ${eventMappingsTable.writeBackLastAppliedAt}
+      < now() - (interval '1 millisecond' * ${TWO_WAY_WRITE_BACK_RUNAWAY_GAP_MS})
   )`;
 
   return {
@@ -379,6 +389,7 @@ const buildEpochAssignment = (): Record<string, unknown> => {
       else ${eventMappingsTable.writeBackEpoch} + ${EPOCH_INCREMENT} end`,
     writeBackEpochWindowStart: sql`case when ${staleWindow} then now()
       else ${eventMappingsTable.writeBackEpochWindowStart} end`,
+    writeBackLastAppliedAt: sql`now()`,
   };
 };
 
@@ -460,6 +471,7 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
         calendarType: calendarsTable.calendarType,
         capabilities: calendarsTable.capabilities,
         disabled: calendarsTable.disabled,
+        ingestLastSucceededAt: calendarsTable.ingestLastSucceededAt,
         writeBackMode: sourceDestinationMappingsTable.writeBackMode,
         writeBackState: sourceDestinationMappingsTable.writeBackState,
       })
@@ -483,6 +495,16 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
       .limit(1);
     if (!row) {
       return null;
+    }
+    /*
+     * The classification was produced from the stored copy of the source, and the checks
+     * that follow this one compare the classification against that same stored copy. A
+     * snapshot that has aged out since the pass began makes all of them agree with
+     * themselves, so the age is re-read here, under the lock, with the rest of the
+     * authority.
+     */
+    if (!isSourceSnapshotFresh(row, new Date())) {
+      return { writeBackMode: "off", writeBackState: row.writeBackState };
     }
     return {
       writeBackMode: resolveWritableWriteBackMode(row.writeBackMode, {
@@ -807,6 +829,7 @@ const createInboundWriteBackApplier = (config: WriteBackApplierConfig) => {
 };
 
 export {
+  buildEpochAssignment,
   clearDestinationWitnesses,
   countsTowardDeleteCap,
   isUnresolvedAttempt,
