@@ -645,8 +645,10 @@ reason`.
 
 **Lesson.** Enumeration learns whether a calendar is writable and the fact was then discarded; a write to
 a read-only calendar is expressible everywhere downstream.
-**Learned from.** `CalendarRef.access` having no consumer; the reconnect/duplicate-destination family of
-fixes (`fec144c1`).
+**Learned from.** Adversarial review of this package's own first draft, where `CalendarRef.access` was
+carried through enumeration and then had no consumer; the same shape as entry 26's "discovered, then
+discarded" family. No prior commit is cited because the existing engine never attempts a write to a
+calendar it enumerated as read-only — the protocol should not be the first place that becomes possible.
 **Honoured by.** Every `WriteIntent` variant takes a `WritableCalendar` (`{ key, access: "readWrite" }`),
 not a bare `CalendarKey`. Constructing one from a `CalendarRef` requires narrowing `access`, which is a
 guard the compiler forces rather than an assertion the author may skip — the package contains no type
