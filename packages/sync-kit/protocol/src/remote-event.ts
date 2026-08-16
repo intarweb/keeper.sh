@@ -88,6 +88,7 @@ export type {
   RecurrencePayload,
   RecurringContent,
   RemoteEvent,
+  RemoteEventFacts,
   SingleOccurrenceContent,
   Visibility,
 };

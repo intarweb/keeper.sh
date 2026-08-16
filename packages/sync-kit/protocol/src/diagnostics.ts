@@ -12,7 +12,9 @@ const withholdReasons = [
   "recurrenceBudgetExceeded",
   "supersededRevisionUnbuildable",
   "unsupportedRecurrenceRange",
+  "unsupportedRecurrenceDates",
   "missingIdentity",
+  "selfAuthored",
 ] as const;
 type WithholdReason = (typeof withholdReasons)[number];
 
