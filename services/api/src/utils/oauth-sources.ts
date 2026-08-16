@@ -17,6 +17,7 @@ import {
 } from "./source-calendar-insert";
 
 import { enqueuePushSync } from "./enqueue-push-sync";
+import { registerAccountPushChannels } from "./push-notifications/register-account-channels";
 
 const GOOGLE_WRITABLE_ACCESS_ROLES = new Set(["owner", "writer"]);
 const FIRST_RESULT_LIMIT = 1;
@@ -261,7 +262,7 @@ interface CreateOAuthSourceDependencies {
     oauthCredentialId: string;
     userId: string;
   }) => Promise<boolean>;
-  triggerSync: (userId: string, provider: string) => void;
+  triggerSync: (userId: string, provider: string, accountId: string) => void;
 }
 
 const countUserAccountsWithDatabase = async (
@@ -561,7 +562,7 @@ const createDefaultCreateOAuthSourceDependencies = (): CreateOAuthSourceDependen
   findExistingAccountId: findOAuthAccountId,
   hasExistingCalendar: hasExistingOAuthCalendar,
   resolveWritability: resolveSourceWritability,
-  triggerSync: (userId, provider) => {
+  triggerSync: (userId, provider, accountId) => {
     spawnBackgroundJob("oauth-source-push-enqueue", { userId, provider }, async () => {
       const { premiumService } = await import("@/context");
       const plan = await premiumService.getUserPlan(userId);
@@ -570,6 +571,8 @@ const createDefaultCreateOAuthSourceDependencies = (): CreateOAuthSourceDependen
       }
       await enqueuePushSync(userId, plan);
     });
+    spawnBackgroundJob("oauth-source-push-register", { accountId, provider, userId }, () =>
+      registerAccountPushChannels(accountId));
   },
 });
 
@@ -656,7 +659,7 @@ const createOAuthSourceWithDependencies = async (
     throw new Error("Failed to create OAuth calendar source");
   }
 
-  dependencies.triggerSync(userId, provider);
+  dependencies.triggerSync(userId, provider, accountId);
 
   return {
     email: credential.email,
@@ -740,7 +743,7 @@ interface ImportOAuthAccountDependencies {
     calendars: ExternalCalendar[],
   ) => Promise<void>;
   listCalendars: (provider: string, accessToken: string) => Promise<ExternalCalendar[]>;
-  triggerSync: (userId: string, provider: string) => void;
+  triggerSync: (userId: string, provider: string, accountId: string) => void;
 }
 
 const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDependencies => ({
@@ -841,7 +844,7 @@ const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDepend
       throw error;
     }
   },
-  triggerSync: (userId, provider) => {
+  triggerSync: (userId, provider, accountId) => {
     spawnBackgroundJob("oauth-account-import-push-enqueue", { userId, provider }, async () => {
       const { premiumService } = await import("@/context");
       const plan = await premiumService.getUserPlan(userId);
@@ -850,6 +853,8 @@ const createDefaultImportOAuthAccountDependencies = (): ImportOAuthAccountDepend
       }
       await enqueuePushSync(userId, plan);
     });
+    spawnBackgroundJob("oauth-account-import-push-register", { accountId, provider, userId }, () =>
+      registerAccountPushChannels(accountId));
   },
 });
 
@@ -899,7 +904,7 @@ const importOAuthAccountCalendarsWithDependencies = async (
   }
 
   await dependencies.insertCalendars(userId, accountId, newCalendars);
-  dependencies.triggerSync(userId, provider);
+  dependencies.triggerSync(userId, provider, accountId);
 
   return accountId;
 };
