@@ -7079,3 +7079,56 @@ resync triggers, cursor encoding and scope binding, Windows zone resolution, the
 error classification against real Graph error shapes, the SDK default-hardening assertion, the pagination
 bounds, the push receiver and subscription lifecycle, and the hygiene rules (one window predicate, no
 `Bun.sleep`, no logger, no database import, no type assertions, no status codes outside `src/errors`).
+
+## Red phase addendum (sync-microsoft)
+
+The red suite is 211 tests across 95 files. Every test was written before any behaviour existed; the source
+tree carries signatures whose bodies raise `Unimplemented`, so a red is an unimplemented adapter and never a
+missing module. Four entries below record the ids the suite carries that the entries above do not cite, so
+the ledger stays a complete map of the suite.
+
+### MS-I82. Enumeration tolerates the shapes Graph actually answers
+
+**Lesson.** Graph's calendar list carries entries with a null `name`, entries with no `id` at all, and a body
+that occasionally is not the documented envelope. Skipping the unusable entries is right; reading a body with
+no `value` array as "this account has no calendars" is a deletion waiting to happen.
+**Honoured by.** `src/calendars/list-calendars.ts` drops an entry with no id and keeps one with no display
+name; a body that is not the documented envelope is a `Result` failure, never an empty enumeration.
+**Proved by.** `microsoft/tests/calendars/tolerant-enumeration.test.ts :: MS-O44: an enumeration with absent
+items and absent display names still answers`;
+`microsoft/tests/calendars/tolerant-enumeration.test.ts :: MS-O44: an enumeration whose body carries no value
+array is a failure, not an empty calendar list`.
+
+### MS-I83. The hygiene rules are themselves tests, and each is anchored to behaviour
+
+**Lesson.** A grep-only hygiene test passes on an empty package, so it proves nothing until the rule it
+guards is load-bearing. Each hygiene test therefore carries one behavioural assertion over the unit it
+protects, so it is red until that unit exists and red again the moment the rule is broken.
+**Honoured by.** `MS-H7` (no database import, no type assertion outside an import alias, and a contract
+assembled from injected dependencies alone), `MS-H8` (the `@keeper.sh/sync-ical` value import confined to
+`src/decode/zone.ts` and `src/write/wall-time.ts`), `MS-H9` (this ledger walked against the suite).
+**Proved by.** `microsoft/tests/hygiene/no-assertions.test.ts :: MS-H7: no module imports the database
+package or asserts a type`;
+`microsoft/tests/hygiene/zone-import.test.ts :: MS-H8: only the zone decoder and the wall-time emitter import
+sync-ical as values`;
+`microsoft/tests/hygiene/ledger-citations.test.ts :: MS-H9: every cited test name exists verbatim in the file
+that is cited`.
+
+### MS-I84. Six tests cannot be red in the red phase, and that is a property of what they assert
+
+`MS-O26`, `MS-P8` and `MS-P16` are `.test-d.ts` type assertions: the type design *is* a deliverable of the red
+phase, so they pass the moment the signatures land, and they go red only if a later change makes an
+unconditional write, an unhandled lifecycle event or a `/me`-scoped subscription spellable. The three `MS-H9`
+ledger-walk assertions are the same shape over documentation. Every other test — 205 of 211 — fails today,
+203 of them by raising `Unimplemented` out of the module under test and two by the hygiene rules they name
+(no `clock.sleep` and no shared zone ladder import exist yet).
+
+### MS-I85. The fake Graph carries the misbehaviours, not the tests
+
+`microsoft/tests/support/fake-graph.ts` is the only translation of a `ProviderSeed` into Graph JSON, and its
+switches are the real service's documented misbehaviours: `honoursIfMatch(false)` for the last-write-wins
+reading of MS-I27, `rewritesBody(true)` for the HTML rewrite of MS-I24, `cyclesNextLink()` and
+`repeatsLinkAfter(n)` for the `nextLink` cycle of MS-I39, `withholdDeltaLink()` for MS-I3, and `putRaw` for
+items that are not valid `Event` resources at all. No test reaches past it to stub an internal function, and
+no lockup test asserts elapsed wall-clock time: each one counts operations, asserts a typed refusal, or runs
+at two configured ceilings and shows the outcome differs.
