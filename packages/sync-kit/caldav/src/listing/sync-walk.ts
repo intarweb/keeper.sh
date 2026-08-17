@@ -116,9 +116,9 @@ const walkSyncCollection = async (
     token: request.token ?? "",
     pages: 0,
   };
-  let asked: string | null = request.token;
+  const cursor: { asked: string | null } = { asked: request.token };
   while (state.pages < request.pageCeiling) {
-    const page = await fetchPage(internals, request, asked);
+    const page = await fetchPage(internals, request, cursor.asked);
     if (!page.ok) {
       return { ok: false, failure: page.failure };
     }
@@ -134,7 +134,7 @@ const walkSyncCollection = async (
           return { ok: true, value: truncatedWalk(state) };
         }
         state.token = report.token;
-        asked = report.token;
+        cursor.asked = report.token;
         break;
       }
       case "changed": {

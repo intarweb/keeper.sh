@@ -51,31 +51,40 @@ const untilAborted = (signal: AbortSignal): Promise<never> =>
     });
   });
 
+interface AuthNegotiation {
+  announced: CalDAVAuthMethod | null;
+  resolved: CalDAVAuthMethod | null;
+  challenge: string | null;
+  negotiating: Promise<void> | null;
+}
+
 const createAuthenticatingFetch = (options: AuthenticatingFetchOptions): typeof fetch => {
   const { credentials } = options;
-  let announced: CalDAVAuthMethod | null = credentials.knownAuthMethod;
-  let resolved: CalDAVAuthMethod | null = null;
+  const auth: AuthNegotiation = {
+    announced: credentials.knownAuthMethod,
+    resolved: null,
+    challenge: null,
+    negotiating: null,
+  };
 
   const announce = (method: CalDAVAuthMethod): void => {
-    resolved = method;
-    if (announced === method) {
+    auth.resolved = method;
+    if (auth.announced === method) {
       return;
     }
-    announced = method;
+    auth.announced = method;
     options.onAuthMethodResolved(method);
   };
 
-  let challenge: string | null = null;
-
   const replayedChallenge = (): Response =>
-    new Response(null, { status: unauthorised, headers: { "www-authenticate": challenge ?? "" } });
+    new Response(null, { status: unauthorised, headers: { "www-authenticate": auth.challenge ?? "" } });
 
   const observing = (
     input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
     const sent = schemeSent(new Headers(init?.headers));
-    if (sent === null && challenge !== null) {
+    if (sent === null && auth.challenge !== null) {
       return Promise.resolve(replayedChallenge());
     }
     if (sent !== null) {
@@ -112,26 +121,25 @@ const createAuthenticatingFetch = (options: AuthenticatingFetchOptions): typeof 
       signal: signal ?? null,
     });
     if (probed.status === unauthorised) {
-      challenge = probed.headers.get("www-authenticate");
-      if (selectChallenge(challenge, "Digest") === null) {
-        resolved = "basic";
+      auth.challenge = probed.headers.get("www-authenticate");
+      if (selectChallenge(auth.challenge, "Digest") === null) {
+        auth.resolved = "basic";
       }
     }
     await releaseResponseBody(probed);
   };
 
-  let negotiating: Promise<void> | null = null;
 
   const forgetProbe = (): void => {
-    negotiating = null;
+    auth.negotiating = null;
   };
 
   const negotiated = (signal: AbortSignal | null): Promise<void> => {
-    if (negotiating) {
-      return negotiating;
+    if (auth.negotiating) {
+      return auth.negotiating;
     }
     const probing = probeChallenge(signal);
-    negotiating = probing;
+    auth.negotiating = probing;
     probing.catch(forgetProbe);
     return probing;
   };
@@ -153,7 +161,7 @@ const createAuthenticatingFetch = (options: AuthenticatingFetchOptions): typeof 
     const signal = signalOf(init);
     signal?.throwIfAborted();
     await negotiatedOrAbandoned(signal);
-    if (resolved === "basic") {
+    if (auth.resolved === "basic") {
       return overBasic(input, init);
     }
     const answered = await digest.fetch(input, init);

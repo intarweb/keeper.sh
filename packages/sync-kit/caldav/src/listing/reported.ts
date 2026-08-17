@@ -56,7 +56,7 @@ const removalsAgainstReported = (
 
 const createReportedLedger = (): ReportedLedger => {
   const byCollection = new Map<string, ReadonlyMap<string, RemoteEventId>>();
-  let corruptRows: readonly string[] = [];
+  const rows: { corruptRows: readonly string[] } = { corruptRows: [] };
 
   return {
     carried: (collectionPath: string) =>
@@ -94,9 +94,9 @@ const createReportedLedger = (): ReportedLedger => {
       return null;
     },
     corrupt: (uids: readonly string[]) => {
-      corruptRows = uids;
+      rows.corruptRows = uids;
     },
-    corrupted: () => corruptRows.length > 0,
+    corrupted: () => rows.corruptRows.length > 0,
   };
 };
 

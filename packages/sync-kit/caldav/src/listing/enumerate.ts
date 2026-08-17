@@ -24,17 +24,17 @@ const withoutDuplicates = (
   rows: readonly ListedResource[],
 ): { readonly listed: readonly ListedResource[]; readonly duplicatesCollapsed: number } => {
   const byPath = new Map<string, ListedResource>();
-  let duplicatesCollapsed = 0;
+  const collapsed = { duplicatesCollapsed: 0 };
   for (const row of rows) {
     if (byPath.has(row.path)) {
-      duplicatesCollapsed += 1;
+      collapsed.duplicatesCollapsed += 1;
       continue;
     }
     byPath.set(row.path, row);
   }
   return {
     listed: [...byPath.values()].toSorted((left, right) => left.path.localeCompare(right.path)),
-    duplicatesCollapsed,
+    duplicatesCollapsed: collapsed.duplicatesCollapsed,
   };
 };
 

@@ -68,13 +68,13 @@ const slept = async <Value>(
 const withBackoff = async <Value>(
   options: BackoffOptions<Value>,
 ): Promise<BackoffOutcome<Value>> => {
-  let attemptNumber = 0;
+  const walk = { attemptNumber: 0 };
   while (options.attempts.claim()) {
-    attemptNumber += 1;
+    walk.attemptNumber += 1;
     if (options.signal.aborted) {
       return { kind: "aborted" };
     }
-    const attempted = await options.attempt(attemptNumber);
+    const attempted = await options.attempt(walk.attemptNumber);
     switch (attempted.kind) {
       case "answered": {
         return { kind: "answered", value: attempted.value };
@@ -89,7 +89,7 @@ const withBackoff = async <Value>(
         if (options.attempts.remaining() === 0) {
           return { kind: "failed", failure: attempted.failure };
         }
-        const rested = await slept(options, retryDelayMs(attempted.failure, options, attemptNumber));
+        const rested = await slept(options, retryDelayMs(attempted.failure, options, walk.attemptNumber));
         if (!rested) {
           return { kind: "aborted" };
         }
@@ -100,7 +100,7 @@ const withBackoff = async <Value>(
       }
     }
   }
-  return { kind: "exhausted", attempts: attemptNumber };
+  return { kind: "exhausted", attempts: walk.attemptNumber };
 };
 
 export { retryDelayMs, withBackoff };

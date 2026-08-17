@@ -27,11 +27,11 @@ type MultigetOutcome =
     };
 
 const batched = (paths: readonly string[], size: number): readonly (readonly string[])[] => {
-  const batches: string[][] = [];
-  for (let index = 0; index < paths.length; index += size) {
-    batches.push(paths.slice(index, index + size));
-  }
-  return batches;
+  const starts = Array.from(
+    { length: Math.ceil(paths.length / Math.max(1, size)) },
+    (unused, batch) => batch * size,
+  );
+  return starts.map((index) => paths.slice(index, index + size));
 };
 
 const readableRows = (

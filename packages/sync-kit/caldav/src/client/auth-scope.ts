@@ -13,34 +13,32 @@ const successful = (status: number): boolean => status >= 200 && status < 300;
 const deniedStatus = 401;
 
 const createAuthScope = (): AuthScope => {
-  let succeeded = false;
-  let denied = false;
-  let withheld = false;
+  const state = { succeeded: false, denied: false, withheld: false };
 
   return {
     record: (status: number) => {
       if (successful(status)) {
-        succeeded = true;
-        withheld = false;
+        state.succeeded = true;
+        state.withheld = false;
         return;
       }
       if (status === deniedStatus) {
-        denied = true;
+        state.denied = true;
       }
     },
     recordWithheldCredentials: () => {
-      withheld = true;
+      state.withheld = true;
     },
     verdict: () => {
-      if (succeeded) {
+      if (state.succeeded) {
         return "authenticated";
       }
-      if (denied) {
+      if (state.denied) {
         return "denied";
       }
       return "undecided";
     },
-    credentialsWithheld: () => withheld,
+    credentialsWithheld: () => state.withheld,
   };
 };
 

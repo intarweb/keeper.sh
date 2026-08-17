@@ -6,17 +6,17 @@ interface AttemptBudget {
 
 const createAttemptBudget = (maxAttempts: number): AttemptBudget => {
   const ceiling = Math.max(0, maxAttempts);
-  let spent = 0;
+  const budget = { spent: 0 };
   return {
     claim: () => {
-      if (spent >= ceiling) {
+      if (budget.spent >= ceiling) {
         return false;
       }
-      spent += 1;
+      budget.spent += 1;
       return true;
     },
-    spent: () => spent,
-    remaining: () => Math.max(0, ceiling - spent),
+    spent: () => budget.spent,
+    remaining: () => Math.max(0, ceiling - budget.spent),
   };
 };
 

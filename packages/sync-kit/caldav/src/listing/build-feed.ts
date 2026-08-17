@@ -71,13 +71,12 @@ const buildCalDAVFeed = (request: FeedRequest): Result<CalDAVFeed> => {
   const removals: Removal[] = [];
   const withheld: WithheldEvent[] = [];
   const selfAuthored: string[] = [];
-  let readCount = 0;
-  let unreadableCount = 0;
+  const counts = { readCount: 0, unreadableCount: 0 };
   for (const resource of [...request.resources].toSorted(byPath)) {
     const projected = projectResource(resource, request.scope, request.options, request.hash);
     switch (projected.kind) {
       case "event": {
-        readCount += 1;
+        counts.readCount += 1;
         events.push(projected.event);
         removals.push(...projected.removals);
         withheld.push(...projected.withheld);
@@ -85,14 +84,14 @@ const buildCalDAVFeed = (request: FeedRequest): Result<CalDAVFeed> => {
         break;
       }
       case "withheld": {
-        readCount += 1;
+        counts.readCount += 1;
         removals.push(...projected.removals);
         withheld.push(...projected.withheld);
         selfAuthored.push(...projected.selfAuthored);
         break;
       }
       case "unreadable": {
-        unreadableCount += 1;
+        counts.unreadableCount += 1;
         withheld.push(unreadableWithheld(resource.path, projected.reason));
         break;
       }
@@ -109,8 +108,8 @@ const buildCalDAVFeed = (request: FeedRequest): Result<CalDAVFeed> => {
       removals,
       withheld: [...withheld, ...collapsed.losers.map((event) => supersededWithheld(event))],
       selfAuthored,
-      readCount,
-      unreadableCount,
+      readCount: counts.readCount,
+      unreadableCount: counts.unreadableCount,
     },
   };
 };

@@ -62,11 +62,14 @@ const collapsedToOneUid = (
   if (!first) {
     return { winner: null, losers: [] };
   }
-  let winner = first;
+  const chosen = { winner: first };
   for (const candidate of rest) {
-    winner = preferred(winner, candidate);
+    chosen.winner = preferred(chosen.winner, candidate);
   }
-  return { winner, losers: events.filter((event) => event !== winner) };
+  return {
+    winner: chosen.winner,
+    losers: events.filter((event) => event !== chosen.winner),
+  };
 };
 
 const withheldFor = (event: RemoteEvent): WithheldEvent => ({

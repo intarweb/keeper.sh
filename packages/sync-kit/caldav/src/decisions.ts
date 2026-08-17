@@ -14,23 +14,25 @@ const allUnder = (collectionPath: string, resourcePaths: readonly string[]): boo
   resourcePaths.every((path) => path.startsWith(collectionPath));
 
 const createDecisionRecord = (): DecisionRecord => {
-  let coverage: CoverageDecision | null = null;
-  let overspent = false;
+  const state: { coverage: CoverageDecision | null; overspent: boolean } = {
+    coverage: null,
+    overspent: false,
+  };
 
   return {
     recordCoverage: (decision: CoverageDecision) => {
-      coverage = decision;
+      state.coverage = decision;
     },
     recordAttempts: (spent: number, allowed: number) => {
-      overspent = overspent || spent > allowed;
+      state.overspent = state.overspent || spent > allowed;
     },
     coverageCameFromOneCollection: () => {
-      if (coverage === null) {
+      if (state.coverage === null) {
         return true;
       }
-      return allUnder(coverage.collectionPath, coverage.resourcePaths);
+      return allUnder(state.coverage.collectionPath, state.coverage.resourcePaths);
     },
-    attemptsWithinBudget: () => !overspent,
+    attemptsWithinBudget: () => !state.overspent,
   };
 };
 
