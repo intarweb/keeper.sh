@@ -803,6 +803,21 @@ const createDatabaseWriteBackStore = (
       [sourceCalendarId],
     );
   },
+  /*
+   * Deliberately not a quarantine: the state is recorded so the dashboard can ask for the
+   * permission, and the destination witnesses are left standing. Clearing them would throw
+   * away the record of what the copies looked like over a question the user has not been
+   * asked yet, and the pair is still trusted with everything the grant does not cover.
+   */
+  requireGrant: async (sourceCalendarId, destinationCalendarId, grant) => {
+    await config.database
+      .update(sourceDestinationMappingsTable)
+      .set({ writeBackState: "grant_required", writeBackStateReason: grant })
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ));
+  },
   readSourceEvent: (eventStateId) => readSourceEventFrom(config.database, eventStateId),
   /*
    * The number handed back is the budget this outcome is judged against, and nothing else:
