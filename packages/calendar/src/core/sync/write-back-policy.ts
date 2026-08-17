@@ -60,6 +60,8 @@ const WRITE_BACK_WITNESS_RESET = {
   destinationLocation: null,
   destinationStartTime: null,
   destinationSummary: null,
+  writeBackAbandonCount: NO_WRITE_BACKS,
+  writeBackAppliedCount: NO_WRITE_BACKS,
   writeBackDailyCount: NO_WRITE_BACKS,
   writeBackDailyWindowStart: null,
   writeBackEpoch: NO_WRITE_BACKS,

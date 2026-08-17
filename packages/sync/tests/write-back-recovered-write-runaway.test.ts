@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import type { CalendarSourceWriter, InboundClassification } from "@keeper.sh/calendar";
 import { eventMappingsTable } from "@keeper.sh/database/schema";
-import { resolveEpochLimit } from "@keeper.sh/calendar";
 import { buildEpochAssignment, createDatabaseWriteBackStore } from "../src/write-back";
 import type { WriteBackApplierConfig } from "../src/write-back";
 import { runWriteBackPass } from "../src/write-back-pass";
@@ -35,6 +34,7 @@ const DDL = `
 create table event_mappings (
   "id" uuid primary key,
   "writeBackAbandonCount" integer not null default 0,
+  "writeBackAppliedCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
   "writeBackLastAppliedAt" timestamptz
@@ -91,27 +91,17 @@ const createWriteBack = (): InboundClassification => ({
  * stamps it depends on, exactly as the real commit does.
  */
 const commitUpdate = async (): Promise<{
+  writeBackAppliedCount: number;
   writeBackDailyCount: number;
-  writeBackEpoch: number;
-  writeBackEpochLimit: number;
 }> => {
-  const [before] = await database
-    .select({
-      writeBackEpochWindowStart: eventMappingsTable.writeBackEpochWindowStart,
-      writeBackLastAppliedAt: eventMappingsTable.writeBackLastAppliedAt,
-    })
-    .from(eventMappingsTable)
-    .where(eq(eventMappingsTable.id, MAPPING_ID))
-    .limit(FIRST);
   const [row] = await database
     .update(eventMappingsTable)
     .set(buildEpochAssignment())
     .where(eq(eventMappingsTable.id, MAPPING_ID))
-    .returning({ writeBackEpoch: eventMappingsTable.writeBackEpoch });
+    .returning({ writeBackAppliedCount: eventMappingsTable.writeBackAppliedCount });
   return {
+    writeBackAppliedCount: row?.writeBackAppliedCount ?? 0,
     writeBackDailyCount: FIRST,
-    writeBackEpoch: row?.writeBackEpoch ?? 0,
-    writeBackEpochLimit: resolveEpochLimit(before ?? {}),
   };
 };
 

@@ -80,8 +80,8 @@ const createHarness = () => {
     commitDelete: () => Promise.resolve(),
     commitUpdate: () =>
       Promise.resolve({
+        writeBackAppliedCount: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
         writeBackDailyCount: 1,
-        writeBackEpoch: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
       }),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>

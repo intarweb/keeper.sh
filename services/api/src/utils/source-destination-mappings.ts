@@ -1042,6 +1042,31 @@ const clearPendingDeleteState = async (
     ));
 };
 
+/*
+ * The budget an escalation was reached on belongs to the question that escalation asked,
+ * and the user has now answered it. Left spent, the first abandon of the very next pass
+ * takes the mapping straight back over the threshold and re-arms the same pause — under a
+ * reason approving is refused for, so the approval can only be undone rather than retried.
+ *
+ * Only the abandon budget is returned. The landed-write, epoch and daily budgets bound how
+ * much this pair may write to a real calendar, and answering a question about deleted
+ * copies says nothing about those, so they stay spent. The observation stays too: it is
+ * what identifies the copies the approval was given about.
+ */
+const returnAbandonBudget = async (
+  transactionClient: DatabaseTransactionClient,
+  sourceCalendarId: string,
+  destinationCalendarId: string,
+): Promise<void> => {
+  await transactionClient
+    .update(eventMappingsTable)
+    .set({ writeBackAbandonCount: NO_PENDING_DELETES })
+    .where(and(
+      eq(eventMappingsTable.calendarId, destinationCalendarId),
+      eq(eventMappingsTable.sourceCalendarId, sourceCalendarId),
+    ));
+};
+
 const resolveDeleteApprovedAt = (approved: boolean): Date | null => {
   if (!approved) {
     return null;
@@ -1162,6 +1187,13 @@ const resolveDeleteConfirmation = async (
       throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
     }
 
+    if (approved) {
+      await returnAbandonBudget(
+        transactionClient,
+        sourceCalendarId,
+        destinationCalendarId,
+      );
+    }
     if (!approved) {
       await clearPendingDeleteState(
         transactionClient,

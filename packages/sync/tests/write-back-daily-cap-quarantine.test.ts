@@ -100,7 +100,7 @@ const createHarness = () => {
       dailyWindow.count += 1;
       return Promise.resolve({
         writeBackDailyCount: dailyWindow.count,
-        writeBackEpoch: epochWindow.count,
+        writeBackAppliedCount: epochWindow.count,
       });
     },
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),

@@ -67,6 +67,8 @@ create table event_mappings (
   "startTime" timestamp not null default now(),
   "syncEventHash" text,
   "syncEventId" text,
+  "writeBackAbandonCount" integer not null default 0,
+  "writeBackAppliedCount" integer not null default 0,
   "writeBackDailyCount" integer not null default 0,
   "writeBackDailyWindowStart" timestamp,
   "writeBackEpoch" integer not null default 0,

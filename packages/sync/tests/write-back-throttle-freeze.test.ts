@@ -70,7 +70,7 @@ const createLocalEvent = (): MaterializedSyncableEvent => ({
 const createMapping = (
   event: MaterializedSyncableEvent,
   epoch: number,
-  lastAppliedAt: Date | null = null,
+  appliedCount = 0,
 ) => ({
   calendarId: DESTINATION_CALENDAR_ID,
   deleteIdentifier: "destination-delete-id-1",
@@ -97,6 +97,7 @@ const createMapping = (
   startTime: event.startTime,
   syncEventHash: createSyncEventContentHash(event),
   syncEventId: event.id,
+  writeBackAppliedCount: appliedCount,
   writeBackDailyCount: 0,
   writeBackDailyWindowStart: null,
   writeBackEpoch: epoch,
@@ -105,7 +106,6 @@ const createMapping = (
    * under test is what a live, spent budget does, not what an expired one does.
    */
   writeBackEpochWindowStart: NOW,
-  writeBackLastAppliedAt: lastAppliedAt,
 });
 
 const createMovedRemoteEvent = (
@@ -132,9 +132,9 @@ const createMovedRemoteEvent = (
  * is the half the pass-level fixtures cannot see: whether the pass is ever handed the work
  * again once the throttle has spent the mapping's failure budget.
  */
-const classifyWithEpoch = (epoch: number, lastAppliedAt: Date | null = null) => {
+const classifyWithEpoch = (epoch: number, appliedCount = 0) => {
   const event = createLocalEvent();
-  const mapping = createMapping(event, epoch, lastAppliedAt);
+  const mapping = createMapping(event, epoch, appliedCount);
   return classifyInboundChanges({
     existingMappings: [mapping],
     localEvents: [event],
@@ -218,7 +218,7 @@ const createHarness = () => {
 
   const locked: LockedWriteBackStore = {
     commitDelete: () => Promise.resolve(),
-    commitUpdate: () => Promise.resolve({ writeBackDailyCount: ONE, writeBackEpoch: ONE }),
+    commitUpdate: () => Promise.resolve({ writeBackDailyCount: ONE, writeBackAppliedCount: ONE }),
     readMappingSyncEventHash: () =>
       Promise.resolve({ syncEventHash: createSyncEventContentHash(createLocalEvent()) }),
     readPairWriteBack: () =>
@@ -350,10 +350,9 @@ describe("a throttled write-back does not silently freeze the event", () => {
    * writes that reached the source is a runaway, and five remains the most it may ever land.
    */
   it("still stops at five when the budget went on writes that landed", () => {
-    const landedAfterTheWindowOpened = new Date(NOW.getTime() + ONE);
     const next = classifyWithEpoch(
       TWO_WAY_EPOCH_QUARANTINE_LIMIT,
-      landedAfterTheWindowOpened,
+      TWO_WAY_EPOCH_QUARANTINE_LIMIT,
     );
 
     expect(next.classifications.map(({ type }) => type)).toEqual(["rejected"]);

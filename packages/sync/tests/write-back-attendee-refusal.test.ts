@@ -100,7 +100,7 @@ const createHarness = () => {
     },
     commitUpdate: ({ mappingId }) => {
       committedUpdates.push(mappingId);
-      return Promise.resolve({ writeBackEpoch: 1 });
+      return Promise.resolve({ writeBackAppliedCount: 1 });
     },
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>

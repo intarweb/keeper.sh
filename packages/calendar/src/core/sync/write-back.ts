@@ -240,12 +240,20 @@ const getDestinationDrift = (
   return { availability, content, time };
 };
 
+/*
+ * Only a read that came back with at least one of our own copies says anything about
+ * whether the copies are really gone, so only copies are counted. A destination provider
+ * that hands back the user's own events alongside ours — Outlook does, since the Keeper
+ * category is a per-item flag rather than a server-side filter — would otherwise clear the
+ * hold that guards "Delete the originals" on a listing that carried no copy at all.
+ */
 const resolveReadHealth = (
-  remoteEventCount: number,
+  remoteEvents: RemoteEvent[],
   rawItemCount: number,
   mappingCount: number,
 ): ReadHealth => {
-  if (remoteEventCount > NO_OBSERVATIONS) {
+  const copyCount = remoteEvents.filter((event) => event.isKeeperEvent).length;
+  if (copyCount > NO_OBSERVATIONS) {
     return "healthy";
   }
   if (rawItemCount > NO_OBSERVATIONS) {
@@ -273,55 +281,60 @@ const isRecurringMapping = (mapping: EventMapping): boolean =>
   || mapping.recurrenceId instanceof Date;
 
 /*
- * One column counts two different things. A spend that reached a real calendar is what the
- * runaway stop exists for, and five in a window is the most any mapping may ever land. A
- * spend the provider rejected reached nothing: a throttle rejects for as long as it
- * throttles, and the applier goes on retrying one for a budget far longer than five.
- * Judging a rejected spend by the landed limit stops the classifier handing the applier the
- * work while the applier is still waiting to escalate — leaving the event written back to
- * nowhere, repaired from nowhere, and the pair reporting healthy, for good. So a budget
- * spent on rejections alone is judged by the applier's failure limit. Only a rejection moves
- * the window without stamping a landed write, so a stamp no older than the window means the
- * spend landed and five stands — including the write that opened the window itself, which
- * stamps both at once.
- *
- * The applier judges the same column when a write lands, against the row as it stood before
- * that write was counted, and it has to reach the same answer: a write that finally lands
- * once a throttle lifts is the second write on the mapping, not the fifth in a runaway.
- * So the rule lives here once and both halves read it.
+ * The window rolls, so a mapping that spent a budget an hour ago starts again from zero. A
+ * mapping that reached its limit does not: a breach is sticky until a human clears it,
+ * because otherwise a destination that varies on every read would be handed a fresh budget
+ * every hour forever. Both budgets below roll and stick by that same rule.
  */
-const resolveEpochLimit = (mapping: {
-  writeBackEpochWindowStart?: Date | null;
-  writeBackLastAppliedAt?: Date | null;
-}): number => {
-  const appliedAt = mapping.writeBackLastAppliedAt;
-  if (!(appliedAt instanceof Date)) {
-    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
+const resolveWindowedCount = (
+  count: number,
+  windowStart: Date | null | undefined,
+  limit: number,
+  now: Date,
+): number => {
+  if (count >= limit) {
+    return count;
   }
-  const windowStart = mapping.writeBackEpochWindowStart;
-  if (windowStart instanceof Date && appliedAt.getTime() < windowStart.getTime()) {
-    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
+  if (
+    windowStart instanceof Date
+    && now.getTime() - windowStart.getTime() >= TWO_WAY_EPOCH_WINDOW_MS
+  ) {
+    return NO_EPOCHS;
   }
-  return TWO_WAY_EPOCH_QUARANTINE_LIMIT;
+  return count;
 };
 
 /*
- * The window rolls, so a mapping that wrote back a few times an hour ago starts again from
- * zero. A mapping that reached the limit does not: a breach is sticky until a human clears
- * it, because otherwise a destination that varies on every read would be handed a fresh
- * budget every hour forever.
+ * Two budgets, counted apart, because they mean different things and are allowed different
+ * amounts. A write that reached a real calendar is what the runaway stop exists for, and
+ * five in a window is the most any mapping may ever land. A spend the provider rejected
+ * reached nothing: a throttle rejects for as long as it throttles, and the applier goes on
+ * retrying one for a budget far longer than five.
+ *
+ * They used to share writeBackEpoch, with the limit chosen from whether a landed write was
+ * stamped after the window opened. That reads the wrong answer the moment both have
+ * happened: an edit, a burst of throttling, then the edit that lands once the throttle
+ * lifts leaves a count carrying four rejections judged by the five a landed run is allowed,
+ * and the mapping is refused for good — silently, since the refusal adopts the copy as the
+ * new baseline and keeps the pair out of the one-way repair. So the landed writes carry
+ * their own column and the rejections keep theirs, and neither limit can ever be asked
+ * about the other's count.
  */
-const resolveEffectiveEpoch = (mapping: EventMapping, now: Date): number => {
-  const epoch = mapping.writeBackEpoch ?? NO_EPOCHS;
-  if (epoch >= resolveEpochLimit(mapping)) {
-    return epoch;
-  }
-  const windowStart = mapping.writeBackEpochWindowStart;
-  if (windowStart instanceof Date && now.getTime() - windowStart.getTime() >= TWO_WAY_EPOCH_WINDOW_MS) {
-    return NO_EPOCHS;
-  }
-  return epoch;
-};
+const resolveEffectiveAppliedCount = (mapping: EventMapping, now: Date): number =>
+  resolveWindowedCount(
+    mapping.writeBackAppliedCount ?? NO_EPOCHS,
+    mapping.writeBackEpochWindowStart,
+    TWO_WAY_EPOCH_QUARANTINE_LIMIT,
+    now,
+  );
+
+const resolveEffectiveEpoch = (mapping: EventMapping, now: Date): number =>
+  resolveWindowedCount(
+    mapping.writeBackEpoch ?? NO_EPOCHS,
+    mapping.writeBackEpochWindowStart,
+    TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
+    now,
+  );
 
 /*
  * The window is read before the count, exactly as the counter's own SQL assignment does. A
@@ -340,7 +353,8 @@ const resolveEffectiveDailyCount = (mapping: EventMapping, now: Date): number =>
 };
 
 const isBudgetSpent = (mapping: EventMapping, now: Date): boolean =>
-  resolveEffectiveEpoch(mapping, now) >= resolveEpochLimit(mapping)
+  resolveEffectiveAppliedCount(mapping, now) >= TWO_WAY_EPOCH_QUARANTINE_LIMIT
+  || resolveEffectiveEpoch(mapping, now) >= TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT
   || resolveEffectiveDailyCount(mapping, now) >= TWO_WAY_WRITE_BACK_DAILY_CAP;
 
 const createWitnessUpdate = (
@@ -1534,7 +1548,7 @@ const classifyInboundChanges = (
   const classifications: InboundClassification[] = [];
   const suppressedMappingIds: string[] = [];
   const readHealth = resolveReadHealth(
-    remoteEvents.length,
+    remoteEvents,
     remoteRawItemCount,
     existingMappings.length,
   );
@@ -1661,7 +1675,6 @@ export {
   assertWriteBackPayload,
   classifyInboundChanges,
   getDestinationDrift,
-  resolveEpochLimit,
   resolveWriteBackEligibleFields,
   TWO_WAY_DELETE_ABSOLUTE_FLOOR,
   TWO_WAY_DELETE_GRACE_MS,

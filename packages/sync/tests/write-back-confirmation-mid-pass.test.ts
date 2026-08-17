@@ -87,7 +87,7 @@ const createHarness = () => {
     commitDelete: () => Promise.resolve(),
     commitUpdate: () => {
       state.epoch += 1;
-      return Promise.resolve({ writeBackEpoch: state.epoch });
+      return Promise.resolve({ writeBackAppliedCount: state.epoch });
     },
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>

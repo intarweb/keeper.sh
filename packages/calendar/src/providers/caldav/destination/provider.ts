@@ -390,7 +390,13 @@ const createCalDAVSyncProvider = (config: CalDAVSyncProviderConfig) => {
       }
     }
 
-    return { items: remoteEvents, rawItemCount: objects.length };
+    /*
+     * What the server listed, before the Keeper path filter narrowed it. A count taken
+     * after the filter cannot tell a destination holding only the user's own events from
+     * one the server answered nothing for, and the second of those is what holds a
+     * deletion back to ask the user first.
+     */
+    return { items: remoteEvents, rawItemCount: listing?.listedCount ?? objects.length };
   };
 
   const readObjectFilename = (href: string): string | null => {

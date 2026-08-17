@@ -65,6 +65,7 @@ create table event_mappings (
   "sourceCalendarId" uuid,
   "syncEventHash" text,
   "writeBackAbandonCount" integer not null default 0,
+  "writeBackAppliedCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
   "writeBackLastAppliedAt" timestamptz

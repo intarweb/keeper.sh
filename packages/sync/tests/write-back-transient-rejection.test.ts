@@ -117,7 +117,7 @@ const createHarness = () => {
 
   const locked: LockedWriteBackStore = {
     commitDelete: () => Promise.resolve(),
-    commitUpdate: () => Promise.resolve({ writeBackDailyCount: ONE, writeBackEpoch: ONE }),
+    commitUpdate: () => Promise.resolve({ writeBackDailyCount: ONE, writeBackAppliedCount: ONE }),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     /*
      * A quarantine is read back the way the pass reads it in production: the stored state

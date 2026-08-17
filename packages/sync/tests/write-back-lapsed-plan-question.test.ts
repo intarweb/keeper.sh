@@ -44,6 +44,8 @@ create table event_mappings (
   "destinationLocation" text,
   "destinationStartTime" timestamptz,
   "destinationSummary" text,
+  "writeBackAbandonCount" integer not null default 0,
+  "writeBackAppliedCount" integer not null default 0,
   "writeBackDailyCount" integer not null default 0,
   "writeBackDailyWindowStart" timestamptz,
   "writeBackEpoch" integer not null default 0,

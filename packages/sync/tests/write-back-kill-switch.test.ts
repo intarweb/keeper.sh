@@ -77,7 +77,7 @@ const createHarness = (pair: PairWriteBackAuthority) => {
 
   const locked: LockedWriteBackStore = {
     commitDelete: () => Promise.resolve(),
-    commitUpdate: () => Promise.resolve({ writeBackEpoch: 1 }),
+    commitUpdate: () => Promise.resolve({ writeBackAppliedCount: 1 }),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () => Promise.resolve(pair),
     readSourceEvent: () => Promise.resolve(snapshot),
@@ -169,7 +169,7 @@ describe("two-way sync: the user's off switch stops the pass already running", (
       withSourceLock: (_sourceCalendarId, callback) =>
         callback({
           commitDelete: () => Promise.resolve(),
-          commitUpdate: () => Promise.resolve({ writeBackEpoch: 1 }),
+          commitUpdate: () => Promise.resolve({ writeBackAppliedCount: 1 }),
           readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
           readPairWriteBack: () => Promise.resolve(null),
           readSourceEvent: () => Promise.resolve(createSourceSnapshot()),

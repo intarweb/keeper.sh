@@ -116,7 +116,7 @@ const createHarness = () => {
 
   const locked: LockedWriteBackStore = {
     commitDelete: () => Promise.resolve(),
-    commitUpdate: () => Promise.resolve({ writeBackDailyCount: ONCE, writeBackEpoch: ONCE }),
+    commitUpdate: () => Promise.resolve({ writeBackDailyCount: ONCE, writeBackAppliedCount: ONCE }),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>
       Promise.resolve({

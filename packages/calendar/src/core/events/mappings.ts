@@ -29,6 +29,7 @@ interface EventMapping {
   missingObservationCount?: number;
   recurrenceId?: Date | null;
   recurrenceRule?: string | null;
+  writeBackAppliedCount?: number;
   writeBackDailyCount?: number;
   writeBackDailyWindowStart?: Date | null;
   writeBackEpoch?: number;
@@ -90,6 +91,7 @@ const getEventMappingsForDestination = async (
       syncEventId: eventMappingsTable.syncEventId,
       syncEventHash: eventMappingsTable.syncEventHash,
       startTime: eventMappingsTable.startTime,
+      writeBackAppliedCount: eventMappingsTable.writeBackAppliedCount,
       writeBackDailyCount: eventMappingsTable.writeBackDailyCount,
       writeBackDailyWindowStart: eventMappingsTable.writeBackDailyWindowStart,
       writeBackEpoch: eventMappingsTable.writeBackEpoch,

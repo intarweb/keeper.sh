@@ -61,6 +61,7 @@ type TwoWayEventMapping = EventMapping & {
   missingObservationCount: number;
   recurrenceId: Date | null;
   recurrenceRule: string | null;
+  writeBackAppliedCount?: number;
   writeBackEpoch: number;
   writeBackEpochWindowStart: Date | null;
   writeBackLastAppliedAt?: Date | null;
@@ -145,6 +146,7 @@ const createMapping = (
   startTime: event.startTime,
   syncEventHash: createSyncEventContentHash(event),
   syncEventId: event.id,
+  writeBackAppliedCount: 0,
   writeBackEpoch: 0,
   writeBackEpochWindowStart: null,
   ...overrides,
@@ -1341,6 +1343,7 @@ describe("classifyInboundChanges: a breached write-back budget stays breached", 
    */
   it("refuses a write-back once the budget is spent inside the window", () => {
     expect(classificationFor(quarantineInput({
+      writeBackAppliedCount: 5,
       writeBackEpoch: 5,
       writeBackEpochWindowStart: new Date(NOW.getTime() - 10 * MINUTE_MS),
       writeBackLastAppliedAt: new Date(NOW.getTime() - MINUTE_MS),
@@ -1349,6 +1352,7 @@ describe("classifyInboundChanges: a breached write-back budget stays breached", 
 
   it("keeps refusing once the window has rolled past a breach", () => {
     expect(classificationFor(quarantineInput({
+      writeBackAppliedCount: 6,
       writeBackEpoch: 6,
       writeBackEpochWindowStart: new Date(NOW.getTime() - 2 * HOUR_MS),
       writeBackLastAppliedAt: new Date(NOW.getTime() - HOUR_MS),

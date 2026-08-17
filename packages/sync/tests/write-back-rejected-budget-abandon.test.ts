@@ -67,7 +67,7 @@ const createOutageHarness = () => {
 
   const locked: LockedWriteBackStore = {
     commitDelete: () => Promise.resolve(),
-    commitUpdate: () => Promise.resolve({ writeBackEpoch: 1 }),
+    commitUpdate: () => Promise.resolve({ writeBackAppliedCount: 1 }),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>
       Promise.resolve({ writeBackMode: "edits_and_deletes", writeBackState: "ok" }),

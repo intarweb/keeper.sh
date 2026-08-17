@@ -63,7 +63,7 @@ const createAbandonedHarness = () => {
 
   const locked: LockedWriteBackStore = {
     commitDelete: () => Promise.resolve(),
-    commitUpdate: () => Promise.resolve({ writeBackEpoch: ONE }),
+    commitUpdate: () => Promise.resolve({ writeBackAppliedCount: ONE }),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>
       Promise.resolve({ writeBackMode: "edits_and_deletes", writeBackState: "ok" }),

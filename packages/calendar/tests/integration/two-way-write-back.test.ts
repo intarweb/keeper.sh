@@ -305,6 +305,7 @@ const createApplier = (source: SourceCalendarStore, mappings: MappingStore) => {
     mapping: Record<string, unknown>,
     now: Date,
   ): {
+    writeBackAppliedCount: number;
     writeBackEpoch: number;
     writeBackEpochWindowStart: Date;
     writeBackLastAppliedAt: Date;
@@ -314,12 +315,14 @@ const createApplier = (source: SourceCalendarStore, mappings: MappingStore) => {
       || now.getTime() - windowStart.getTime() >= EPOCH_WINDOW_MS;
     if (staleWindow) {
       return {
+        writeBackAppliedCount: 1,
         writeBackEpoch: 1,
         writeBackEpochWindowStart: now,
         writeBackLastAppliedAt: now,
       };
     }
     return {
+      writeBackAppliedCount: Number(mapping["writeBackAppliedCount"] ?? 0) + 1,
       writeBackEpoch: Number(mapping["writeBackEpoch"] ?? 0) + 1,
       writeBackEpochWindowStart: windowStart,
       writeBackLastAppliedAt: now,

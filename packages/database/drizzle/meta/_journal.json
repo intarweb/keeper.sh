@@ -652,6 +652,13 @@
       "when": 1786915690071,
       "tag": "0092_two_way_abandon_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1786925516228,
+      "tag": "0093_two_way_landed_write_budget",
+      "breakpoints": true
     }
   ]
 }

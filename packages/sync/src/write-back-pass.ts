@@ -226,9 +226,8 @@ interface LockedWriteBackStore {
   commitUpdate: (
     input: CommitUpdateInput,
   ) => Promise<{
+    writeBackAppliedCount: number;
     writeBackDailyCount?: number;
-    writeBackEpoch: number;
-    writeBackEpochLimit?: number;
   }>;
   /*
    * The policy the classifier ran under was read before the destination listing, and the
@@ -475,15 +474,9 @@ const quarantineRunaway = async (
   );
 };
 
-/*
- * The limit travels with the epoch because the two are only meaningful together: the
- * column counts landed writes and provider rejections alike, and which of them spent it
- * decides the limit it is judged by.
- */
 interface LockedUpdateResult {
+  appliedCount: number;
   dailyCount: number;
-  epoch: number;
-  epochLimit: number;
   state: Outcome;
 }
 
@@ -498,20 +491,10 @@ const runLockedUpdate = (
     target.sourceCalendarId,
     async (locked): Promise<LockedUpdateResult> => {
       if (!await isPairStillAuthorized(locked, classification, target)) {
-        return {
-          dailyCount: NO_WORK,
-          epoch: NO_WORK,
-          epochLimit: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
-          state: "withheld",
-        };
+        return { appliedCount: NO_WORK, dailyCount: NO_WORK, state: "withheld" };
       }
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
-        return {
-          dailyCount: NO_WORK,
-          epoch: NO_WORK,
-          epochLimit: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
-          state: "abandoned",
-        };
+        return { appliedCount: NO_WORK, dailyCount: NO_WORK, state: "abandoned" };
       }
 
       /*
@@ -540,9 +523,8 @@ const runLockedUpdate = (
       assertWriteAccepted(written, "Source write-back failed");
 
       return {
+        appliedCount: committed.writeBackAppliedCount,
         dailyCount: committed.writeBackDailyCount ?? NO_WORK,
-        epoch: committed.writeBackEpoch,
-        epochLimit: committed.writeBackEpochLimit ?? TWO_WAY_EPOCH_QUARANTINE_LIMIT,
         state: "applied",
       };
     },
@@ -562,7 +544,7 @@ const quarantineRefusal = async (
 };
 
 type UpdateOutcome =
-  | { dailyCount: number; epoch: number; epochLimit: number; kind: "committed"; state: Outcome }
+  | { appliedCount: number; dailyCount: number; kind: "committed"; state: Outcome }
   | { kind: "over-budget" }
   | { kind: "refused"; refusal: SourceWriteRefusedError };
 
@@ -574,14 +556,14 @@ const runBudgetedUpdate = async (
 ): Promise<UpdateOutcome> => {
   const attempt: SourceAttempt = { reached: false };
   try {
-    const { dailyCount, epoch, epochLimit, state } = await runLockedUpdate(
+    const { appliedCount, dailyCount, state } = await runLockedUpdate(
       input,
       target,
       writer,
       classification,
       attempt,
     );
-    return { dailyCount, epoch, epochLimit, kind: "committed", state };
+    return { appliedCount, dailyCount, kind: "committed", state };
   } catch (error) {
     if (error instanceof WriteBackDailyCapError) {
       return { kind: "over-budget" };
@@ -616,15 +598,15 @@ const applyUpdate = async (
    * past the cap leaves the pair silently frozen for the rest of the day with nothing said.
    */
   /*
-   * The epoch is judged by the limit the classifier would judge the same row by. Five is
-   * what a run of landed writes is allowed; a budget the provider spent on rejections
-   * reached no calendar at all, and the write that finally lands once a throttle lifts is
-   * the second write on the mapping rather than the fifth in a runaway.
+   * Five is what a run of landed writes is allowed, and only landed writes are counted
+   * towards it. A budget the provider spent on rejections reached no calendar at all, so
+   * the write that finally lands once a throttle lifts is the second write on the mapping
+   * rather than the fifth in a runaway.
    */
   if (
     outcome.state === "applied"
     && (
-      outcome.epoch >= outcome.epochLimit
+      outcome.appliedCount >= TWO_WAY_EPOCH_QUARANTINE_LIMIT
       || outcome.dailyCount >= TWO_WAY_WRITE_BACK_DAILY_CAP
     )
   ) {

@@ -6,7 +6,6 @@ import {
   createMicrosoftTokenRefresher,
   createOutlookSourceWriter,
   isSourceSnapshotFresh,
-  resolveEpochLimit,
   TWO_WAY_EPOCH_WINDOW_MS,
   withSourceIngestLocks,
   WRITE_BACK_WITNESS_RESET,
@@ -416,6 +415,14 @@ const buildEpochAssignment = (): Record<string, unknown> => {
      * still bounds a mapping that alternates between landing and abandoning.
      */
     writeBackAbandonCount: NO_EPOCHS,
+    /*
+     * The runaway stop counts writes that reached a real calendar, and only this branch
+     * produces one. writeBackEpoch below still counts every spend, landed or rejected, and
+     * is judged by the far longer failure budget; asking the runaway limit about that
+     * column reads a provider throttle as a person editing five times in an hour.
+     */
+    writeBackAppliedCount: sql`case when ${staleWindow} then ${FIRST_EPOCH}
+      else ${eventMappingsTable.writeBackAppliedCount} + ${EPOCH_INCREMENT} end`,
     writeBackEpoch: sql`case when ${staleWindow} then ${FIRST_EPOCH}
       else ${eventMappingsTable.writeBackEpoch} + ${EPOCH_INCREMENT} end`,
     writeBackEpochWindowStart: sql`case when ${staleWindow} then now()
@@ -463,6 +470,9 @@ const buildFailureEpochAssignment = (
 
   return {
     writeBackAbandonCount: abandons.get(outcome) ?? carriedAbandons,
+    /* Nothing landed, so the landed-write budget is carried untouched. */
+    writeBackAppliedCount: sql`case when ${staleWindow} then ${NO_EPOCHS}
+      else ${eventMappingsTable.writeBackAppliedCount} end`,
     writeBackEpoch: sql`case when ${staleWindow} then ${FIRST_EPOCH}
       else ${eventMappingsTable.writeBackEpoch} + ${EPOCH_INCREMENT} end`,
     writeBackEpochWindowStart: sql`now()`,
@@ -500,21 +510,6 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
     projectedSyncEventHash,
     updates,
   }) => {
-    /*
-     * The epoch column counts landed writes and provider rejections alike, and the two are
-     * judged by different limits. The assignment below overwrites the stamps that tell them
-     * apart, so the limit this write is judged by is read from the row as it stands now —
-     * inside the same transaction, under the source lock that keeps it still.
-     */
-    const [before] = await locked
-      .select({
-        writeBackEpochWindowStart: eventMappingsTable.writeBackEpochWindowStart,
-        writeBackLastAppliedAt: eventMappingsTable.writeBackLastAppliedAt,
-      })
-      .from(eventMappingsTable)
-      .where(eq(eventMappingsTable.id, mappingId))
-      .limit(1);
-
     await locked
       .update(eventStatesTable)
       .set(toEventStateAssignment(updates))
@@ -540,14 +535,13 @@ const createLockedStore = (locked: LockedDatabase): LockedWriteBackStore => ({
       })
       .where(eq(eventMappingsTable.id, mappingId))
       .returning({
+        writeBackAppliedCount: eventMappingsTable.writeBackAppliedCount,
         writeBackDailyCount: eventMappingsTable.writeBackDailyCount,
-        writeBackEpoch: eventMappingsTable.writeBackEpoch,
       });
 
     return {
+      writeBackAppliedCount: row?.writeBackAppliedCount ?? NO_EPOCHS,
       writeBackDailyCount: row?.writeBackDailyCount ?? NO_EPOCHS,
-      writeBackEpoch: row?.writeBackEpoch ?? NO_EPOCHS,
-      writeBackEpochLimit: resolveEpochLimit(before ?? {}),
     };
   },
   /*

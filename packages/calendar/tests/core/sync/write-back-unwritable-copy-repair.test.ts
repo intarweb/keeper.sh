@@ -88,6 +88,7 @@ const createWitnessedMapping = (
   syncEventId: event.id,
   writeBackDailyCount: 0,
   writeBackDailyWindowStart: null,
+  writeBackAppliedCount: 0,
   writeBackEpoch: 0,
   writeBackEpochWindowStart: null,
   ...overrides,
@@ -209,6 +210,7 @@ describe("two-way sync: a copy the source can never adopt is put back, not kept"
   it("adopts rather than repairs an edited copy whose write-back budget is spent", () => {
     const event = createLocalEvent();
     const mapping = createWitnessedMapping(event, {
+      writeBackAppliedCount: QUARANTINE_LIMIT,
       writeBackEpoch: QUARANTINE_LIMIT,
       writeBackEpochWindowStart: new Date(NOW.getTime() - MINUTE_MS),
       writeBackLastAppliedAt: NOW,

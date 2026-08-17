@@ -106,7 +106,7 @@ const createHarness = (options: ResilienceOptions = {}) => {
     commitUpdate: () => {
       log.push("commit:update");
       epoch += 1;
-      return Promise.resolve({ writeBackEpoch: epoch });
+      return Promise.resolve({ writeBackAppliedCount: epoch });
     },
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>

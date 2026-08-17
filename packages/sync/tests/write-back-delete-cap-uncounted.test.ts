@@ -80,7 +80,7 @@ const createHarness = (options: { writeAnswerArrivesLate: boolean }) => {
       tombstones.set(tombstoneId, { appliedAt: new Date(), state: "applied" });
       return Promise.resolve();
     },
-    commitUpdate: () => Promise.resolve({ writeBackEpoch: 1 }),
+    commitUpdate: () => Promise.resolve({ writeBackAppliedCount: 1 }),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>
       Promise.resolve({ writeBackMode: "edits_and_deletes", writeBackState: "ok" }),

@@ -398,6 +398,14 @@ const eventMappingsTable = pgTable(
      * with a reason that is not true.
      */
     writeBackAbandonCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
+    /*
+     * How many write-backs actually reached the source calendar inside the window. The
+     * runaway stop is about writes that landed, so it is the only thing that stop may
+     * count. writeBackEpoch carries landed writes and provider rejections together, so a
+     * throttle followed by the write that lands once it lifts reads there as a runaway,
+     * and the mapping is refused for good over two deliberate edits.
+     */
+    writeBackAppliedCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackDailyCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackDailyWindowStart: timestamp({ withTimezone: true }),
     writeBackEpoch: integer().notNull().default(DEFAULT_EVENT_COUNT),

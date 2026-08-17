@@ -117,7 +117,7 @@ const createMapping = (event: MaterializedSyncableEvent, missing: boolean) => ({
   syncEventId: event.id,
   writeBackDailyCount: 0,
   writeBackDailyWindowStart: null,
-  writeBackEpoch: 0,
+  writeBackAppliedCount: 0,
   writeBackEpochWindowStart: null,
 });
 
@@ -204,7 +204,7 @@ const applyDeletions = (classifications: InboundClassification[]) => {
       log.push("commit:delete");
       return Promise.resolve();
     },
-    commitUpdate: () => Promise.resolve({ writeBackEpoch: 1 }),
+    commitUpdate: () => Promise.resolve({ writeBackAppliedCount: 1 }),
     readMappingSyncEventHash: () =>
       Promise.resolve({ syncEventHash: readExpectedHash(classifications) }),
     readPairWriteBack: () =>
@@ -340,7 +340,7 @@ describe("two-way sync: a deletion is judged against the source, not the project
       resolveWriter: () => Promise.resolve(writer),
       withSourceLock: (_sourceCalendarId, run) => run({
         commitDelete: () => Promise.resolve(),
-        commitUpdate: () => Promise.resolve({ writeBackEpoch: 1 }),
+        commitUpdate: () => Promise.resolve({ writeBackAppliedCount: 1 }),
         readMappingSyncEventHash: () =>
           Promise.resolve({ syncEventHash: readExpectedHash(classifications) }),
         readPairWriteBack: () =>
