@@ -8,11 +8,11 @@ const expiringCursorAfter = (pages: number): ProviderDecorator => {
   const decorate = <Provider extends ProviderId>(
     provider: ProviderUnderTest<Provider>,
   ): ProviderUnderTest<Provider> => {
-    let drained = 0;
+    const walk = { drained: 0 };
     return withListChanges(provider, async (request, context, inner) => {
-      drained += 1;
+      walk.drained += 1;
       const answered = await inner();
-      if (drained <= pages || request.resume === null) {
+      if (walk.drained <= pages || request.resume === null) {
         return answered;
       }
       return { ok: true, value: cursorLostListing(request.scope) };

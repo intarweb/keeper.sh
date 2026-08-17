@@ -27,20 +27,31 @@ interface ReferenceStore {
 const signatureOf = (event: RemoteEvent): string =>
   `${event.revision}|${event.version.value}|${event.fingerprint.value}`;
 
+interface ReferenceStoreState {
+  stored: readonly RemoteEvent[];
+  corrupt: readonly string[];
+  cancellations: readonly EventUid[];
+  unattributable: readonly RemoteEventId[];
+  reported: readonly ReportedIdentity[];
+  sequence: number;
+}
+
 const createReferenceStore = (calendar: CalendarKey): ReferenceStore => {
-  let stored: readonly RemoteEvent[] = [];
-  let corrupt: readonly string[] = [];
-  let cancellations: readonly EventUid[] = [];
-  let unattributable: readonly RemoteEventId[] = [];
-  let reported: readonly ReportedIdentity[] = [];
+  const state: ReferenceStoreState = {
+    stored: [],
+    corrupt: [],
+    cancellations: [],
+    unattributable: [],
+    reported: [],
+    sequence: 0,
+  };
   const log: WriteLogEntry[] = [];
   const sequences = new Map<string, number>();
   const signatures = new Map<string, string>();
-  let sequence = 0;
 
   const touch = (uid: string): void => {
-    sequence += 1;
-    sequences.set(uid, sequence);
+    state.sequence += 1;
+    sequences.set(uid, state.sequence);
   };
 
   const replaceObjects = (events: readonly RemoteEvent[]): void => {
@@ -51,36 +62,36 @@ const createReferenceStore = (calendar: CalendarKey): ReferenceStore => {
         touch(event.uid.value);
       }
     }
-    stored = events;
+    state.stored = events;
   };
 
   return {
     seed: (next: ProviderSeed) => {
       const { cancelled, corruptKnownRows, events, unattributableRemovals } = next;
-      corrupt = corruptKnownRows;
-      cancellations = cancelled;
-      unattributable = unattributableRemovals;
+      state.corrupt = corruptKnownRows;
+      state.cancellations = cancelled;
+      state.unattributable = unattributableRemovals;
       replaceObjects(events);
     },
-    objects: () => stored,
+    objects: () => state.stored,
     writeLog: () => log,
-    corruptKnownRows: () => corrupt,
-    cancelled: () => cancellations,
-    unattributableRemovals: () => unattributable,
+    corruptKnownRows: () => state.corrupt,
+    cancelled: () => state.cancellations,
+    unattributableRemovals: () => state.unattributable,
     calendar: () => calendar,
     replaceObjects,
     record: (entry: WriteLogEntry) => {
       log.push(entry);
     },
-    reported: () => reported,
+    reported: () => state.reported,
     setReported: (identities: readonly ReportedIdentity[]) => {
-      reported = identities;
+      state.reported = identities;
     },
     sequenceOf: (uid: string) => sequences.get(uid) ?? 0,
     touch,
-    currentSequence: () => sequence,
+    currentSequence: () => state.sequence,
     clearCorruption: () => {
-      corrupt = [];
+      state.corrupt = [];
     },
   };
 };

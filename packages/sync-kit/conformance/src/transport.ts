@@ -47,26 +47,35 @@ const remainingBehaviour = (behaviour: TransportBehaviour): TransportBehaviour =
   return { kind: "pass" };
 };
 
+interface TransportStubState {
+  behaviour: TransportBehaviour;
+  calls: number;
+  inFlight: number;
+  peak: number;
+}
+
 const createTransportStub = (): TransportStub => {
-  let behaviour: TransportBehaviour = { kind: "pass" };
-  let calls = 0;
-  let inFlight = 0;
-  let peak = 0;
+  const state: TransportStubState = {
+    behaviour: { kind: "pass" },
+    calls: 0,
+    inFlight: 0,
+    peak: 0,
+  };
 
   const track = async <Value>(execute: () => Promise<Value>): Promise<Value> => {
-    inFlight += 1;
-    peak = Math.max(peak, inFlight);
+    state.inFlight += 1;
+    state.peak = Math.max(state.peak, state.inFlight);
     try {
       return await execute();
     } finally {
-      inFlight -= 1;
+      state.inFlight -= 1;
     }
   };
 
   const run = <Value>(operation: OperationName, execute: () => Promise<Value>): Promise<Value> => {
-    calls += 1;
-    const current = behaviour;
-    behaviour = remainingBehaviour(current);
+    state.calls += 1;
+    const current = state.behaviour;
+    state.behaviour = remainingBehaviour(current);
     switch (current.kind) {
       case "pass": {
         return track(execute);
@@ -91,16 +100,16 @@ const createTransportStub = (): TransportStub => {
 
   return {
     run,
-    callCount: () => calls,
-    inFlightPeak: () => peak,
+    callCount: () => state.calls,
+    inFlightPeak: () => state.peak,
     stall: () => {
-      behaviour = { kind: "stall" };
+      state.behaviour = { kind: "stall" };
     },
     resume: () => {
-      behaviour = { kind: "pass" };
+      state.behaviour = { kind: "pass" };
     },
     answerWith: (next: TransportBehaviour) => {
-      behaviour = next;
+      state.behaviour = next;
     },
   };
 };

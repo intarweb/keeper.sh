@@ -32,11 +32,12 @@ const scopeKeyOf = (scope: ListingScope): string =>
 const createCursorMint = (hash: (input: string) => string): CursorMint => {
   const minted = new Map<string, MintedCursor>();
   const latest = new Map<string, number>();
-  let generation = 0;
+  const counter = { generation: 0 };
 
   const mint = (scope: ListingScope, sequence: number, at: Instant): SyncCursor => {
-    generation += 1;
+    counter.generation += 1;
     const scopeKey = scopeKeyOf(scope);
+    const { generation } = counter;
     const value = `${hash(`reference-cursor|${scopeKey}|${at.value}`)}.${generation}`;
     minted.set(value, { scopeKey, sequence, generation });
     latest.set(scopeKey, generation);
@@ -57,7 +58,7 @@ const createCursorMint = (hash: (input: string) => string): CursorMint => {
     return { kind: "current", sequence: record.sequence };
   };
 
-  return { mint, verify, generations: () => generation };
+  return { mint, verify, generations: () => counter.generation };
 };
 
 export { createCursorMint, scopeKeyOf };

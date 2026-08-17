@@ -98,16 +98,16 @@ const resolveFeed = (events: readonly RemoteEvent[]): ResolvedFeed => {
 
 const boundedSample = (identifiers: readonly string[]): BoundedSample => {
   const sample: string[] = [];
-  let length = 0;
+  const budget = { length: 0 };
   for (const identifier of identifiers) {
     if (sample.length >= conformanceLimits.diagnosticSampleEntries) {
       break;
     }
-    if (length + identifier.length > conformanceLimits.diagnosticSampleUtf16Length) {
+    if (budget.length + identifier.length > conformanceLimits.diagnosticSampleUtf16Length) {
       continue;
     }
     sample.push(identifier);
-    length += identifier.length;
+    budget.length += identifier.length;
   }
   return { sample, total: identifiers.length };
 };

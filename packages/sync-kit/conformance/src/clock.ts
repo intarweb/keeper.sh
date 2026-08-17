@@ -22,15 +22,14 @@ interface TimerHolder {
 }
 
 const createTestClock = (options: TestClockOptions): TestClock => {
-  let currentMs = Date.parse(options.start.value);
-  let reads = 0;
+  const state = { currentMs: Date.parse(options.start.value), reads: 0 };
   const armed = new Set<ReturnType<typeof setTimeout>>();
 
   const sleep = async (milliseconds: number, signal: AbortSignal): Promise<void> => {
     if (signal.aborted) {
       throw new SleepAborted();
     }
-    const wakeAt = currentMs + milliseconds;
+    const wakeAt = state.currentMs + milliseconds;
     const pending = Promise.withResolvers<null>();
     const armedTimer: TimerHolder = { current: null };
     const listening = new AbortController();
@@ -43,7 +42,7 @@ const createTestClock = (options: TestClockOptions): TestClock => {
       armed.delete(armedTimer.current);
     };
     armedTimer.current = setTimeout(() => {
-      currentMs = Math.max(currentMs, wakeAt);
+      state.currentMs = Math.max(state.currentMs, wakeAt);
       disarm();
       pending.resolve(null);
     }, milliseconds);
@@ -61,15 +60,15 @@ const createTestClock = (options: TestClockOptions): TestClock => {
 
   return {
     now: () => {
-      reads += 1;
-      return instantAt(currentMs);
+      state.reads += 1;
+      return instantAt(state.currentMs);
     },
     sleep,
     advance: (milliseconds: number) => {
-      currentMs += milliseconds;
+      state.currentMs += milliseconds;
       return Promise.resolve();
     },
-    nowCount: () => reads,
+    nowCount: () => state.reads,
     pendingTimers: () => armed.size,
   };
 };

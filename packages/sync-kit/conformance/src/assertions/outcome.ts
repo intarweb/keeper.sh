@@ -58,14 +58,14 @@ const assertNoUnplannedRecreation = (
   writeLog: readonly WriteLogEntry[],
   plannedRemovals: readonly string[],
 ): void => {
-  let unplannedRemovals = 0;
+  const seen = { unplannedRemovals: 0 };
   for (const entry of writeLog) {
     const removed = removedTargetOf(entry.intent);
     if (removed !== null && !plannedRemovals.includes(removed)) {
-      unplannedRemovals += 1;
+      seen.unplannedRemovals += 1;
       continue;
     }
-    if (entry.intent.kind === "create" && unplannedRemovals > 0) {
+    if (entry.intent.kind === "create" && seen.unplannedRemovals > 0) {
       throw violated(
         "CONF-O25",
         "the write log carries a delete followed by a create, which is a blind recreation",

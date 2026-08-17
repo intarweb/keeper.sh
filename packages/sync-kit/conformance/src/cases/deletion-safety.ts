@@ -438,26 +438,32 @@ const deletionSafetyCases = <Provider extends ProviderId>(
        * resumes and reports only the pages after the resume point turns the earlier ones into
        * derivable deletions of events that are plainly still there.
        */
-      let listing = listingOf("CONF-O41", await listChanges(context, scope));
-      let walked = 0;
-      while (listing.kind === "partial" && walked < RESUME_CEILING) {
+      const walk = {
+        listing: listingOf("CONF-O41", await listChanges(context, scope)),
+        walked: 0,
+      };
+      while (walk.listing.kind === "partial" && walk.walked < RESUME_CEILING) {
+        const { listing: partial } = walk;
         insist(
           "CONF-O41",
-          listing.continuation.kind === "continuation" && !listing.cursor,
+          partial.continuation.kind === "continuation" && !partial.cursor,
           "a truncated page handed back a sync cursor instead of a continuation",
         );
-        walked += 1;
-        listing = listingOf("CONF-O41", await listChanges(context, scope, listing.continuation));
+        walk.walked += 1;
+        walk.listing = listingOf(
+          "CONF-O41",
+          await listChanges(context, scope, partial.continuation),
+        );
       }
 
       insist(
         "CONF-O41",
-        listing.kind !== "partial",
+        walk.listing.kind !== "partial",
         "resuming from the continuation never reached a listing that proves coverage",
       );
 
       const derivable = derivableRemovals({
-        listing,
+        listing: walk.listing,
         known: knownOf(scope.calendar, seeded),
         withinWindow: context.withinWindow,
       });
@@ -466,7 +472,7 @@ const deletionSafetyCases = <Provider extends ProviderId>(
         "CONF-O41",
         derivable.length === 0,
         `a completed walk made ${derivable.length} still-present identities derivable as`
-        + ` removals, after ${walked} resumption(s)`,
+        + ` removals, after ${walk.walked} resumption(s)`,
       );
     },
   ),

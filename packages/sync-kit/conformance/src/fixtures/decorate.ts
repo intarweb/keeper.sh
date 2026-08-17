@@ -59,11 +59,11 @@ const composeDecorators = (decorators: readonly ProviderDecorator[]): ProviderDe
   const composed = <Provider extends ProviderId>(
     provider: ProviderUnderTest<Provider>,
   ): ProviderUnderTest<Provider> => {
-    let decorated = provider;
+    const carried = { provider };
     for (const decorate of decorators) {
-      decorated = decorate(decorated);
+      carried.provider = decorate(carried.provider);
     }
-    return decorated;
+    return carried.provider;
   };
   return composed;
 };

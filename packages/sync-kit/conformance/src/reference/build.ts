@@ -155,19 +155,34 @@ const staleConflict = (existing: RemoteEvent): Result<WriteOutcome> => ({
   },
 });
 
+interface ReferenceCounters {
+  deltaFloor: number;
+  carriedPages: number;
+  leakedPermits: number;
+  callersInFlight: number;
+  abortsInBurst: number;
+  attemptsSpent: number;
+  attemptsAllowed: number;
+}
+
+const attemptsUpTo = (ceiling: number): readonly number[] =>
+  Array.from({ length: Math.max(0, ceiling) }, (unused, index) => index + 1);
+
 const createReference = (options: ReferenceOptions): ProviderUnderTest<"reference"> => {
   const { environment, defect } = options;
   const store = createReferenceStore(referenceCalendar);
   const mint = createCursorMint(environment.hash);
   const lifetime = new AbortController();
   const poisoned = new Set<string>();
-  let deltaFloor = 0;
-  let carriedPages = 0;
-  let leakedPermits = 0;
-  let callersInFlight = 0;
-  let abortsInBurst = 0;
-  let attemptsSpent = 0;
-  let attemptsAllowed = 0;
+  const counters: ReferenceCounters = {
+    deltaFloor: 0,
+    carriedPages: 0,
+    leakedPermits: 0,
+    callersInFlight: 0,
+    abortsInBurst: 0,
+    attemptsSpent: 0,
+    attemptsAllowed: 0,
+  };
 
   const observedAt = (): Instant => {
     if (defectIs(defect, "CONF-L13")) {
@@ -373,7 +388,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
       };
     }
     if (defectIs(defect, "CONF-O42")) {
-      return { ...honest, pagesFetched: honest.pagesFetched + carriedPages };
+      return { ...honest, pagesFetched: honest.pagesFetched + counters.carriedPages };
     }
     return honest;
   };
@@ -517,7 +532,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     resumed: SyncCursor | null,
   ): ChangeListing => {
     const feed = feedNow();
-    const floor = Math.max(since, deltaFloor);
+    const floor = Math.max(since, counters.deltaFloor);
     const present = identitiesOf(feed);
     const removals = removalsFor(present);
     store.setReported(present);
@@ -690,9 +705,9 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     context: OperationContext,
   ): Promise<Result<ChangeListing>> => {
     const ceiling = attemptCeiling(context);
-    for (let attempt = 1; attempt <= ceiling; attempt += 1) {
-      attemptsSpent = Math.max(attemptsSpent, attempt);
-      attemptsAllowed = context.retryBudget.maxAttempts;
+    for (const attempt of attemptsUpTo(ceiling)) {
+      counters.attemptsSpent = Math.max(counters.attemptsSpent, attempt);
+      counters.attemptsAllowed = context.retryBudget.maxAttempts;
       const answered = await attemptListing(request);
       if (poisoned.has(key)) {
         poisoned.delete(key);
@@ -751,10 +766,10 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
       return answered;
     }
     if (defectIs(defect, "CONF-O24")) {
-      deltaFloor = store.currentSequence();
+      counters.deltaFloor = store.currentSequence();
     }
     if (defectIs(defect, "CONF-O42")) {
-      carriedPages += 1;
+      counters.carriedPages += 1;
     }
     return answered;
   };
@@ -763,11 +778,11 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     if (!context.signal.aborted) {
       return;
     }
-    if (defectIs(defect, "CONF-L9") && callersInFlight === 3) {
+    if (defectIs(defect, "CONF-L9") && counters.callersInFlight === 3) {
       poisoned.add(key);
     }
-    if (defectIs(defect, "CONF-L10") && callersInFlight > environment.concurrency) {
-      leakedPermits += 1;
+    if (defectIs(defect, "CONF-L10") && counters.callersInFlight > environment.concurrency) {
+      counters.leakedPermits += 1;
     }
   };
 
@@ -775,23 +790,23 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     request: ListChangesRequest,
     context: OperationContext,
   ): Promise<Result<ChangeListing>> => {
-    callersInFlight += 1;
-    if (callersInFlight === 1) {
-      abortsInBurst = 0;
+    counters.callersInFlight += 1;
+    if (counters.callersInFlight === 1) {
+      counters.abortsInBurst = 0;
     }
     if (context.signal.aborted) {
-      abortsInBurst += 1;
+      counters.abortsInBurst += 1;
     }
     const key = flightKeyOf(request);
     try {
       noteAbortedCaller(key, context);
-      if (leakedPermits > 0 && !context.signal.aborted) {
-        leakedPermits -= 1;
+      if (counters.leakedPermits > 0 && !context.signal.aborted) {
+        counters.leakedPermits -= 1;
         return { ok: false, failure: exhausted };
       }
-      if (defectIs(defect, "CONF-L11") && callersInFlight > environment.concurrency) {
+      if (defectIs(defect, "CONF-L11") && counters.callersInFlight > environment.concurrency) {
         await Promise.resolve();
-        if (abortsInBurst === 0) {
+        if (counters.abortsInBurst === 0) {
           throw new Error("the reference mutant dropped a task out of its fan-out");
         }
       }
@@ -808,7 +823,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
       }
       return cloned(rememberFailure(await reattemptedAlone(request, answered)));
     } finally {
-      callersInFlight -= 1;
+      counters.callersInFlight -= 1;
     }
   };
 
@@ -1203,7 +1218,7 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
     holds(flights.inFlightKeys() === 0, "the reference provider still holds a coalescing lease");
 
   const noCallerOutstanding = (): Promise<void> =>
-    holds(callersInFlight === 0, "the reference provider still counts a caller as in flight");
+    holds(counters.callersInFlight === 0, "the reference provider still counts a caller as in flight");
 
   const noAbandonedFlight = (): Promise<void> =>
     holds(
@@ -1213,19 +1228,19 @@ const createReference = (options: ReferenceOptions): ProviderUnderTest<"referenc
 
   const noCancellationResidue = (): Promise<void> =>
     holds(
-      poisoned.size === 0 && leakedPermits === 0,
+      poisoned.size === 0 && counters.leakedPermits === 0,
       "an aborted caller left a poisoned key or a leaked permit behind",
     );
 
   const attemptsWithinBudget = (): Promise<void> =>
     holds(
-      attemptsSpent <= attemptsAllowed,
-      `the reference provider spent ${attemptsSpent} attempts of ${attemptsAllowed}`,
+      counters.attemptsSpent <= counters.attemptsAllowed,
+      `the reference provider spent ${counters.attemptsSpent} attempts of ${counters.attemptsAllowed}`,
     );
 
   const noKeyStillHeld = (): Promise<void> =>
     holds(
-      flights.inFlightKeys() === 0 && callersInFlight === 0,
+      flights.inFlightKeys() === 0 && counters.callersInFlight === 0,
       "concurrent callers over one key left the key held after they all settled",
     );
 
