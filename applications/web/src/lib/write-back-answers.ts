@@ -2,6 +2,24 @@ import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 
 type DeleteConfirmationAnswer = "apply" | "apply_empty_destination" | "decline";
 
+/*
+ * A held meeting is the one pause with an answer that is purely a permission, so it is the
+ * one whose buttons grant rather than resolve an incident. Without this the status line
+ * renders its explanation with nothing to press, and the only way out is re-picking a mode.
+ */
+type SharedEventGrantAnswer = "grant" | "withdraw";
+
+const GRANT_REQUIRED_STATE = "grant_required";
+
+const resolveSharedEventGrantAnswers = (
+  status: WriteBackStatus | null,
+): readonly SharedEventGrantAnswer[] => {
+  if (status?.state !== GRANT_REQUIRED_STATE) {
+    return [];
+  }
+  return ["grant"];
+};
+
 const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
 
 /*
@@ -96,5 +114,11 @@ const resolveModeSelection = (input: {
   return "commit";
 };
 
-export { PROBE_BLOCKED_REASON, resolveDeleteConfirmationAnswers, resolveModeSelection };
-export type { DeleteConfirmationAnswer, ModeSelection };
+export {
+  GRANT_REQUIRED_STATE,
+  PROBE_BLOCKED_REASON,
+  resolveDeleteConfirmationAnswers,
+  resolveModeSelection,
+  resolveSharedEventGrantAnswers,
+};
+export type { DeleteConfirmationAnswer, ModeSelection, SharedEventGrantAnswer };

@@ -59,7 +59,12 @@ import {
 } from "@/state/calendar-detail";
 import type { ExcludeField } from "@/state/calendar-detail";
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
-import { resolveDeleteConfirmationAnswers, resolveModeSelection } from "@/lib/write-back-answers";
+import {
+  resolveDeleteConfirmationAnswers,
+  resolveModeSelection,
+  resolveSharedEventGrantAnswers,
+} from "@/lib/write-back-answers";
+import type { SharedEventGrantAnswer } from "@/lib/write-back-answers";
 import {
   resolveUnwritableSourceCopy,
   resolveWriteBackStateCopy,
@@ -675,6 +680,18 @@ function WriteBackModeControl({
       }));
   };
 
+  const resolveSharedEventGrant = (decision: SharedEventGrantAnswer) => {
+    const swrKey = `/api/sources/${calendarId}/destinations`;
+    serializedCall(swrKey, () =>
+      apiFetch(`${swrKey}/${destinationId}/shared-event-grant`, {
+        body: JSON.stringify({ decision }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      }).finally(() => {
+        void mutate(swrKey);
+      }));
+  };
+
   const commitMode = (nextMode: WriteBackMode) => {
     track(ANALYTICS_EVENTS.write_back_mode_changed, {
       deletions: nextMode === "edits_and_deletes",
@@ -728,6 +745,7 @@ function WriteBackModeControl({
       <WriteBackStatusLine
         destinationName={destinationName}
         onResolveDeleteConfirmation={resolveDeleteConfirmation}
+        onResolveSharedEventGrant={resolveSharedEventGrant}
         sourceName={sourceName || "this calendar"}
         status={status}
       />
@@ -761,11 +779,13 @@ const ANSWER_LABELS: Record<DeleteConfirmationAnswer, (sourceName: string) => st
 function WriteBackStatusLine({
   destinationName,
   onResolveDeleteConfirmation,
+  onResolveSharedEventGrant,
   sourceName,
   status,
 }: {
   destinationName: string;
   onResolveDeleteConfirmation: (decision: DeleteConfirmationAnswer) => void;
+  onResolveSharedEventGrant: (decision: SharedEventGrantAnswer) => void;
   sourceName: string;
   status: WriteBackStatus | null;
 }) {
@@ -777,6 +797,7 @@ function WriteBackStatusLine({
     `Two-way sync to ${destinationName} is paused.`,
   );
   const answers = resolveDeleteConfirmationAnswers(status);
+  const grants = resolveSharedEventGrantAnswers(status);
 
   return (
     <div className="flex flex-col gap-2">
@@ -795,6 +816,20 @@ function WriteBackStatusLine({
               onClick={() => { onResolveDeleteConfirmation(answer); }}
             >
               {ANSWER_LABELS[answer](sourceName)}
+            </Button>
+          ))}
+        </div>
+      )}
+      {grants.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {grants.map((grant) => (
+            <Button
+              key={grant}
+              type="button"
+              size="compact"
+              onClick={() => { onResolveSharedEventGrant(grant); }}
+            >
+              Allow writing to meetings I organise
             </Button>
           ))}
         </div>

@@ -13,6 +13,16 @@ const writeBackModeBodySchema = type({
 });
 type WriteBackModeBody = typeof writeBackModeBodySchema.infer;
 
+/*
+ * Granting and withdrawing are the same decision said two ways, so one body carries both:
+ * a withdrawal that had to travel a different route could be lost while the grant survived.
+ */
+const sharedEventGrantBodySchema = type({
+  decision: "'grant' | 'withdraw'",
+  "+": "reject",
+});
+type SharedEventGrantBody = typeof sharedEventGrantBodySchema.infer;
+
 const deleteConfirmationBodySchema = type({
   decision: "'apply' | 'apply_empty_destination' | 'decline'",
   "+": "reject",
@@ -108,6 +118,7 @@ type TokenCreateBody = typeof tokenCreateBodySchema.infer;
 export {
   calendarIdsBodySchema,
   deleteConfirmationBodySchema,
+  sharedEventGrantBodySchema,
   writeBackModeBodySchema,
   calendarPausePatchBodySchema,
   sourcePatchBodySchema,
@@ -121,6 +132,7 @@ export {
 export type {
   CalendarIdsBody,
   DeleteConfirmationBody,
+  SharedEventGrantBody,
   WriteBackModeBody,
   CalendarPausePatchBody,
   SourcePatchBody,

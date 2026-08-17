@@ -1134,6 +1134,64 @@ const resolveDestinationReachable = async (
   return !destination.disabled && !destination.needsReauthentication;
 };
 
+/*
+ * Granting clears a hold the pass raised, because the hold was the question this answers.
+ * It deliberately leaves a quarantine alone: those are refusals no permission widens, and
+ * clearing one here would restart a pair that is stopped for a different reason entirely.
+ */
+const grantedAtFor = (decision: "grant" | "withdraw"): Date | null => {
+  if (decision === "grant") {
+    return new Date();
+  }
+  return null;
+};
+
+const resolveSharedEventGrant = async (
+  userId: string,
+  sourceCalendarId: string,
+  destinationCalendarId: string,
+  decision: "grant" | "withdraw",
+): Promise<void> => {
+  const { database } = await import("@/context");
+  const ownedCalendarIds = await getOwnedCalendarIds(
+    userId,
+    [sourceCalendarId, destinationCalendarId],
+  );
+  assertAllIdsOwned(
+    [sourceCalendarId, destinationCalendarId],
+    ownedCalendarIds,
+    MAPPING_NOT_FOUND_ERROR_MESSAGE,
+  );
+
+  await database.transaction(async (transactionClient) => {
+    const [existing] = await transactionClient
+      .select({ writeBackState: sourceDestinationMappingsTable.writeBackState })
+      .from(sourceDestinationMappingsTable)
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ))
+      .limit(SINGLE_ROW);
+
+    if (!existing) {
+      throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
+    }
+
+    const releasesHold = decision === "grant" && existing.writeBackState === "grant_required";
+
+    await transactionClient
+      .update(sourceDestinationMappingsTable)
+      .set({
+        sharedEventWritesGrantedAt: grantedAtFor(decision),
+        ...(releasesHold && { writeBackState: "ok", writeBackStateReason: null }),
+      })
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ));
+  });
+};
+
 const resolveDeleteConfirmation = async (
   userId: string,
   sourceCalendarId: string,
@@ -1309,6 +1367,7 @@ export {
   MAPPING_LIMIT_ERROR_MESSAGE,
   MAPPING_NOT_FOUND_ERROR_MESSAGE,
   resolveDeleteConfirmation,
+  resolveSharedEventGrant,
   setDestinationsForSource,
   setWriteBackMode,
   sourceSupportsWriteBack,
