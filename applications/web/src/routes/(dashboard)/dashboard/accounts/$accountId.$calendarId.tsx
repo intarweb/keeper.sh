@@ -1,5 +1,5 @@
 import { use, useEffect, useMemo } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import useSWR, { preload, useSWRConfig } from "swr";
 import CheckIcon from "lucide-react/dist/esm/icons/check";
 import ArrowLeftRight from "lucide-react/dist/esm/icons/arrow-left-right";
@@ -44,6 +44,8 @@ import {
   navigationMenuToggleThumb,
 } from "@/components/ui/composites/navigation-menu/navigation-menu.styles";
 import { Text } from "@/components/ui/primitives/text";
+import { ExternalTextLink } from "@/components/ui/primitives/text-link";
+import { hostedDocsUrl } from "@/lib/hosted-docs";
 import { TemplateText } from "@/components/ui/primitives/template-text";
 import {
   calendarDetailAtom,
@@ -173,9 +175,15 @@ function CalendarDetailPage() {
               <>
                 Select which calendars should receive events from this calendar.
                 {" "}
-                <Link to="/docs/$slug" params={{ slug: TWO_WAY_SYNC_DOC_SLUG }}>
+                <ExternalTextLink
+                  align="left"
+                  href={hostedDocsUrl(TWO_WAY_SYNC_DOC_SLUG)}
+                  rel="noopener noreferrer"
+                  size="sm"
+                  target="_blank"
+                >
                   How two-way sync writes changes back
-                </Link>
+                </ExternalTextLink>
               </>
             )}
           />

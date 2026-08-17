@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { useAtomValue, useStore } from "jotai";
-import { Link } from "@tanstack/react-router";
 import { track, ANALYTICS_EVENTS } from "@/lib/analytics";
 import { DashboardSection } from "@/components/ui/primitives/dashboard-heading";
 import { ProviderIcon } from "@/components/ui/primitives/provider-icon";
 import { Text } from "@/components/ui/primitives/text";
+import { TextLink } from "@/components/ui/primitives/text-link";
 import { Button } from "@/components/ui/primitives/button";
 import type { ButtonProps } from "@/components/ui/primitives/button";
 import { UpgradeHint } from "@/components/ui/primitives/upgrade-hint";
@@ -360,9 +360,9 @@ function DeletionConsentModal({
           {" and keeps a record of what it did delete — title, time, place and description —"}
           {" for 30 days."}
         </ModalDescription>
-        <Link className="text-xs underline underline-offset-2" to="/dashboard/deleted-events">
+        <TextLink align="left" size="xs" to="/dashboard/deleted-events">
           See the record of deleted events
-        </Link>
+        </TextLink>
         <label className="flex items-start gap-2 text-xs">
           <input
             checked={acknowledged}

@@ -79,7 +79,7 @@ import { Route as dashboardDashboardIcalFeedIdRouteImport } from './../../routes
 import { Route as dashboardDashboardAccountsAccountIdIndexRouteImport } from './../../routes/(dashboard)/dashboard/accounts/$accountId.index'
 import { Route as dashboardDashboardAccountsAccountIdSetupRouteImport } from './../../routes/(dashboard)/dashboard/accounts/$accountId.setup'
 import { Route as dashboardDashboardAccountsAccountIdCalendarIdRouteImport } from './../../routes/(dashboard)/dashboard/accounts/$accountId.$calendarId'
-import { Route as dashboardDashboardAccountsAccountIdCalendarIdTwoWayRouteImport } from './../../routes/(dashboard)/dashboard/accounts/$accountId.$calendarId.two-way'
+import { Route as dashboardDashboardAccountsAccountIdCalendarIdTwoWayRouteImport } from './../../routes/(dashboard)/dashboard/accounts/$accountId.$calendarId_.two-way'
 
 const oauthRouteRoute = oauthRouteRouteImport.update({
   id: '/(oauth)',
@@ -460,9 +460,9 @@ const dashboardDashboardAccountsAccountIdCalendarIdRoute =
   } as any)
 const dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute =
   dashboardDashboardAccountsAccountIdCalendarIdTwoWayRouteImport.update({
-    id: '/two-way',
-    path: '/two-way',
-    getParentRoute: () => dashboardDashboardAccountsAccountIdCalendarIdRoute,
+    id: '/$accountId/$calendarId_/two-way',
+    path: '/$accountId/$calendarId/two-way',
+    getParentRoute: () => dashboardDashboardAccountsRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -528,7 +528,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/integrations/': typeof dashboardDashboardIntegrationsIndexRoute
   '/dashboard/settings/': typeof dashboardDashboardSettingsIndexRoute
   '/dashboard/upgrade/': typeof dashboardDashboardUpgradeIndexRoute
-  '/dashboard/accounts/$accountId/$calendarId': typeof dashboardDashboardAccountsAccountIdCalendarIdRouteWithChildren
+  '/dashboard/accounts/$accountId/$calendarId': typeof dashboardDashboardAccountsAccountIdCalendarIdRoute
   '/dashboard/accounts/$accountId/setup': typeof dashboardDashboardAccountsAccountIdSetupRoute
   '/dashboard/accounts/$accountId/': typeof dashboardDashboardAccountsAccountIdIndexRoute
   '/dashboard/accounts/$accountId/$calendarId/two-way': typeof dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute
@@ -590,7 +590,7 @@ export interface FileRoutesByTo {
   '/dashboard/integrations': typeof dashboardDashboardIntegrationsIndexRoute
   '/dashboard/settings': typeof dashboardDashboardSettingsIndexRoute
   '/dashboard/upgrade': typeof dashboardDashboardUpgradeIndexRoute
-  '/dashboard/accounts/$accountId/$calendarId': typeof dashboardDashboardAccountsAccountIdCalendarIdRouteWithChildren
+  '/dashboard/accounts/$accountId/$calendarId': typeof dashboardDashboardAccountsAccountIdCalendarIdRoute
   '/dashboard/accounts/$accountId/setup': typeof dashboardDashboardAccountsAccountIdSetupRoute
   '/dashboard/accounts/$accountId': typeof dashboardDashboardAccountsAccountIdIndexRoute
   '/dashboard/accounts/$accountId/$calendarId/two-way': typeof dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute
@@ -664,10 +664,10 @@ export interface FileRoutesById {
   '/(dashboard)/dashboard/integrations/': typeof dashboardDashboardIntegrationsIndexRoute
   '/(dashboard)/dashboard/settings/': typeof dashboardDashboardSettingsIndexRoute
   '/(dashboard)/dashboard/upgrade/': typeof dashboardDashboardUpgradeIndexRoute
-  '/(dashboard)/dashboard/accounts/$accountId/$calendarId': typeof dashboardDashboardAccountsAccountIdCalendarIdRouteWithChildren
+  '/(dashboard)/dashboard/accounts/$accountId/$calendarId': typeof dashboardDashboardAccountsAccountIdCalendarIdRoute
   '/(dashboard)/dashboard/accounts/$accountId/setup': typeof dashboardDashboardAccountsAccountIdSetupRoute
   '/(dashboard)/dashboard/accounts/$accountId/': typeof dashboardDashboardAccountsAccountIdIndexRoute
-  '/(dashboard)/dashboard/accounts/$accountId/$calendarId/two-way': typeof dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute
+  '/(dashboard)/dashboard/accounts/$accountId/$calendarId_/two-way': typeof dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -872,7 +872,7 @@ export interface FileRouteTypes {
     | '/(dashboard)/dashboard/accounts/$accountId/$calendarId'
     | '/(dashboard)/dashboard/accounts/$accountId/setup'
     | '/(dashboard)/dashboard/accounts/$accountId/'
-    | '/(dashboard)/dashboard/accounts/$accountId/$calendarId/two-way'
+    | '/(dashboard)/dashboard/accounts/$accountId/$calendarId_/two-way'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1374,12 +1374,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof dashboardDashboardAccountsAccountIdCalendarIdRouteImport
       parentRoute: typeof dashboardDashboardAccountsRouteRoute
     }
-    '/(dashboard)/dashboard/accounts/$accountId/$calendarId/two-way': {
-      id: '/(dashboard)/dashboard/accounts/$accountId/$calendarId/two-way'
-      path: '/two-way'
+    '/(dashboard)/dashboard/accounts/$accountId/$calendarId_/two-way': {
+      id: '/(dashboard)/dashboard/accounts/$accountId/$calendarId_/two-way'
+      path: '/$accountId/$calendarId/two-way'
       fullPath: '/dashboard/accounts/$accountId/$calendarId/two-way'
       preLoaderRoute: typeof dashboardDashboardAccountsAccountIdCalendarIdTwoWayRouteImport
-      parentRoute: typeof dashboardDashboardAccountsAccountIdCalendarIdRoute
+      parentRoute: typeof dashboardDashboardAccountsRouteRoute
     }
   }
 }
@@ -1406,35 +1406,23 @@ const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
   authRouteRouteChildren,
 )
 
-interface dashboardDashboardAccountsAccountIdCalendarIdRouteChildren {
-  dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute: typeof dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute
-}
-
-const dashboardDashboardAccountsAccountIdCalendarIdRouteChildren: dashboardDashboardAccountsAccountIdCalendarIdRouteChildren =
-  {
-    dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute:
-      dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute,
-  }
-
-const dashboardDashboardAccountsAccountIdCalendarIdRouteWithChildren =
-  dashboardDashboardAccountsAccountIdCalendarIdRoute._addFileChildren(
-    dashboardDashboardAccountsAccountIdCalendarIdRouteChildren,
-  )
-
 interface dashboardDashboardAccountsRouteRouteChildren {
-  dashboardDashboardAccountsAccountIdCalendarIdRoute: typeof dashboardDashboardAccountsAccountIdCalendarIdRouteWithChildren
+  dashboardDashboardAccountsAccountIdCalendarIdRoute: typeof dashboardDashboardAccountsAccountIdCalendarIdRoute
   dashboardDashboardAccountsAccountIdSetupRoute: typeof dashboardDashboardAccountsAccountIdSetupRoute
   dashboardDashboardAccountsAccountIdIndexRoute: typeof dashboardDashboardAccountsAccountIdIndexRoute
+  dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute: typeof dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute
 }
 
 const dashboardDashboardAccountsRouteRouteChildren: dashboardDashboardAccountsRouteRouteChildren =
   {
     dashboardDashboardAccountsAccountIdCalendarIdRoute:
-      dashboardDashboardAccountsAccountIdCalendarIdRouteWithChildren,
+      dashboardDashboardAccountsAccountIdCalendarIdRoute,
     dashboardDashboardAccountsAccountIdSetupRoute:
       dashboardDashboardAccountsAccountIdSetupRoute,
     dashboardDashboardAccountsAccountIdIndexRoute:
       dashboardDashboardAccountsAccountIdIndexRoute,
+    dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute:
+      dashboardDashboardAccountsAccountIdCalendarIdTwoWayRoute,
   }
 
 const dashboardDashboardAccountsRouteRouteWithChildren =

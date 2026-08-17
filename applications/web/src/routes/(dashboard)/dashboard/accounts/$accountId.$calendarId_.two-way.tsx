@@ -8,7 +8,7 @@ import { TwoWaySyncSections } from "@/features/dashboard/components/two-way-sync
 import type { CalendarDetail } from "@/types/api";
 
 export const Route = createFileRoute(
-  "/(dashboard)/dashboard/accounts/$accountId/$calendarId/two-way",
+  "/(dashboard)/dashboard/accounts/$accountId/$calendarId_/two-way",
 )({
   component: TwoWaySyncPage,
 });
