@@ -8,7 +8,7 @@ import { Text } from "@/components/ui/primitives/text";
 import { TextLink } from "@/components/ui/primitives/text-link";
 import { Button } from "@/components/ui/primitives/button";
 import type { ButtonProps } from "@/components/ui/primitives/button";
-import { UpgradeHint } from "@/components/ui/primitives/upgrade-hint";
+import { PremiumFeatureGate } from "@/components/ui/primitives/upgrade-hint";
 import {
   Modal,
   ModalContent,
@@ -75,29 +75,32 @@ function WriteBackPermissions({
   onModeChange,
   onReachChange,
   reach,
+  writable,
 }: {
   locked: boolean;
   mode: WriteBackMode;
   onModeChange: (mode: WriteBackMode) => void;
   onReachChange: (reach: string) => void;
   reach: string;
+  writable: boolean;
 }) {
   const twoWay = mode !== "off";
   const meetings = reachAtLeast(reach, "my_meetings");
   const moving = reachAtLeast(reach, "my_meetings_notifying");
 
   return (
-    <NavigationMenu>
+    <PremiumFeatureGate hint="Two-way sync is a Pro feature." locked={locked}>
+      <NavigationMenu>
         <NavigationMenuCheckboxItem
           checked={twoWay}
-          disabled={locked}
+          disabled={!writable}
           onCheckedChange={(checked) => { onModeChange(checked ? "edits" : "off"); }}
         >
           <NavigationMenuItemLabel>Two-Way Sync Copy Changes</NavigationMenuItemLabel>
         </NavigationMenuCheckboxItem>
         <NavigationMenuCheckboxItem
           checked={mode === "edits_and_deletes"}
-          disabled={locked || !twoWay}
+          disabled={!writable || !twoWay}
           onCheckedChange={(checked) => {
             onModeChange(checked ? "edits_and_deletes" : "edits");
           }}
@@ -106,14 +109,14 @@ function WriteBackPermissions({
         </NavigationMenuCheckboxItem>
         <NavigationMenuCheckboxItem
           checked={meetings}
-          disabled={locked || !twoWay}
+          disabled={!writable || !twoWay}
           onCheckedChange={(checked) => { onReachChange(reachFor("my_meetings", checked)); }}
         >
           <NavigationMenuItemLabel>Two-Way Sync My Meetings</NavigationMenuItemLabel>
         </NavigationMenuCheckboxItem>
         <NavigationMenuCheckboxItem
           checked={moving}
-          disabled={locked || !meetings}
+          disabled={!writable || !meetings}
           onCheckedChange={(checked) => {
             onReachChange(reachFor("my_meetings_notifying", checked));
           }}
@@ -122,12 +125,13 @@ function WriteBackPermissions({
         </NavigationMenuCheckboxItem>
         <NavigationMenuCheckboxItem
           checked={reachAtLeast(reach, "any_event")}
-          disabled={locked || !moving}
+          disabled={!writable || !moving}
           onCheckedChange={(checked) => { onReachChange(reachFor("any_event", checked)); }}
         >
           <NavigationMenuItemLabel>Two-Way Sync Changes to Others' Events</NavigationMenuItemLabel>
         </NavigationMenuCheckboxItem>
-    </NavigationMenu>
+      </NavigationMenu>
+    </PremiumFeatureGate>
   );
 }
 
@@ -244,18 +248,18 @@ function WriteBackModeControl({
         title={destinationName}
       />
       <WriteBackPermissions
-        locked={locked || !writableSource}
+        locked={locked}
         mode={mode}
         onModeChange={applyMode}
         onReachChange={commitReach}
         reach={status?.writeBackReach ?? "own_events"}
+        writable={writableSource}
       />
       {!writableSource && (
         <Text size="xs">
           {resolveUnwritableSourceCopy(calendarDetail)}
         </Text>
       )}
-      {locked && writableSource && <UpgradeHint>Two-way sync is a Pro feature.</UpgradeHint>}
       <WriteBackStatusLine
         destinationName={destinationName}
         onResolveDeleteConfirmation={resolveDeleteConfirmation}
