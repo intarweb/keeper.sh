@@ -610,13 +610,13 @@ function WriteBackPermissions({
       <WriteBackPermissionRow
         checked={twoWay}
         disabled={locked}
-        label="Write Edits Back"
+        label="Two-Way Sync Copy Changes"
         onCheckedChange={(checked) => { onModeChange(checked ? "edits" : "off"); }}
       />
       <WriteBackPermissionRow
         checked={mode === "edits_and_deletes"}
         disabled={locked || !twoWay}
-        label="Write Deletions Back"
+        label="Two-Way Sync Deleted Events"
         onCheckedChange={(checked) => {
           onModeChange(checked ? "edits_and_deletes" : "edits");
         }}
@@ -624,13 +624,13 @@ function WriteBackPermissions({
       <WriteBackPermissionRow
         checked={meetings}
         disabled={locked || !twoWay}
-        label="Include Meetings I Organize"
+        label="Two-Way Sync My Meetings"
         onCheckedChange={(checked) => { onReachChange(reachFor("my_meetings", checked)); }}
       />
       <WriteBackPermissionRow
         checked={moving}
         disabled={locked || !meetings}
-        label="Include Moving and Cancelling"
+        label="Two-Way Sync Moving & Cancelling"
         onCheckedChange={(checked) => {
           onReachChange(reachFor("my_meetings_notifying", checked));
         }}
@@ -638,7 +638,7 @@ function WriteBackPermissions({
       <WriteBackPermissionRow
         checked={reachAtLeast(reach, "any_event")}
         disabled={locked || !moving}
-        label="Include Events Others Created"
+        label="Two-Way Sync Changes to Others' Events"
         onCheckedChange={(checked) => { onReachChange(reachFor("any_event", checked)); }}
       />
     </div>
