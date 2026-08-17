@@ -27,7 +27,6 @@ const compareObservedRevisions = (left: RemoteEvent, right: RemoteEvent): number
 const dedupeObservations = (observations: readonly IdentifiedEvent[]): DedupedObservations => {
   const winners = new Map<string, IdentifiedEvent>();
   const supersededKeys: string[] = [];
-  let comparisons = 0;
   for (const observation of observations) {
     const key = sourceIdentityKey(observation.identity);
     const incumbent = winners.get(key);
@@ -35,13 +34,16 @@ const dedupeObservations = (observations: readonly IdentifiedEvent[]): DedupedOb
       winners.set(key, observation);
       continue;
     }
-    comparisons += 1;
     supersededKeys.push(key);
     if (compareObservedRevisions(observation.event, incumbent.event) > 0) {
       winners.set(key, observation);
     }
   }
-  return { kept: [...winners.values()], supersededKeys, comparisons };
+  /*
+   * Every superseded key is exactly one comparison against the incumbent, so the count the
+   * operation-count tests assert is the length of that list rather than a separate tally.
+   */
+  return { kept: [...winners.values()], supersededKeys, comparisons: supersededKeys.length };
 };
 
 export { compareObservedRevisions, dedupeObservations };

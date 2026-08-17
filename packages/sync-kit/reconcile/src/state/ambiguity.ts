@@ -8,13 +8,11 @@ interface AmbiguityReport {
   readonly identities: readonly SourceIdentity[];
 }
 
-const highestRankIn = (group: readonly IdentifiedEvent[]): number => {
-  let best = Number.NEGATIVE_INFINITY;
-  for (const observation of group) {
-    best = Math.max(best, rankOfRevision(observation.event.revision));
-  }
-  return best;
-};
+const highestRankIn = (group: readonly IdentifiedEvent[]): number =>
+  Math.max(
+    Number.NEGATIVE_INFINITY,
+    ...group.map((observation) => rankOfRevision(observation.event.revision)),
+  );
 
 const contentDiffersAtTheTop = (group: readonly IdentifiedEvent[]): boolean => {
   const best = highestRankIn(group);
