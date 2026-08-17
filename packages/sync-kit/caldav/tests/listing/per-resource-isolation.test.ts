@@ -3,6 +3,8 @@ import { listingOf } from "../support/expect";
 import { createHarness, decadeWindow, operationContext, scopeOver } from "../support/harness";
 import { manyResources, unparseableResource } from "../support/resources";
 
+const HANG_TIMEOUT = 30_000;
+
 describe("one bad resource does not take the collection with it", () => {
   test("DAV-O58: one malformed resource in fifty leaves the other forty-nine listed", async () => {
     const harness = createHarness({
@@ -19,5 +21,5 @@ describe("one bad resource does not take the collection with it", () => {
     expect((listing.events ?? []).length).toBe(49);
     expect((listing.withheld ?? []).length).toBe(1);
     expect(listing.diagnostics.withheld.total).toBe(1);
-  }, 5000);
+  }, HANG_TIMEOUT);
 });

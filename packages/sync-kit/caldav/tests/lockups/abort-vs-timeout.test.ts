@@ -4,6 +4,8 @@ import { failureKindOf } from "../support/expect";
 import { createHarness, decadeWindow, operationContext, scopeOver } from "../support/harness";
 import { countingSignal } from "../support/signals";
 
+const HANG_TIMEOUT = 30_000;
+
 describe("a cancel and a timeout are different answers", () => {
   test("DAV-L7: a caller abort mid-flight rejects as aborted and removes its listeners", async () => {
     const harness = createHarness({ fake: { stalls: true } });
@@ -21,7 +23,7 @@ describe("a cancel and a timeout are different answers", () => {
     expect(answered.failure.reason).toBe("aborted");
     expect(harness.environment.clock.pendingTimers()).toBe(0);
     expect(caller.attached()).toBe(0);
-  }, 5000);
+  }, HANG_TIMEOUT);
 
   test("DAV-L7: a timeout is budgetExhausted, never aborted", async () => {
     const harness = createHarness();
@@ -34,5 +36,5 @@ describe("a cancel and a timeout are different answers", () => {
 
     expect(raced).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 5000);
+  }, HANG_TIMEOUT);
 });

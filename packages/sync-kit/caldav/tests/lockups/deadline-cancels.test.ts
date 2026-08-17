@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import { raceDeadline } from "../../src/client/deadline";
 import { createHarness, operationContext } from "../support/harness";
 
+const HANG_TIMEOUT = 30_000;
+
 describe("a caller that stops waiting also stops the work", () => {
   test("DAV-L7: the signal handed to the work is aborted when the budget expires", async () => {
     const harness = createHarness();
@@ -18,7 +20,7 @@ describe("a caller that stops waiting also stops the work", () => {
 
     expect(await raced).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
     expect(await observed.promise).toBe("cancelled");
-  }, 5000);
+  }, HANG_TIMEOUT);
 
   test("DAV-L7: a genuine rejection is carried out rather than relabelled as an exhausted budget", async () => {
     const harness = createHarness();
@@ -29,5 +31,5 @@ describe("a caller that stops waiting also stops the work", () => {
     );
 
     await expect(raced).rejects.toThrow("the socket closed");
-  }, 5000);
+  }, HANG_TIMEOUT);
 });

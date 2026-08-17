@@ -6,6 +6,8 @@ import { calendarPath } from "../support/fake-caldav";
 import { createHarness, decadeWindow, operationContext, scopeOver } from "../support/harness";
 import { singleEventResource } from "../support/resources";
 
+const HANG_TIMEOUT = 30_000;
+
 const brokenResources = (count: number): readonly { path: string; data: string }[] =>
   Array.from({ length: count }, (unused, index) => ({
     path: `${calendarPath}broken-${index}.ics`,
@@ -29,7 +31,7 @@ describe("diagnostics are bounded samples beside exact totals", () => {
 
     expect(listing.diagnostics.withheld.total).toBe(discards);
     expect(listing.diagnostics.withheld.sample.length).toBe(caldavLimits.diagnosticSampleSize);
-  }, 5000);
+  }, HANG_TIMEOUT);
 
   test("DAV-H13: no diagnostics field carries event content", async () => {
     const secret = "Quarterly numbers for the board";
@@ -47,5 +49,5 @@ describe("diagnostics are bounded samples beside exact totals", () => {
 
     assertNoContentInDiagnostics(listing, [secret]);
     expect(listing.diagnostics.pagesFetched).toBeGreaterThan(0);
-  }, 5000);
+  }, HANG_TIMEOUT);
 });

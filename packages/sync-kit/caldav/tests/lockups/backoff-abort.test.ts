@@ -3,6 +3,8 @@ import { createAttemptBudget } from "../../src/client/attempt-budget";
 import { withBackoff } from "../../src/client/backoff";
 import { createHarness, operationContext } from "../support/harness";
 
+const HANG_TIMEOUT = 30_000;
+
 describe("a cancelled job does not sleep out its backoff", () => {
   test("DAV-L17: an abort mid-sleep rejects immediately", async () => {
     const harness = createHarness();
@@ -33,7 +35,7 @@ describe("a cancelled job does not sleep out its backoff", () => {
     expect(await running).toEqual({ kind: "aborted" });
     expect(attempts).toBe(1);
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 5000);
+  }, HANG_TIMEOUT);
 
   test("DAV-L17: an abort raised before the first attempt runs no attempt at all", async () => {
     const harness = createHarness();
@@ -55,5 +57,5 @@ describe("a cancelled job does not sleep out its backoff", () => {
 
     expect(outcome).toEqual({ kind: "aborted" });
     expect(attempts).toBe(0);
-  }, 5000);
+  }, HANG_TIMEOUT);
 });

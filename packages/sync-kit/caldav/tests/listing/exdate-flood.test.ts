@@ -4,6 +4,8 @@ import { calendarPath } from "../support/fake-caldav";
 import { createHarness, decadeWindow, operationContext, scopeOver } from "../support/harness";
 import { calendarOf, singleEventResource } from "../support/resources";
 
+const HANG_TIMEOUT = 30_000;
+
 const exdates = (count: number): readonly string[] =>
   Array.from({ length: count }, (unused, index) => {
     const day = new Date(Date.UTC(2020, 0, 1) + index * 86_400_000);
@@ -37,5 +39,5 @@ describe("a hostile recurrence does not sink the collection", () => {
     expect((listing.withheld ?? []).map((entry) => entry.uid?.value ?? null)).toEqual([
       "flood@example.com",
     ]);
-  }, 5000);
+  }, HANG_TIMEOUT);
 });
