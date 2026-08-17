@@ -652,12 +652,21 @@ const resolveHeldSourceCalendarIds = (
   );
 };
 
+/*
+ * A pair that is already stopped is not asked anything. It is stopped for a reason of its
+ * own — a source too old to trust, or a question of its own already standing — and that
+ * reason is what the dashboard offers an answer to. Asking again over the top replaces it:
+ * a pause that lifts by itself becomes one only a human answer clears, and a pause whose
+ * only answer is putting the copies back becomes the one that deletes the originals. It
+ * still writes nothing and rebuilds nothing while the read stays blank, because the pause
+ * it is already under says so.
+ */
 const collectDeletingSourceCalendarIds = (
   eligible: { mapping: EventMapping; policy: WriteBackPolicy }[],
   restrictedTo: ReadonlySet<string>,
 ): string[] => [...new Set(
   eligible
-    .filter(({ policy }) => policy.writeBackMode === "edits_and_deletes")
+    .filter(({ policy }) => policy.writeBackMode === "edits_and_deletes" && !policy.paused)
     .flatMap(({ mapping }) => mapping.sourceCalendarId ?? [])
     .filter((sourceCalendarId) => restrictedTo.has(sourceCalendarId)),
 )];
@@ -1586,10 +1595,16 @@ const classifyInboundChanges = (
   if (heldEligible.length > NO_OBSERVATIONS) {
     counters.ambiguousEmptyRead = FIRST_OBSERVATION;
     suppressedMappingIds.push(...heldEligible.map(({ mapping }) => mapping.id));
-    emptyReadConfirmation = {
-      reason: "all_copies_missing",
-      sourceCalendarIds: collectDeletingSourceCalendarIds(eligible, heldSourceCalendarIds),
-    };
+    const askedSourceCalendarIds = collectDeletingSourceCalendarIds(
+      eligible,
+      heldSourceCalendarIds,
+    );
+    if (askedSourceCalendarIds.length > NO_OBSERVATIONS) {
+      emptyReadConfirmation = {
+        reason: "all_copies_missing",
+        sourceCalendarIds: askedSourceCalendarIds,
+      };
+    }
   }
 
   const localEventsById = new Map(

@@ -40,7 +40,7 @@ import {
 } from "@keeper.sh/database/schema";
 import { withDatabasePoolWindow } from "@keeper.sh/database";
 import type { DatabasePoolWindow } from "@keeper.sh/database";
-import { and, arrayContains, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, arrayContains, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import type Redis from "ioredis";
 import {
@@ -768,6 +768,15 @@ const buildDisappearanceObservation = (reason: string): { copiesMissingObservedA
   return { copiesMissingObservedAt: new Date() };
 };
 
+/*
+ * A question already standing is never re-worded by a later pass. The reason it carries is
+ * what the dashboard offers an answer to and what the API accepts one on: a pair stopped
+ * because the probe keeps finding the copies present may only be answered by putting them
+ * back, while a pair stopped on a reading that came back with nothing at all is offered an
+ * answer that deletes the originals. Overwriting the first with the second hands the user a
+ * destructive answer to a question nobody asked. The same reason arriving again is the same
+ * question, and it still re-observes the disappearance it carries.
+ */
 const createDeleteConfirmationRecorder = (
   database: BunSQLDatabase,
   destinationCalendarId: string,
@@ -785,6 +794,10 @@ const createDeleteConfirmationRecorder = (
     .where(and(
       eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
       inArray(sourceDestinationMappingsTable.sourceCalendarId, request.sourceCalendarIds),
+      or(
+        ne(sourceDestinationMappingsTable.writeBackState, DELETE_CONFIRMATION_STATE),
+        eq(sourceDestinationMappingsTable.writeBackStateReason, request.reason),
+      ),
     ));
 };
 

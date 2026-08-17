@@ -98,7 +98,7 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     + " of. Changes you make to copies are not written back in the meantime, and the copies"
     + " are left as they are. It starts again on its own once {source} is read.",
   all_copies_missing:
-    "A reading of {destination} came back with none of the copies on it. That is what"
+    "A reading of {destination} came back with nothing on it at all. That is what"
     + " deleting every copy looks like, and it is also what a broken connection to"
     + " {destination} looks like — a sign-in that no longer works, a calendar that is no"
     + " longer there, or the provider answering with nothing — and Keeper.sh cannot tell"
