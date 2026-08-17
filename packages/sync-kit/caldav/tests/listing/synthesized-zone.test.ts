@@ -39,5 +39,5 @@ describe("a TZID the feed forgot to declare is still resolvable", () => {
       throw new Error("an all-day time appeared where a timed one was written");
     }
     expect(event.content.time.start.value).toBe("2026-03-21T09:00:00.000Z");
-  }, 30000);
+  }, 30_000);
 });

@@ -18,5 +18,5 @@ describe("the injected fetch is the only transport", () => {
       .map((entry) => `${entry.method} ${entry.path} ${entry.body}`);
     expect(bodies.length).toBeGreaterThan(0);
     expect(new Set(bodies).size).toBe(bodies.length);
-  }, 30000);
+  }, 30_000);
 });

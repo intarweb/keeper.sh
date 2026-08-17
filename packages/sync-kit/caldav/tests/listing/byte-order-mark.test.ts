@@ -25,5 +25,5 @@ describe("a BOM is stripped on every resource, not only the first", () => {
       "two@example.com",
     ]);
     expect(listing.withheld).toEqual([]);
-  }, 30000);
+  }, 30_000);
 });

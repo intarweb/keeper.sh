@@ -22,5 +22,5 @@ describe("a series and its overrides are one calendar object resource", () => {
     expect(harness.fake.resources().length).toBe(1);
     const [stored] = harness.fake.resources();
     expect([...(stored?.data ?? "").matchAll(/UID:/g)].length).toBe(1);
-  }, 30000);
+  }, 30_000);
 });

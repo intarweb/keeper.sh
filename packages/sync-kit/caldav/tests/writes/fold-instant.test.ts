@@ -29,5 +29,5 @@ describe("an instant a wall clock names twice still round-trips to itself", () =
       throw new Error("the re-read event was not the timed event that was written");
     }
     expect(event.content.time.start.value).toBe("2026-11-01T05:30:00.000Z");
-  }, 30000);
+  }, 30_000);
 });

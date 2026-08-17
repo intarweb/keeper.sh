@@ -33,7 +33,7 @@ describe("polling twice is the same answer twice", () => {
     const second = listingOf(await harness.provider.listChanges({ scope, resume: null }, context));
 
     expect(comparable(second)).toBe(comparable(first));
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O63: reordering the server's responses does not change the listing", async () => {
     const forward = createHarness({
@@ -60,7 +60,7 @@ describe("polling twice is the same answer twice", () => {
     );
 
     expect(comparable(second)).toBe(comparable(first));
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O22: a second poll over the same empty body produces the same listing", async () => {
     const harness = createHarness({
@@ -75,5 +75,5 @@ describe("polling twice is the same answer twice", () => {
 
     expect(comparable(second)).toBe(comparable(first));
     expect((first.withheld ?? []).length).toBe(1);
-  }, 30000);
+  }, 30_000);
 });

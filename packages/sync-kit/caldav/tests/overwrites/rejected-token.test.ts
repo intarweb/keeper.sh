@@ -28,7 +28,7 @@ describe("a rejected sync-token is cursorLost, never quiet and never empty", () 
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O7: a 409 valid-sync-token takes the identical arm", async () => {
     const forbidden = await listingAfterRejection(403);
@@ -38,5 +38,5 @@ describe("a rejected sync-token is cursorLost, never quiet and never empty", () 
     expect(conflicted.kind).toBe("cursorLost");
     expect(conflicted.events).toBeUndefined();
     expect(conflicted.removals).toBeUndefined();
-  }, 30000);
+  }, 30_000);
 });

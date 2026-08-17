@@ -16,7 +16,7 @@ describe("credentials withheld across a redirect is its own outcome", () => {
 
     expect(failureKindOf(listed)).not.toBe("reauthRequired");
     expect(failureKindOf(listed)).toBe("transport");
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O53: a withheld-credentials 401 classifies apart from a denied one", () => {
     const withheld = classifyCalDAVFailure({
@@ -36,5 +36,5 @@ describe("credentials withheld across a redirect is its own outcome", () => {
 
     expect(withheld).toEqual({ kind: "credentialsWithheld" });
     expect(denied).toEqual({ kind: "denied", operation: "listChanges" });
-  }, 30000);
+  }, 30_000);
 });

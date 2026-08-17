@@ -22,7 +22,7 @@ describe("a permit is released however its body leaves", () => {
     expect(await permits.withPermits([collection], neverAborts(), () => Promise.resolve("ran"))).toBe(
       "ran",
     );
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L10: a queued waiter that aborts is refused while the permits are still held", async () => {
     const permits = createCollectionSemaphore(1);
@@ -42,5 +42,5 @@ describe("a permit is released however its body leaves", () => {
     holding.resolve("done");
     expect(await leader).toBe("done");
     expect(permits.held(collection)).toBe(0);
-  }, 30000);
+  }, 30_000);
 });

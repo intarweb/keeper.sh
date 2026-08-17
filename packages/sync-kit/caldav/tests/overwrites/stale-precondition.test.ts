@@ -31,7 +31,7 @@ describe("a stale If-Match is a conflict, never an overwrite", () => {
 
     expect(outcomeKindOf(written)).toBe("conflict");
     expect(harness.fake.resourceAt(`${calendarPath}one.ics`)?.data).toContain("Moved by the user");
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O39: the conflict reports the precondition that was observed", async () => {
     const harness = createHarness({
@@ -56,5 +56,5 @@ describe("a stale If-Match is a conflict, never an overwrite", () => {
       throw new Error(`a stale precondition answered "${outcomeKindOf(written)}"`);
     }
     expect(written.value.observed.kind).toBe("matchesVersion");
-  }, 30000);
+  }, 30_000);
 });

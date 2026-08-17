@@ -39,5 +39,5 @@ describe("every sleep is the injected clock's, which fake timers can hold", () =
     });
 
     expect(slept.length).toBe(1);
-  }, 30000);
+  }, 30_000);
 });

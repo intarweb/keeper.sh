@@ -84,5 +84,5 @@ describe("no provider verb can outlive its deadline", () => {
       "write:delete": "notAttempted",
       "write:retire": "notAttempted",
     });
-  }, 30000);
+  }, 30_000);
 });

@@ -26,7 +26,7 @@ describe("a collection permit is structural, not a happy-path unlock", () => {
     expect(runs).toEqual([1, 2]);
     expect(permits.held(collection)).toBe(0);
     expect(permits.waiting(collection)).toBe(0);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L9: an aborted waiter is refused the permit rather than running", async () => {
     const permits = createCollectionSemaphore(1);
@@ -48,7 +48,7 @@ describe("a collection permit is structural, not a happy-path unlock", () => {
     await expect(queued).rejects.toThrow();
     expect(bodies).toEqual(["leader"]);
     expect(permits.held(collection)).toBe(0);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L10: cancelling a queued task re-drives the queue", async () => {
     const permits = createCollectionSemaphore(1);
@@ -74,5 +74,5 @@ describe("a collection permit is structural, not a happy-path unlock", () => {
     expect(completed).toEqual(["second", "third"]);
     expect(permits.waiting(collection)).toBe(0);
     expect(permits.held(collection)).toBe(0);
-  }, 30000);
+  }, 30_000);
 });

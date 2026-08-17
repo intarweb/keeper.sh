@@ -29,7 +29,7 @@ describe("an always-truncating server cannot page forever", () => {
 
     expect(walked.kind).toBe("partial");
     expect(harness.fake.reportsOf("sync-collection").length).toBe(caldavLimits.syncPageCeiling);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L1: a walk that runs out of changes stops before the ceiling, so the ceiling is the bound and not the algorithm", async () => {
     const shortOfTheCeiling = caldavLimits.syncPageCeiling - 2;
@@ -47,7 +47,7 @@ describe("an always-truncating server cannot page forever", () => {
 
     expect(walked.kind).toBe("delta");
     expect(harness.fake.reportsOf("sync-collection").length).toBe(shortOfTheCeiling);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L1: a truncated enumeration is answered as partial rather than paged forever", async () => {
     const harness = createHarness({
@@ -64,5 +64,5 @@ describe("an always-truncating server cannot page forever", () => {
 
     expect(listed.kind).toBe("partial");
     expect(harness.fake.requestsOf("PROPFIND").length).toBeLessThan(caldavLimits.syncPageCeiling);
-  }, 30000);
+  }, 30_000);
 });

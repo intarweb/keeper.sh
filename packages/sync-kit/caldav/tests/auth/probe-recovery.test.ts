@@ -30,7 +30,7 @@ describe("the authentication probe is neither a hang nor a poison pill", () => {
     await expect(
       authenticating("https://dav.example.com/calendars/", { signal: abortedSignal() }),
     ).rejects.toBeDefined();
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L20: a probe that failed once does not fail every request that follows it", async () => {
     let probes = 0;
@@ -58,5 +58,5 @@ describe("the authentication probe is neither a hang nor a poison pill", () => {
 
     expect(recovered.status).toBe(207);
     expect(probes).toBe(2);
-  }, 30000);
+  }, 30_000);
 });

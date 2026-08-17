@@ -14,7 +14,7 @@ describe("an await on a CalDAV server that never answers still ends", () => {
 
     expect(failureKindOf(listed)).toBe("notAttempted");
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L5: a deadline already spent is refused before the request is made", async () => {
     const harness = createHarness();
@@ -31,5 +31,5 @@ describe("an await on a CalDAV server that never answers still ends", () => {
 
     expect(raced).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
     expect(calls).toBe(0);
-  }, 30000);
+  }, 30_000);
 });

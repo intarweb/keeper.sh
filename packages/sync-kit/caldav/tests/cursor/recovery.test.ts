@@ -30,5 +30,5 @@ describe("losing the cursor is routine, so recovery is a cheap path", () => {
       "two@example.com",
     ]);
     expect(cursorOf(recovered).value).toBeTruthy();
-  }, 30000);
+  }, 30_000);
 });

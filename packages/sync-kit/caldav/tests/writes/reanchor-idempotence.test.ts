@@ -33,5 +33,5 @@ describe("ingesting a recurring resource is idempotent", () => {
     expect((first.events ?? []).at(0)?.content.recurrence?.exceptions).toEqual([
       "20260316T080000Z",
     ]);
-  }, 30000);
+  }, 30_000);
 });

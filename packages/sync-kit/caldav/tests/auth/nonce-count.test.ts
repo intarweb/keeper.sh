@@ -34,7 +34,7 @@ describe("a strict digest server counts every request", () => {
     const counts = harness.fake.nonceCounts();
     expect(counts.length).toBeGreaterThan(0);
     expect(new Set(counts).size).toBe(counts.length);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L2: the nonce-counts are monotonic and zero-padded", async () => {
     const harness = createHarness({
@@ -50,5 +50,5 @@ describe("a strict digest server counts every request", () => {
     const counts = harness.fake.nonceCounts();
     expect(counts.every((value) => value.length === 8)).toBe(true);
     expect(counts).toEqual([...counts].toSorted());
-  }, 30000);
+  }, 30_000);
 });

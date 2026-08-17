@@ -108,5 +108,5 @@ describe("cursorLost is one arm, reached four ways", () => {
       expect(listing.events).toBeUndefined();
       expect(listing.cursor).toBeUndefined();
     }
-  }, 30000);
+  }, 30_000);
 });

@@ -42,7 +42,7 @@ describe("a publisher that put two UIDs in one resource cannot cause churn", () 
 
     expect(uidsOf(forwardListing).length).toBe(1);
     expect(uidsOf(forwardListing)).toEqual(uidsOf(reverseListing));
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O45: the losing UID is withheld rather than dropped without a counter", async () => {
     const harness = createHarness({
@@ -58,7 +58,7 @@ describe("a publisher that put two UIDs in one resource cannot cause churn", () 
 
     expect((listing.withheld ?? []).length).toBe(1);
     expect(listing.diagnostics.withheld.total).toBe(1);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O45: two resources claiming one UID collapse to one event under either enumeration order", async () => {
     const older = { uid: "shared@example.com", summary: "Older", sequence: 1 };
@@ -91,5 +91,5 @@ describe("a publisher that put two UIDs in one resource cannot cause churn", () 
     expect(
       listings.map((listing) => (listing.events ?? []).map((event) => event.content.title)),
     ).toEqual([["Newer"], ["Newer"]]);
-  }, 30000);
+  }, 30_000);
 });

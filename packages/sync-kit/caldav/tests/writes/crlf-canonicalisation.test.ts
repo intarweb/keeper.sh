@@ -27,5 +27,5 @@ describe("line endings are canonicalised once, for the hash and for the wire", (
     expect(outcomeOf(created).kind).toBe("created");
     const [event] = listing.events ?? [];
     expect(event?.fingerprint).toEqual(normalisedCrlf.value.fingerprint);
-  }, 30000);
+  }, 30_000);
 });

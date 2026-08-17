@@ -42,5 +42,5 @@ describe("an unbuildable newest revision withholds rather than reverts", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 30000);
+  }, 30_000);
 });

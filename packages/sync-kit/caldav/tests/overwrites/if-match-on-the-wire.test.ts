@@ -28,5 +28,5 @@ describe("the precondition has to survive tsdav's cleanupFalsy and reach the wir
     const headers = harness.fake.requestsOf("DELETE").map((entry) => entry.headers["if-match"]);
     expect(headers.length).toBe(2);
     expect(headers.filter((value) => typeof value === "string" && value.length > 0).length).toBe(2);
-  }, 30000);
+  }, 30_000);
 });

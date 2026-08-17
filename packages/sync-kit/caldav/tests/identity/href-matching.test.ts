@@ -21,7 +21,7 @@ describe("a response href is matched to the href it was requested under", () => 
     expect((listing.events ?? []).map((event) => event.id.value)).toEqual([
       "/calendars/alice/personal/team offsite.ics",
     ]);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-H8: a duplicated href is requested once", async () => {
     const harness = createHarness({
@@ -38,5 +38,5 @@ describe("a response href is matched to the href it was requested under", () => 
       .reportsOf("calendar-multiget")
       .flatMap((entry) => [...entry.body.matchAll(/one\.ics/g)]);
     expect(requested.length).toBe(1);
-  }, 30000);
+  }, 30_000);
 });

@@ -18,5 +18,5 @@ describe("a server that omits the ETag on a PUT is asked, not guessed at", () =>
     }
     expect(outcome.version.value.length).toBeGreaterThan(0);
     expect(harness.fake.requestsOf("PROPFIND").length).toBeGreaterThan(0);
-  }, 30000);
+  }, 30_000);
 });

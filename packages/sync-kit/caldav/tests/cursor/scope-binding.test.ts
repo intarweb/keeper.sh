@@ -29,5 +29,5 @@ describe("a cursor belongs to the collection that minted it", () => {
 
     expect(misplaced.kind).toBe("cursorLost");
     expect(harness.fake.requests().length).toBe(before);
-  }, 30000);
+  }, 30_000);
 });

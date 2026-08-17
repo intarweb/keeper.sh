@@ -24,5 +24,5 @@ describe("an all-day range does not narrow on the way round", () => {
     }
     expect(event.content.time.startDate.value).toBe("2026-03-21");
     expect(event.content.time.endDateExclusive.value).toBe("2026-03-24");
-  }, 30000);
+  }, 30_000);
 });

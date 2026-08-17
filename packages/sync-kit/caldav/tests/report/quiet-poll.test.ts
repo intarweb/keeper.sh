@@ -19,7 +19,7 @@ describe("a poll that found nothing still moves the token forward", () => {
     expect(quiet.kind).toBe("delta");
     expect(quiet.events).toEqual([]);
     expect(cursorOf(quiet).value).toBeTruthy();
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O5: the previous token is never reused as the new cursor value", async () => {
     const harness = createHarness({
@@ -38,5 +38,5 @@ describe("a poll that found nothing still moves the token forward", () => {
     );
 
     expect(cursorOf(second).value).not.toBe(cursorOf(first).value);
-  }, 30000);
+  }, 30_000);
 });

@@ -18,7 +18,7 @@ describe("a server that never recovers is not an infinite loop", () => {
 
     expect(failureKindOf(listed)).toBe("rateLimited");
     expect(harness.fake.requestsOf("PROPFIND").length).toBe(3);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L15: the ceiling is the configured one, not an incidental constant", async () => {
     const attempts: number[] = [];
@@ -36,7 +36,7 @@ describe("a server that never recovers is not an infinite loop", () => {
     }
 
     expect(attempts).toEqual([2, 5]);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-L16: a Retry-After of one hour is clamped to the ceiling", () => {
     const harness = createHarness();
@@ -53,5 +53,5 @@ describe("a server that never recovers is not an infinite loop", () => {
     );
 
     expect(delay).toBe(250);
-  }, 30000);
+  }, 30_000);
 });

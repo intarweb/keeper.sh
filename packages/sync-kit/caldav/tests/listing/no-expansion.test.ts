@@ -36,5 +36,5 @@ describe("a series leaves this adapter as a series", () => {
     expect(event?.content.recurrence?.value).toBe("FREQ=WEEKLY;COUNT=10");
     expect(event?.content.anchor?.kind).toBe("timed");
     expect(harness.fake.requests().some((entry) => entry.body.includes("expand"))).toBe(false);
-  }, 30000);
+  }, 30_000);
 });

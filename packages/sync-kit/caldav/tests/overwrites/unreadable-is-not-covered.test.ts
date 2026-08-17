@@ -30,7 +30,7 @@ describe("an unreadable body is a hole in the read, not a hole in the calendar",
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O68: an unreadable resource never counts toward the coverage the snapshot claims", async () => {
     const harness = createHarness({
@@ -49,5 +49,5 @@ describe("an unreadable body is a hole in the read, not a hole in the calendar",
 
     expect(listing.kind).toBe("partial");
     expect(listing.coverage).toBeUndefined();
-  }, 30000);
+  }, 30_000);
 });

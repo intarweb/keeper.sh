@@ -28,7 +28,7 @@ describe("one unreadable resource, two policies", () => {
     expect(outcomeKindOf(written)).toBe(`failure:${failureKindOf(written)}`);
     expect(written.ok).toBe(false);
     expect(harness.fake.requestsOf("PUT")).toEqual([]);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O24: the same unreadable resource on the listing path is withheld and counted", async () => {
     const harness = createHarness({ resources: collection });
@@ -49,5 +49,5 @@ describe("one unreadable resource, two policies", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 30000);
+  }, 30_000);
 });

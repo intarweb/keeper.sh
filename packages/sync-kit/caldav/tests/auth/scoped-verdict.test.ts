@@ -20,7 +20,7 @@ describe("one probe's 401 is not a verdict about the account", () => {
       operationContext(harness.environment, { deadlineMs: 2000 }),
     );
     expect(failureKindOf(listed)).toBe("ok");
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O52: a timeout is reported as a timeout whether it settles before or after the 401", () => {
     const deniedFirst = createAuthScope();
@@ -33,5 +33,5 @@ describe("one probe's 401 is not a verdict about the account", () => {
 
     expect(deniedFirst.verdict()).toBe(timedOutFirst.verdict());
     expect(deniedFirst.verdict()).toBe("denied");
-  }, 30000);
+  }, 30_000);
 });

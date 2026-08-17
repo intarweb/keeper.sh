@@ -36,7 +36,7 @@ describe("a truncated walk never replays a token it has already spent", () => {
     expect(walked.kind).toBe("delta");
     expect(named.length).toBe(1);
     expect(cursorOf(walked).value).not.toBe(startingCursor.value);
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O10: a walk still truncated at the page ceiling while carrying a removal answers cursorLost, never a continuation that would drop it", async () => {
     const count = caldavLimits.syncPageCeiling * 2;
@@ -55,7 +55,7 @@ describe("a truncated walk never replays a token it has already spent", () => {
 
     expect(walked.kind).toBe("cursorLost");
     expect(walked.continuation).toBeUndefined();
-  }, 30000);
+  }, 30_000);
 
   test("DAV-O11: a removal-free walk stopped at the ceiling advances the continuation past the pages it read", async () => {
     const count = caldavLimits.syncPageCeiling * 2;
@@ -74,5 +74,5 @@ describe("a truncated walk never replays a token it has already spent", () => {
 
     expect(truncated.kind).toBe("partial");
     expect(continuationOf(truncated).value).not.toContain(startingCursor.value);
-  }, 30000);
+  }, 30_000);
 });
