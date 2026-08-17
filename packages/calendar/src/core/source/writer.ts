@@ -196,6 +196,30 @@ const refuseWhenOthersAreInvited = (
   }
 };
 
+/*
+ * What a write reaches beyond the user, named once. Permission is asked per consequence
+ * rather than per verb, because the verb does not say who hears about it: deleting a solo
+ * event is the user's own business, and moving a meeting mails everyone on it.
+ *
+ * "foreign_event" is the one answer no grant widens. A calendar a colleague shared carries
+ * their bookings, and the provider's write grant says the account may write there — it does
+ * not say the event is the user's to destroy.
+ */
+type SourceWriteConsequence = "foreign_event" | "own_event" | "shared_event";
+
+const resolveConsequence = (event: {
+  audience: SourceEventAudience;
+  authorship: SourceEventAuthorship;
+}): SourceWriteConsequence => {
+  if (event.authorship === "someone_else") {
+    return "foreign_event";
+  }
+  if (event.audience === "no_one_else") {
+    return "own_event";
+  }
+  return "shared_event";
+};
+
 const AUTHORSHIP_REFUSAL: SourceWriteResult = {
   error: "Keeper.sh does not write to a source event somebody else created.",
   refused: "event_authored_by_someone_else",
@@ -230,6 +254,33 @@ const refuseWhenSomebodyElseAuthoredIt = (
     return AUTHORSHIP_REFUSAL;
   }
   return null;
+};
+
+interface SourceWriteGrants {
+  sharedEvents: boolean;
+}
+
+/*
+ * The single gate every provider asks. A meeting the user organises is refused only until
+ * they say otherwise, and the refusal keeps naming which of the two questions it answers:
+ * a guest list that was read and had people on it reads differently to one that could not
+ * be read at all.
+ */
+const refuseWhenNotGranted = (
+  event: { audience: SourceEventAudience; authorship: SourceEventAuthorship },
+  grants: SourceWriteGrants,
+): SourceWriteResult | null => {
+  const consequence = resolveConsequence(event);
+  if (consequence === "foreign_event") {
+    return AUTHORSHIP_REFUSAL;
+  }
+  if (consequence === "own_event" || grants.sharedEvents) {
+    return null;
+  }
+  if (event.audience === "unreadable") {
+    return UNREADABLE_ATTENDEE_REFUSAL;
+  }
+  return ATTENDEE_REFUSAL;
 };
 
 /*
@@ -333,6 +384,7 @@ export {
   isRetryableOAuthWriteStatus,
   isRetryableWriteStatus,
   normalizeAttendeeAddress,
+  refuseWhenNotGranted,
   refuseWhenOthersAreInvited,
   refuseWhenSomebodyElseAuthoredIt,
   resolveAudience,
@@ -343,6 +395,8 @@ export {
 };
 export type {
   CalendarSourceWriter,
+  SourceWriteConsequence,
+  SourceWriteGrants,
   SourceEventAudience,
   SourceEventAuthorship,
   SourceEventUpdate,

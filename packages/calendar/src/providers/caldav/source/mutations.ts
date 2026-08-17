@@ -11,8 +11,7 @@ import {
 import {
   attemptSourceWrite,
   isRetryableWriteStatus,
-  refuseWhenOthersAreInvited,
-  refuseWhenSomebodyElseAuthoredIt,
+  refuseWhenNotGranted,
   toWriteFailure,
 } from "../../../core/source/writer";
 import type {
@@ -51,6 +50,7 @@ interface CalDAVWriterClient {
  */
 interface CalDAVSourceWriterConfig {
   accountEmail?: string | null;
+  sharedEventsGranted?: boolean;
   accountUsername?: string | null;
   calendarUrl: string;
   client: () => Promise<CalDAVWriterClient>;
@@ -292,17 +292,12 @@ const createCalDAVSourceWriter = (
     if (!object?.data) {
       return { error: "Event not found on the CalDAV server.", success: false };
     }
-    const refusal = refuseWhenOthersAreInvited({
+    const refusal = refuseWhenNotGranted({
       audience: readEventAudience(object.data),
-    });
+      authorship: readEventAuthorship(object.data, config.accountEmail),
+    }, { sharedEvents: config.sharedEventsGranted === true });
     if (refusal) {
       return refusal;
-    }
-    const authored = refuseWhenSomebodyElseAuthoredIt({
-      authorship: readEventAuthorship(object.data, config.accountEmail),
-    });
-    if (authored) {
-      return authored;
     }
 
     const [event] = parseIcsString(object.data).events ?? [];
@@ -362,17 +357,12 @@ const createCalDAVSourceWriter = (
     if (!object) {
       return { success: true };
     }
-    const refusal = refuseWhenOthersAreInvited({
+    const refusal = refuseWhenNotGranted({
       audience: readEventAudience(object.data ?? ""),
-    });
+      authorship: readEventAuthorship(object.data ?? "", config.accountEmail),
+    }, { sharedEvents: config.sharedEventsGranted === true });
     if (refusal) {
       return refusal;
-    }
-    const authored = refuseWhenSomebodyElseAuthoredIt({
-      authorship: readEventAuthorship(object.data ?? "", config.accountEmail),
-    });
-    if (authored) {
-      return authored;
     }
 
     const removed = await attemptSourceWrite(

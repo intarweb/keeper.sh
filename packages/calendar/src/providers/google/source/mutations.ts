@@ -10,8 +10,7 @@ import { isRateLimitApiError, parseGoogleApiError } from "../shared/errors";
 import {
   attemptSourceWrite,
   isRetryableOAuthWriteStatus,
-  refuseWhenOthersAreInvited,
-  refuseWhenSomebodyElseAuthoredIt,
+  refuseWhenNotGranted,
   resolveAudience,
   resolveAuthorship,
   RICH_BODY_REFUSAL,
@@ -38,6 +37,7 @@ const ISO_DATE_LENGTH = 10;
 interface GoogleSourceWriterConfig {
   accessToken: () => Promise<string>;
   accountEmail?: string | null;
+  sharedEventsGranted?: boolean;
   externalCalendarId: string | null;
 }
 
@@ -334,17 +334,12 @@ const createGoogleSourceWriter = (
     if (!event) {
       return { eventId: null };
     }
-    const refusal = refuseWhenOthersAreInvited({
+    const refusal = refuseWhenNotGranted({
       audience: readEventAudience(event),
-    });
+      authorship: readEventAuthorship(event, config.accountEmail),
+    }, { sharedEvents: config.sharedEventsGranted === true });
     if (refusal) {
       return { refusal };
-    }
-    const authored = refuseWhenSomebodyElseAuthoredIt({
-      authorship: readEventAuthorship(event, config.accountEmail),
-    });
-    if (authored) {
-      return { refusal: authored };
     }
     if (writesDescription && carriesUnreadableMarkup(event)) {
       return { refusal: RICH_BODY_REFUSAL };

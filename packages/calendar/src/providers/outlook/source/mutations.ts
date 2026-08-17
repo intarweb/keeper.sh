@@ -10,8 +10,7 @@ import { instantToWallTime } from "../../../ics/utils/timezone-instant";
 import {
   attemptSourceWrite,
   isRetryableOAuthWriteStatus,
-  refuseWhenOthersAreInvited,
-  refuseWhenSomebodyElseAuthoredIt,
+  refuseWhenNotGranted,
   resolveAudience,
   resolveAuthorship,
   RICH_BODY_REFUSAL,
@@ -36,6 +35,7 @@ const SINGLE_RESULT = "1";
 interface OutlookSourceWriterConfig {
   accessToken: () => Promise<string>;
   accountEmail?: string | null;
+  sharedEventsGranted?: boolean;
 }
 
 class OutlookSourceLookupError extends Error {
@@ -309,15 +309,12 @@ const createOutlookSourceWriter = (
     if (!event) {
       return { eventId: null };
     }
-    const refusal = refuseWhenOthersAreInvited({ audience: readEventAudience(event) });
+    const refusal = refuseWhenNotGranted({
+      audience: readEventAudience(event),
+      authorship: readEventAuthorship(event, config.accountEmail),
+    }, { sharedEvents: config.sharedEventsGranted === true });
     if (refusal) {
       return { refusal };
-    }
-    const authored = refuseWhenSomebodyElseAuthoredIt({
-      authorship: readEventAuthorship(event, config.accountEmail),
-    });
-    if (authored) {
-      return { refusal: authored };
     }
     if (writesDescription && carriesUnreadableMarkup(event)) {
       return { refusal: RICH_BODY_REFUSAL };

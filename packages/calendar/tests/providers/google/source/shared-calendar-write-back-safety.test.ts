@@ -37,10 +37,11 @@ interface RecordedRequest {
   url: string;
 }
 
-const createWriter = () => createGoogleSourceWriter({
+const createWriter = (sharedEventsGranted = false) => createGoogleSourceWriter({
   accessToken: () => Promise.resolve(ACCESS_TOKEN),
   accountEmail: ACCOUNT_EMAIL,
   externalCalendarId: SHARED_CALENDAR_ID,
+  sharedEventsGranted,
 });
 
 describe("a Google source write on a shared calendar", () => {
@@ -107,6 +108,11 @@ describe("a Google source write on a shared calendar", () => {
     expect(requests.filter(({ method }) => method === "PATCH")).toHaveLength(1);
   });
 
+  /*
+   * The event is both somebody else's and carries guests. The authorship answer is the one
+   * reported because it is the one no grant widens: naming the guest list here would offer
+   * the user a permission that, once given, still refuses this write.
+   */
   it("still refuses to delete an event other people are invited to", async () => {
     event = SOMEONE_ELSES_MEETING;
 
@@ -115,10 +121,15 @@ describe("a Google source write on a shared calendar", () => {
       sourceEventUid: SOURCE_EVENT_UID,
     });
 
-    expect(result.refused).toBe("event_has_attendees");
+    expect(result.refused).toBe("event_authored_by_someone_else");
     expect(requests.filter(({ method }) => method === "DELETE")).toEqual([]);
   });
 
+  /*
+   * The event is both somebody else's and carries guests. The authorship answer is the one
+   * reported because it is the one no grant widens: naming the guest list here would offer
+   * the user a permission that, once given, still refuses this write.
+   */
   it("still refuses to edit an event other people are invited to", async () => {
     event = SOMEONE_ELSES_MEETING;
 
@@ -127,8 +138,38 @@ describe("a Google source write on a shared calendar", () => {
       { summary: "Renamed on the destination" },
     );
 
-    expect(result.refused).toBe("event_has_attendees");
+    expect(result.refused).toBe("event_authored_by_someone_else");
     expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  /*
+   * The ceiling. Granting shared events answers a question about the user's own meetings;
+   * it says nothing about a colleague's booking, and no answer to it ever will. If this
+   * pair of cases goes green with the guard removed, the grant has become a way to destroy
+   * somebody else's data.
+   */
+  it("still refuses to edit somebody else's event when shared events are granted", async () => {
+    event = SOMEONE_ELSES_MEETING;
+
+    const result = await createWriter(true).updateEvent(
+      { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID },
+      { summary: "Renamed on the destination" },
+    );
+
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  it("still refuses to delete somebody else's event when shared events are granted", async () => {
+    event = SOMEONE_ELSES_MEETING;
+
+    const result = await createWriter(true).deleteEvent({
+      sourceEventId: SOURCE_EVENT_ID,
+      sourceEventUid: SOURCE_EVENT_UID,
+    });
+
+    expect(result.refused).toBe("event_authored_by_someone_else");
+    expect(requests.filter(({ method }) => method === "DELETE")).toEqual([]);
   });
 
   it("reports Google's own rejection of the edit as a failure rather than a refusal", async () => {
