@@ -1,4 +1,8 @@
-export { createCalDAVSourceFetcher, type CalDAVSourceFetcherConfig } from "./source/fetch-adapter";
+export {
+  CalDAVPartialResponseError,
+  createCalDAVSourceFetcher,
+  type CalDAVSourceFetcherConfig,
+} from "./source/fetch-adapter";
 export { isCalDAVAuthenticationError } from "./source/auth-error-classification";
 export { createCalDAVSyncProvider, type CalDAVSyncProviderConfig } from "./destination/provider";
 

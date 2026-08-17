@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "landing-page-copywriter": {
+      "source": "onewave-ai/claude-skills",
+      "sourceType": "github",
+      "skillPath": "landing-page-copywriter/SKILL.md",
+      "computedHash": "f86f1a5d1f6138f935b1d2760c958a7f8179a8584e8526fbd176bdcf7ab48304"
+    },
+    "seo-competitor-pages": {
+      "source": "agricidaniel/claude-seo",
+      "sourceType": "github",
+      "skillPath": "skills/seo-competitor-pages/SKILL.md",
+      "computedHash": "1c2f353cfd3992066e4162e19da7749997eda06c09fab777da22f4991b1b4af8"
+    },
+    "seo-geo": {
+      "source": "agricidaniel/claude-seo",
+      "sourceType": "github",
+      "skillPath": "skills/seo-geo/SKILL.md",
+      "computedHash": "77cc2ebbd74914e3cb4f2f6743460771906df88d29c46cf2fcd4972833f203d2"
+    },
+    "writing-web-documentation": {
+      "source": "onmax/nuxt-skills",
+      "sourceType": "github",
+      "skillPath": "skills/writing-web-documentation/SKILL.md",
+      "computedHash": "78d28a486868c980c3962f459ddd18e9444cad0d8941b88778ee47489059c099"
+    }
+  }
+}

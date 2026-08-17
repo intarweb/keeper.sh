@@ -6,6 +6,29 @@ import { isKeeperEvent } from "../../../core/events/identity";
 import { CalDAVClient } from "../shared/client";
 import { parseICalCalendarsToRemoteEvents } from "../shared/ics";
 
+/**
+ * A time-range fetch resolves in two phases: a calendar-query for hrefs,
+ * then a multiget for their data. A resource can disappear between the two, and
+ * the multiget also reports per-resource failures — but tsdav discards the DAV
+ * status and both arrive as an object with no data. Treating the survivors as
+ * the authoritative set would delete live events from every destination, so an
+ * incomplete response fails the run instead. A genuine deletion resolves on the
+ * next tick, when the first phase no longer lists the resource at all.
+ */
+class CalDAVPartialResponseError extends Error {
+  public readonly missingCount: number;
+  public readonly returnedCount: number;
+
+  public constructor(returnedCount: number, missingCount: number) {
+    super(
+      `CalDAV returned ${missingCount} of ${returnedCount} calendar objects without data`,
+    );
+    this.name = "CalDAVPartialResponseError";
+    this.missingCount = missingCount;
+    this.returnedCount = returnedCount;
+  }
+}
+
 interface CalDAVSourceFetcherConfig {
   authMethod?: "basic" | "digest";
   calendarUrl: string;
@@ -51,15 +74,21 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
       },
     });
 
+    const calendarData = objects.flatMap(({ data }) => {
+      if (!data) {
+        return [];
+      }
+      return [data];
+    });
+    if (calendarData.length !== objects.length) {
+      throw new CalDAVPartialResponseError(
+        objects.length,
+        objects.length - calendarData.length,
+      );
+    }
+
     const events: SourceEvent[] = [];
-    const parsedEvents = parseICalCalendarsToRemoteEvents(
-      objects.flatMap(({ data }) => {
-        if (!data) {
-          return [];
-        }
-        return [data];
-      }),
-    );
+    const parsedEvents = parseICalCalendarsToRemoteEvents(calendarData);
 
     for (const parsed of parsedEvents) {
       if (isKeeperEvent(parsed.uid)) {
@@ -100,5 +129,5 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
   return { fetchEvents };
 };
 
-export { createCalDAVSourceFetcher, isCalDAVEventInSyncWindow };
+export { CalDAVPartialResponseError, createCalDAVSourceFetcher, isCalDAVEventInSyncWindow };
 export type { CalDAVSourceFetcherConfig, CalDAVSourceFetcher };

@@ -341,3 +341,153 @@ describe("createIcsSourceFetcher", () => {
     ]);
   });
 });
+
+const buildSeriesCalendar = (eventLines: string[], calendarLines: string[] = []): string => [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "PRODID:-//Keeper Test//EN",
+  ...calendarLines,
+  "BEGIN:VEVENT",
+  "UID:series-1",
+  "SUMMARY:Daily standup",
+  ...eventLines,
+  "END:VEVENT",
+  "END:VCALENDAR",
+].join("\r\n");
+
+const normalizeSeries = async (
+  eventLines: string[],
+  calendarTimeZone?: string,
+): Promise<string> => {
+  const { applyCalendarTimeZoneToFloatingEventDates } = await import(
+    "../../../src/ics/utils/fetch-adapter"
+  );
+  return applyCalendarTimeZoneToFloatingEventDates(
+    buildSeriesCalendar(eventLines),
+    calendarTimeZone,
+  );
+};
+
+describe("applyCalendarTimeZoneToFloatingEventDates without an X-WR-TIMEZONE", () => {
+  it("accepts a single timed event in UTC", async () => {
+    await expect(normalizeSeries([
+      "DTSTART:20260105T090000Z",
+      "DTEND:20260105T100000Z",
+    ])).resolves.toContain("DTSTART:20260105T090000Z");
+  });
+
+  it("accepts a single all-day date event", async () => {
+    await expect(normalizeSeries([
+      "DTSTART;VALUE=DATE:20260105",
+      "DTEND;VALUE=DATE:20260106",
+    ])).resolves.toContain("DTSTART;VALUE=DATE:20260105");
+  });
+
+  it("accepts a single timed event carrying an explicit TZID", async () => {
+    await expect(normalizeSeries([
+      "DTSTART;TZID=America/Denver:20260105T090000",
+      "DTEND;TZID=America/Denver:20260105T100000",
+    ])).resolves.toContain("TZID=America/Denver");
+  });
+
+  it("accepts an all-day date series bounded by COUNT", async () => {
+    await expect(normalizeSeries([
+      "DTSTART;VALUE=DATE:20260105",
+      "DTEND;VALUE=DATE:20260106",
+      "RRULE:FREQ=DAILY;COUNT=8",
+    ])).resolves.toContain("RRULE:FREQ=DAILY;COUNT=8");
+  });
+
+  it("accepts an all-day date series bounded by a date-only UNTIL", async () => {
+    await expect(normalizeSeries([
+      "DTSTART;VALUE=DATE:20260105",
+      "DTEND;VALUE=DATE:20260106",
+      "RRULE:FREQ=DAILY;UNTIL=20260112",
+    ])).resolves.toContain("UNTIL=20260112");
+  });
+
+  it("accepts a timed series bounded by a UTC UNTIL", async () => {
+    await expect(normalizeSeries([
+      "DTSTART:20260105T090000Z",
+      "DTEND:20260105T100000Z",
+      "RRULE:FREQ=DAILY;UNTIL=20260112T090000Z",
+    ])).resolves.toContain("UNTIL=20260112T090000Z");
+  });
+
+  it.fails("accepts an all-day date series bounded by a floating date-time UNTIL", async () => {
+    await expect(normalizeSeries([
+      "DTSTART;VALUE=DATE:20260105",
+      "DTEND;VALUE=DATE:20260106",
+      "RRULE:FREQ=DAILY;UNTIL=20260112T000000",
+    ])).resolves.toContain("UNTIL=");
+  });
+
+  it.fails("resolves a floating UNTIL against the TZID already on DTSTART", async () => {
+    await expect(normalizeSeries([
+      "DTSTART;TZID=America/Denver:20260105T090000",
+      "DTEND;TZID=America/Denver:20260105T100000",
+      "RRULE:FREQ=DAILY;UNTIL=20260112T090000",
+    ])).resolves.toContain("UNTIL=20260112T160000Z");
+  });
+});
+
+const normalizeRecurrenceProperty = async (
+  extraLines: string[],
+  calendarTimeZone?: string,
+): Promise<string> => {
+  const { applyCalendarTimeZoneToFloatingEventDates } = await import(
+    "../../../src/ics/utils/fetch-adapter"
+  );
+  return applyCalendarTimeZoneToFloatingEventDates([
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Keeper Test//EN",
+    "BEGIN:VEVENT",
+    "UID:series-1",
+    "SUMMARY:Daily standup",
+    "DTSTART;TZID=America/Denver:20260105T090000",
+    "DTEND;TZID=America/Denver:20260105T100000",
+    "RRULE:FREQ=DAILY;COUNT=8",
+    ...extraLines,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n"), calendarTimeZone);
+};
+
+describe("recurrence-only date properties beside a TZID-bearing DTSTART", () => {
+  it("accepts a TZID EXDATE", async () => {
+    await expect(normalizeRecurrenceProperty([
+      "EXDATE;TZID=America/Denver:20260107T090000",
+    ])).resolves.toContain("EXDATE;TZID=America/Denver:20260107T090000");
+  });
+
+  it("accepts a date-only EXDATE", async () => {
+    await expect(normalizeRecurrenceProperty([
+      "EXDATE;VALUE=DATE:20260107",
+    ])).resolves.toContain("EXDATE;VALUE=DATE:20260107");
+  });
+
+  it.fails("resolves a floating EXDATE against the DTSTART TZID", async () => {
+    await expect(normalizeRecurrenceProperty([
+      "EXDATE:20260107T090000",
+    ])).resolves.toContain("EXDATE");
+  });
+
+  it.fails("resolves a floating RDATE against the DTSTART TZID", async () => {
+    await expect(normalizeRecurrenceProperty([
+      "RDATE:20260120T090000",
+    ])).resolves.toContain("RDATE");
+  });
+
+  it.fails("resolves a floating RECURRENCE-ID against the DTSTART TZID", async () => {
+    await expect(normalizeRecurrenceProperty([
+      "RECURRENCE-ID:20260107T090000",
+    ])).resolves.toContain("RECURRENCE-ID");
+  });
+
+  it.fails("resolves a partially floating multi-value EXDATE", async () => {
+    await expect(normalizeRecurrenceProperty([
+      "EXDATE:20260107T090000Z,20260108T090000",
+    ])).resolves.toContain("EXDATE");
+  });
+});

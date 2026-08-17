@@ -1019,6 +1019,35 @@ describe("computeSyncOperations", () => {
     }]);
   });
 
+  it("retires a mapping that has aged out of the default historic edge", () => {
+    const now = new Date("2026-08-12T00:00:00.000Z");
+    const requestedWindow = getConfigurableSyncWindow(
+      DEFAULT_HISTORIC_SYNC_RANGE,
+      DEFAULT_FUTURE_SYNC_RANGE,
+      now,
+    );
+    const agedOutMapping = createEventMapping({
+      endTime: new Date("2026-03-21T15:00:00.000Z"),
+      id: "aged-out-mapping",
+      startTime: new Date("2026-03-21T14:00:00.000Z"),
+      syncEventId: "aged-out-event",
+    });
+
+    const result = computeSyncOperationsStrict([], [agedOutMapping], [], {
+      authoritativeSourceWindows: new Map([["source-calendar-id", requestedWindow]]),
+      authoritativeWindow: requestedWindow,
+      configuredSourceCalendarIds: new Set(["source-calendar-id"]),
+      requestedWindow,
+    });
+
+    expect(result.operations).toEqual([{
+      deleteId: agedOutMapping.deleteIdentifier,
+      startTime: agedOutMapping.startTime,
+      type: "remove",
+      uid: agedOutMapping.destinationEventUid,
+    }]);
+  });
+
   it("retires a mapping left beyond a narrowed future edge", () => {
     const requestedWindow = {
       timeMax: new Date("2027-01-01T00:00:00.000Z"),
