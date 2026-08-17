@@ -348,7 +348,10 @@ interface WriteBackStore {
     | { heldByAnotherPass: true }
     | { id: string; observedAt: Date; priorAttempt: boolean }
   >;
-  resolveWriter: (sourceCalendarId: string) => Promise<CalendarSourceWriter | null>;
+  resolveWriter: (
+    sourceCalendarId: string,
+    destinationCalendarId: string,
+  ) => Promise<CalendarSourceWriter | null>;
   withSourceLock: <TResult>(
     sourceCalendarId: string,
     run: (locked: LockedWriteBackStore) => Promise<TResult>,
@@ -975,7 +978,10 @@ const runWriteBackPass = async (
         continue;
       }
       failedTarget = target;
-      const writer = await input.store.resolveWriter(target.sourceCalendarId);
+      const writer = await input.store.resolveWriter(
+        target.sourceCalendarId,
+        target.destinationCalendarId,
+      );
       if (!writer) {
         throw new UnusableSourceError(
           `Source calendar ${target.sourceCalendarId} has no usable write credentials`,

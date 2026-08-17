@@ -421,7 +421,9 @@ export type {
   CalendarSourceWriter,
   SourceEventUpdate,
   SourceWriteResult,
+  WriteBackReach,
 } from "./core/source/writer";
+export { isWriteBackReach } from "./core/source/writer";
 export {
   MAX_DEREGISTER_ATTEMPTS,
   PUSH_ACTIONS_PER_TICK,
