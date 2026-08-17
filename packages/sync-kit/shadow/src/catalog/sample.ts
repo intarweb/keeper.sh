@@ -15,14 +15,14 @@ const truncatedTo = (value: string, bytes: number): string => {
     return value;
   }
   const kept: string[] = [];
-  let used = 0;
+  const budget = { used: 0 };
   for (const character of value) {
     const size = byteLengthOf(character);
-    if (used + size > bytes) {
+    if (budget.used + size > bytes) {
       break;
     }
     kept.push(character);
-    used += size;
+    budget.used += size;
   }
   return `${kept.join("")}${truncationMarker}`;
 };
@@ -44,18 +44,18 @@ interface BoundedIdentifiers {
 const boundedSampleOf = (values: readonly string[], bounds: SampleBounds): BoundedIdentifiers => {
   const wanted = distinct(values);
   const sample: string[] = [];
-  let used = 0;
+  const budget = { used: 0 };
   for (const value of wanted) {
     if (sample.length >= bounds.count) {
       break;
     }
     const identifier = truncatedTo(value, bounds.identifierBytes);
     const size = byteLengthOf(identifier) + separatorBytesBefore(sample.length);
-    if (used + size > bounds.bytes) {
+    if (budget.used + size > bounds.bytes) {
       break;
     }
     sample.push(identifier);
-    used += size;
+    budget.used += size;
   }
   return { sample: sample.join(sampleSeparator), omitted: wanted.length - sample.length };
 };
