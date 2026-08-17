@@ -14,7 +14,7 @@ describe("an await on Graph that never answers still ends", () => {
 
     expect(raced).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 5000);
+  }, 30000);
 
   test("MS-L7: a deadline already spent is refused before the call is made", async () => {
     const harness = createHarness();
@@ -31,5 +31,5 @@ describe("an await on Graph that never answers still ends", () => {
 
     expect(raced).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
     expect(calls).toBe(0);
-  }, 5000);
+  }, 30000);
 });

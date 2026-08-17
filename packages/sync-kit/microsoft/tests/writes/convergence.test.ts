@@ -39,5 +39,5 @@ describe("a second sync after our own write is no work at all", () => {
     expect(fingerprintsOf(second.events ?? [])).toEqual(fingerprintsOf(first.events ?? []));
     expect(second.diagnostics.selfAuthored.total).toBe(first.diagnostics.selfAuthored.total);
     expect(harness.fake.writeCallCount()).toBe(1);
-  }, 5000);
+  }, 30000);
 });

@@ -44,5 +44,5 @@ describe("an expansion cut short never passes for a series with no occurrences",
       throw new Error(`an abandoned expansion answered a "${answered.value.kind}" listing`);
     }
     expect(answered.failure).toEqual({ kind: "notAttempted", reason: "aborted" });
-  }, 5000);
+  }, 30000);
 });

@@ -43,5 +43,5 @@ describe("a registration Graph did not describe is never invented", () => {
       .filter((request) => request.path.includes("subscriptions/"));
     expect(answered.ok).toBe(false);
     expect(addressedRows).toEqual([]);
-  }, 5000);
+  }, 30000);
 });

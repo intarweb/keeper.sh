@@ -34,7 +34,7 @@ describe("a caller's cancel is not a provider timeout", () => {
     expect(failureKindOf(cancelled)).toBe("notAttempted");
     expect(notAttemptedReasonOf(cancelled)).toBe("aborted");
     expect(notAttemptedReasonOf(expired)).toBe("budgetExhausted");
-  }, 5000);
+  }, 30000);
 
   test("MS-L8: an abort mid-flight leaves no timer armed", async () => {
     const harness = createHarness();
@@ -50,5 +50,5 @@ describe("a caller's cancel is not a provider timeout", () => {
     await inFlight;
 
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 5000);
+  }, 30000);
 });

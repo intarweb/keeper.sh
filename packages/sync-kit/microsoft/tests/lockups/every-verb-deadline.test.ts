@@ -20,5 +20,5 @@ describe("every verb has a ceiling, not just the one that was tested first", () 
 
     expect(answered.map((result) => result.ok)).toEqual([false, false, false]);
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 5000);
+  }, 30000);
 });

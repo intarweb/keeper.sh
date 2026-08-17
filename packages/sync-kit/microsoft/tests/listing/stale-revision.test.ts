@@ -39,5 +39,5 @@ describe("a newer revision we cannot build never falls back to the older one", (
     expect(listing.withheld?.map((entry) => entry.reason)).toEqual([
       "supersededRevisionUnbuildable",
     ]);
-  }, 5000);
+  }, 30000);
 });

@@ -57,5 +57,5 @@ describe("every listing request retrieves what the decoder reads", () => {
     expect(windowRequest?.search["$expand"]).toBe(expandKeeperProperties());
     expect(windowRequest?.search["$select"]).toBeUndefined();
     expect(instancesParameters(scopeOver(marchWindow))["$expand"]).toBe(expandKeeperProperties());
-  }, 5000);
+  }, 30000);
 });

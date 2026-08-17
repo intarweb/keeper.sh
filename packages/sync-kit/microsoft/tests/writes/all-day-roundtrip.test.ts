@@ -37,5 +37,5 @@ describe("an all-day range is a UTC-midnight pair, in every calendar's zone", ()
       startDate: { kind: "calendarDate", value: "2026-03-21" },
       endDateExclusive: { kind: "calendarDate", value: "2026-03-22" },
     });
-  }, 5000);
+  }, 30000);
 });

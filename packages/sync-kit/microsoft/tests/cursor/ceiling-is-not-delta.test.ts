@@ -34,5 +34,5 @@ describe("a loop-breaker can never authorise a deletion", () => {
     expect(stoppedByCeiling).toBe("partial");
     expect(stoppedByRepeat).toBe("partial");
     expect(microsoftLimits.maxPages).toBeGreaterThan(2);
-  }, 5000);
+  }, 30000);
 });

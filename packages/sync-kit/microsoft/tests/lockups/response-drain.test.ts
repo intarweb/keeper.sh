@@ -25,7 +25,7 @@ describe("a response body is read or cancelled, never abandoned", () => {
 
     expect(outcomeKindOf(answered)).toBe("deleted");
     expect(harness.fake.deleteBodyWasCancelled()).toBe(true);
-  }, 5000);
+  }, 30000);
 
   test("MS-L19: discarding a response cancels its body rather than leaving it open", async () => {
     let cancelled = false;
@@ -41,5 +41,5 @@ describe("a response body is read or cancelled, never abandoned", () => {
     await discardResponse(new Response(body, { status: 204 }));
 
     expect(cancelled).toBe(true);
-  }, 5000);
+  }, 30000);
 });

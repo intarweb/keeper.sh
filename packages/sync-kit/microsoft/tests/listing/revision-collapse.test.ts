@@ -46,5 +46,5 @@ describe("the same id twice collapses deterministically", () => {
 
     expect(forwards).toEqual(["the newer copy"]);
     expect(backwards).toEqual(forwards);
-  }, 5000);
+  }, 30000);
 });

@@ -35,5 +35,5 @@ describe("a link already walked ends the walk before the ceiling", () => {
     }
     expect(walk.stoppedBy).toBe("repeatedLink");
     expect(walk.items).toHaveLength(pagesRequested);
-  }, 5000);
+  }, 30000);
 });

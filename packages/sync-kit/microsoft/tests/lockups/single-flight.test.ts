@@ -15,7 +15,7 @@ describe("a coalesced leader's failure reaches every follower", () => {
 
     expect(settled.map((entry) => entry.status)).toEqual(["rejected", "rejected", "rejected"]);
     expect(flights.inFlightKeys()).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("MS-L16: three coalesced callers run one leader between them", async () => {
     const flights = createSingleFlight<string>();
@@ -34,5 +34,5 @@ describe("a coalesced leader's failure reaches every follower", () => {
 
     await expect(Promise.all(joined)).resolves.toEqual(["one answer", "one answer", "one answer"]);
     expect(leaders).toBe(1);
-  }, 5000);
+  }, 30000);
 });

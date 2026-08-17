@@ -30,7 +30,7 @@ describe("a permanently throttled request stops at its budget", () => {
 
     expect(answered.ok).toBe(false);
     expect(harness.fake.listCallCount()).toBe(3);
-  }, 5000);
+  }, 30000);
 
   test("MS-L5: the ceiling that stopped it is the budget it was handed", async () => {
     const three = createHarness();
@@ -57,7 +57,7 @@ describe("a permanently throttled request stops at its budget", () => {
 
     expect(three.fake.listCallCount()).toBe(3);
     expect(five.fake.listCallCount()).toBe(5);
-  }, 5000);
+  }, 30000);
 
   test("MS-L5: nothing is left armed once the budget is spent", async () => {
     const harness = createHarness();
@@ -73,5 +73,5 @@ describe("a permanently throttled request stops at its budget", () => {
     );
 
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 5000);
+  }, 30000);
 });

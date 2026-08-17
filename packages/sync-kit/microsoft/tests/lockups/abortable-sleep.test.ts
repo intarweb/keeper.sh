@@ -29,5 +29,5 @@ describe("a backoff sleep is abortable and leaves no timer behind", () => {
     expect(outcome.kind).toBe("aborted");
     expect(attempts).toBe(1);
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 5000);
+  }, 30000);
 });

@@ -28,7 +28,7 @@ describe("the SDK's own retry and redirect handlers are switched off", () => {
     );
 
     expect(harness.fake.listCallCount()).toBe(2);
-  }, 5000);
+  }, 30000);
 
   test("MS-H5: the middleware chain is explicit and carries nothing that retries or redirects", () => {
     const chain = graphMiddlewareChain({

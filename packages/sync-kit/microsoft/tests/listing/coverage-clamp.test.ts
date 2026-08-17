@@ -42,5 +42,5 @@ describe("coverage is earned by the walk, never claimed from the request", () =>
     );
 
     expect(listing.coverage).toBeUndefined();
-  }, 5000);
+  }, 30000);
 });

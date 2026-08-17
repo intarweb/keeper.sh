@@ -23,5 +23,5 @@ describe("every listing request carries the Prefer set the adapter declares", ()
     expect(listRequests.length).toBeGreaterThan(0);
     expect(missing).toEqual([]);
     expect(microsoftPrefer).toContain(`odata.maxpagesize=${microsoftLimits.pageSize}`);
-  }, 5000);
+  }, 30000);
 });

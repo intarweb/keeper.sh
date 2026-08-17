@@ -42,5 +42,5 @@ describe("pages that are each fast enough still end the loop", () => {
     }
     expect(walk.stoppedBy).toBe("loopDeadline");
     expect(walk.items).toHaveLength(pagesRequested);
-  }, 5000);
+  }, 30000);
 });

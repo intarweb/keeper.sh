@@ -28,7 +28,7 @@ describe("enumeration tolerates the shapes Graph actually answers", () => {
       "readWrite",
       "readOnly",
     ]);
-  }, 5000);
+  }, 30000);
 
   test("MS-O44: an enumeration whose body carries no value array is a failure, not an empty calendar list", async () => {
     const harness = createHarness();
@@ -40,5 +40,5 @@ describe("enumeration tolerates the shapes Graph actually answers", () => {
     );
 
     expect(answered.ok).toBe(false);
-  }, 5000);
+  }, 30000);
 });

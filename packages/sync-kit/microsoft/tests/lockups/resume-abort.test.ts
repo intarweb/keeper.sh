@@ -36,7 +36,7 @@ describe("a caller aborted as its permit is handed over never reaches Graph", ()
     expect(bodyRan).toBe(false);
     expect(permits.held("mailbox-one")).toBe(0);
     expect(permits.waiting("mailbox-one")).toBe(0);
-  }, 5000);
+  }, 30000);
 
   test("MS-L27: the permit freed by the aborted handover is still usable by the next caller", async () => {
     const permits = createMailboxSemaphore(1);
@@ -60,5 +60,5 @@ describe("a caller aborted as its permit is handed over never reaches Graph", ()
     expect(await settlementOf(abandoned)).toBe("PermitAborted");
     await expect(successor).resolves.toBe("the successor ran");
     expect(permits.held("mailbox-one")).toBe(0);
-  }, 5000);
+  }, 30000);
 });

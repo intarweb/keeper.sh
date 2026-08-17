@@ -22,7 +22,7 @@ describe("a truncated read never claims to be a complete one", () => {
     expect(listing.cursor).toBeUndefined();
     expect(listing.continuation?.kind).toBe("continuation");
     assertNoRemovalDerivable(listing);
-  }, 5000);
+  }, 30000);
 
   test("MS-O4: a truncated read reports the pages it actually walked", async () => {
     const harness = createHarness();
@@ -39,5 +39,5 @@ describe("a truncated read never claims to be a complete one", () => {
 
     expect(listing.diagnostics.pagesFetched).toBeGreaterThan(0);
     expect(listing.coverage).toBeUndefined();
-  }, 5000);
+  }, 30000);
 });

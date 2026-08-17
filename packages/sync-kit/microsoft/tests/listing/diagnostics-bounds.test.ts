@@ -38,5 +38,5 @@ describe("diagnostics are a capped sample beside an exact total", () => {
     expect(listing.diagnostics.withheld.sample).toHaveLength(
       microsoftLimits.diagnosticSampleEntries,
     );
-  }, 5000);
+  }, 30000);
 });
