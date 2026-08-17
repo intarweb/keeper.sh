@@ -34,7 +34,7 @@ describe("every verb, not only listChanges, is bounded by the operation deadline
       throw new Error("a stalled write failed rather than reporting a spent budget");
     }
     expect(answered.value).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L2: listCalendars against a transport that never answers settles at the deadline", async () => {
     const harness = stalled();
@@ -45,7 +45,7 @@ describe("every verb, not only listChanges, is bounded by the operation deadline
     );
 
     expect(failureKindOf(answered)).toBe("notAttempted");
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L2: registering a watch channel against a stalled transport settles at the deadline", async () => {
     const harness = stalled();
@@ -67,7 +67,7 @@ describe("every verb, not only listChanges, is bounded by the operation deadline
     );
 
     expect(failureKindOf(answered)).toBe("notAttempted");
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L2: a permit abandoned at its deadline returns to the pool", async () => {
     const harness = stalled();
@@ -83,7 +83,7 @@ describe("every verb, not only listChanges, is bounded by the operation deadline
 
     expect(internals.permits.available()).toBe(available);
     expect(internals.permits.waiting()).toBe(0);
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L2: a starved pool still answers once the transport recovers", async () => {
     const harness = stalled();
@@ -102,5 +102,5 @@ describe("every verb, not only listChanges, is bounded by the operation deadline
     );
 
     expect(answered.ok).toBe(true);
-  }, 30000);
+  }, 30_000);
 });

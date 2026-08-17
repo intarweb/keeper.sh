@@ -29,7 +29,7 @@ describe("an aborted waiter never strands the callers beside it", () => {
     await expect(waiting).rejects.toThrow();
     expect(permits.waiting()).toBe(0);
     expect(permits.available()).toBe(1);
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L10: one aborted caller in a fan-out costs only that caller", async () => {
     const harness = createHarness();
@@ -47,7 +47,7 @@ describe("an aborted waiter never strands the callers beside it", () => {
 
     expect(answers.slice(0, 4).map((answer) => answer.ok)).toEqual([true, true, true, true]);
     expect(answers.at(4)?.ok).toBe(false);
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L10: a listing issued after the aborted one still succeeds", async () => {
     const harness = createHarness();
@@ -83,5 +83,5 @@ describe("an aborted waiter never strands the callers beside it", () => {
     expect(harness.environment.transport.inFlightPeak()).toBeLessThanOrEqual(
       harness.dependencies.concurrency,
     );
-  }, 30000);
+  }, 30_000);
 });

@@ -70,7 +70,7 @@ describe("enumeration tolerates the shapes Google actually returns", () => {
     }
     expect(answer.failure).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
     expect(harness.fake.requests().length).toBeGreaterThan(1);
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-O23: an empty enumeration is a snapshot, not proof everything was deleted", async () => {
     const harness = createHarness();

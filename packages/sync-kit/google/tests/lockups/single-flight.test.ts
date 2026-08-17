@@ -83,7 +83,7 @@ describe("a coalesced leader's failure reaches every follower", () => {
     await expect(second).resolves.toBe("the answer the patient caller waited for");
     await expect(first).resolves.toBe("the answer the patient caller waited for");
     expect(leader.signal?.aborted).toBe(false);
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L4: the shared request is cancelled only once every caller has given up", async () => {
     const flights = createSingleFlight<string>();
@@ -109,7 +109,7 @@ describe("a coalesced leader's failure reaches every follower", () => {
     expect(flights.inFlightKeys()).toEqual([]);
     shared.resolve("late");
     await Promise.all(joined);
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L4: a key abandoned by every caller is released, never left registered", async () => {
     const harness = createHarness();
@@ -122,7 +122,7 @@ describe("a coalesced leader's failure reaches every follower", () => {
     );
 
     expect(internals.inFlightKeys()).toEqual([]);
-  }, 30000);
+  }, 30_000);
 
   test("GOOG-L4: coalesced callers do not share one diagnostics object", async () => {
     const harness = createHarness();
