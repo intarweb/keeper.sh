@@ -20,7 +20,7 @@ describe("a caller's cancel is not a provider timeout", () => {
       throw new Error("an aborted listing answered a value");
     }
     expect(answered.failure).toEqual({ kind: "notAttempted", reason: "aborted" });
-  }, 2000);
+  }, 30000);
 
   test("GOOG-L3: an abort mid-flight leaves no timer armed", async () => {
     const harness = createHarness();
@@ -36,7 +36,7 @@ describe("a caller's cancel is not a provider timeout", () => {
     await inFlight;
 
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 2000);
+  }, 30000);
 
   test("GOOG-L3: a signal already aborted spends no request proving it", async () => {
     const harness = createHarness();

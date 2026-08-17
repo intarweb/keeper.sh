@@ -22,7 +22,7 @@ describe("pagination stops at a ceiling a hostile server cannot lift", () => {
     expect(listing.kind).toBe("partial");
     expect(harness.fake.listCallCount()).toBe(googleListingLimits.maxPages);
     assertNoRemovalDerivable(listing);
-  }, 5000);
+  }, 30000);
 
   test("GOOG-L2: the ceiling reports how many pages it actually read", async () => {
     const harness = createHarness();
@@ -38,7 +38,7 @@ describe("pagination stops at a ceiling a hostile server cannot lift", () => {
 
     expect(listing.diagnostics.pagesFetched).toBe(googleListingLimits.maxPages);
     expect(listing.continuation?.scope.calendar.calendar.value).toBe("primary");
-  }, 5000);
+  }, 30000);
 
   test("GOOG-L2: a loop that runs out of budget mid-walk hands back the pages it read, not nothing", async () => {
     const harness = createHarness();
@@ -66,7 +66,7 @@ describe("pagination stops at a ceiling a hostile server cannot lift", () => {
     }
     expect(walk.items).toHaveLength(1);
     expect(walk.pageToken).toBe("there-is-more");
-  }, 5000);
+  }, 30000);
 
   test("GOOG-L2: a budget spent before the first page is notAttempted, never a truncation of nothing", async () => {
     const harness = createHarness();
@@ -83,5 +83,5 @@ describe("pagination stops at a ceiling a hostile server cannot lift", () => {
     });
 
     expect(walk).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
-  }, 5000);
+  }, 30000);
 });

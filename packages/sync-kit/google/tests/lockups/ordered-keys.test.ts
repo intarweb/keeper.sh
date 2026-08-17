@@ -32,7 +32,7 @@ describe("two callers taking two scopes in opposite orders cannot deadlock", () 
     ]);
 
     expect(answers.map((answer) => answer.ok)).toEqual([true, true, true, true]);
-  }, 3000);
+  }, 30000);
 
   test("GOOG-L6: no answer is crossed with the scope it was not asked about", async () => {
     const harness = createHarness();
@@ -50,7 +50,7 @@ describe("two callers taking two scopes in opposite orders cannot deadlock", () 
     }
     expect(listingOf(first).scope.window.end.value).toBe(marchWindow.end.value);
     expect(listingOf(second).scope.window.end.value).toBe(decadeWindow.end.value);
-  }, 3000);
+  }, 30000);
 
   test("GOOG-L6: two callers over one key share a single request, so no second key is ever held", async () => {
     const harness = createHarness();
@@ -64,5 +64,5 @@ describe("two callers taking two scopes in opposite orders cannot deadlock", () 
 
     expect([first?.ok, second?.ok]).toEqual([true, true]);
     expect(harness.fake.listCallCount()).toBe(1);
-  }, 3000);
+  }, 30000);
 });

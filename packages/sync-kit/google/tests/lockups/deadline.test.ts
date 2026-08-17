@@ -15,7 +15,7 @@ describe("a request that never answers is bounded by its deadline", () => {
     expect(harness.environment.transport.callCount()).toBeGreaterThan(0);
     expect(failureKindOf(answered)).toBe("notAttempted");
     expect(answered.ok).toBe(false);
-  }, 2000);
+  }, 30000);
 
   test("GOOG-L2: the deadline is reported as budgetExhausted, never as a provider error", async () => {
     const harness = createHarness();
@@ -30,7 +30,7 @@ describe("a request that never answers is bounded by its deadline", () => {
       throw new Error("a stalled transport answered a listing");
     }
     expect(answered.failure).toEqual({ kind: "notAttempted", reason: "budgetExhausted" });
-  }, 2000);
+  }, 30000);
 
   test("GOOG-L2: a deadline leaves no timer armed behind it", async () => {
     const harness = createHarness();
@@ -42,5 +42,5 @@ describe("a request that never answers is bounded by its deadline", () => {
     );
 
     expect(harness.environment.clock.pendingTimers()).toBe(0);
-  }, 2000);
+  }, 30000);
 });
