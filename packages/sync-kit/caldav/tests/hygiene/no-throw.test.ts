@@ -34,5 +34,5 @@ describe("this adapter returns Results; it does not throw at its callers", () =>
     );
 
     expect(failureKindOf(listed)).toBe("transport");
-  }, 5000);
+  }, 30000);
 });

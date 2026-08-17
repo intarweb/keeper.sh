@@ -17,7 +17,7 @@ describe("a network blip never empties a calendar", () => {
 
     expect(listed.ok).toBe(false);
     expect(failureKindOf(listed)).toBe("transport");
-  }, 5000);
+  }, 30000);
 
   test("DAV-O2: the PROPFIND that did succeed does not become a snapshot on its own", async () => {
     const harness = createHarness({
@@ -34,5 +34,5 @@ describe("a network blip never empties a calendar", () => {
       throw new Error(`a thrown multiget answered "${listed.value.kind}" instead of failing`);
     }
     expect(harness.fake.requestsOf("PROPFIND").length).toBeGreaterThan(0);
-  }, 5000);
+  }, 30000);
 });

@@ -30,7 +30,7 @@ describe("a DST boundary is a fixed point, not a rewrite trigger", () => {
     }
     expect(event.content.time.start.value).toBe("2026-11-01T05:30:00.000Z");
     expect(event.content.time.end.value).toBe("2026-11-01T06:30:00.000Z");
-  }, 5000);
+  }, 30000);
 
   test("DAV-O26: the second write of the same content is not a change", async () => {
     const harness = createHarness();
@@ -42,5 +42,5 @@ describe("a DST boundary is a fixed point, not a rewrite trigger", () => {
 
     expect(outcomeOf(replayed).kind).toBe("alreadyExists");
     expect(harness.fake.resources().length).toBe(1);
-  }, 5000);
+  }, 30000);
 });

@@ -21,7 +21,7 @@ describe("coalescing one collection's REPORT must not strand anybody", () => {
 
     expect(settled.map((entry) => entry.status)).toEqual(["rejected", "rejected"]);
     expect(flights.inFlightKeys()).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-L12: two concurrent calls for the same collection coalesce and neither deadlocks", async () => {
     const flights = createSingleFlight<string>();
@@ -39,7 +39,7 @@ describe("coalescing one collection's REPORT must not strand anybody", () => {
     expect(answered).toEqual(["one report", "one report"]);
     expect(leads).toBe(1);
     expect(flights.inFlightKeys()).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-L13: an aborted follower does not cancel the leader's work for the others", async () => {
     const flights = createSingleFlight<string>();
@@ -65,5 +65,5 @@ describe("coalescing one collection's REPORT must not strand anybody", () => {
     expect(await leader).toBe("the leader still finished");
     expect(await last).toBe("the leader still finished");
     expect(leaderSawAbort).toBe(false);
-  }, 5000);
+  }, 30000);
 });

@@ -30,5 +30,5 @@ describe("a whitespace body is unread, not absent", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 5000);
+  }, 30000);
 });

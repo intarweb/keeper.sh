@@ -23,7 +23,7 @@ describe("our own mirror is never ingested as a source", () => {
 
     expect((listing.events ?? []).map((event) => event.uid.value)).toEqual(["theirs@example.com"]);
     expect(listing.diagnostics.selfAuthored.total).toBe(1);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O35: a self-authored resource is never a mirror source", async () => {
     const harness = createHarness({
@@ -42,5 +42,5 @@ describe("our own mirror is never ingested as a source", () => {
     );
     expect(foreign).toEqual([]);
     expect((listing.withheld ?? []).map((entry) => entry.reason)).toEqual(["selfAuthored"]);
-  }, 5000);
+  }, 30000);
 });

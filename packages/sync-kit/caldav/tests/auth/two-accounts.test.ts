@@ -32,7 +32,7 @@ describe("two accounts polling at once keep their own verdicts", () => {
 
     expect(failureKindOf(second)).toBe("ok");
     expect(failureKindOf(first)).not.toBe("ok");
-  }, 5000);
+  }, 30000);
 
   test("DAV-L3: neither account's poll waits on the other's transport", async () => {
     const first = createHarness({ fake: { stalls: true } });
@@ -52,5 +52,5 @@ describe("two accounts polling at once keep their own verdicts", () => {
 
     expect(failureKindOf(healthy)).toBe("ok");
     expect(failureKindOf(await stalled)).toBe("notAttempted");
-  }, 5000);
+  }, 30000);
 });

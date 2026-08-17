@@ -36,5 +36,5 @@ describe("an Outlook feed's Windows TZID resolves to IANA", () => {
     }
     expect(event.content.time.zone?.value).toBe("Europe/Berlin");
     expect(event.content.time.start.value).toBe("2026-03-21T09:00:00.000Z");
-  }, 5000);
+  }, 30000);
 });

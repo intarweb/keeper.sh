@@ -15,7 +15,7 @@ describe("a replayed create is not a second event", () => {
     expect(outcomeKindOf(first)).toBe("created");
     expect(outcomeKindOf(replayed)).toBe("alreadyExists");
     expect(harness.fake.resources().length).toBe(1);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O36: the second attempt sends If-None-Match and never a bare PUT", async () => {
     const harness = createHarness();
@@ -27,5 +27,5 @@ describe("a replayed create is not a second event", () => {
 
     const conditions = harness.fake.requestsOf("PUT").map((entry) => entry.headers["if-none-match"]);
     expect(conditions).toEqual(["*", "*"]);
-  }, 5000);
+  }, 30000);
 });

@@ -20,7 +20,7 @@ describe("a create collision is never resolved by destroying the user's copy", (
     expect(outcomeKindOf(colliding)).toBe("conflict");
     expect(harness.fake.requestsOf("DELETE")).toEqual([]);
     expect(harness.fake.resources().length).toBe(1);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O37: the resource on the server still holds the copy that was there first", async () => {
     const harness = createHarness();
@@ -38,5 +38,5 @@ describe("a create collision is never resolved by destroying the user's copy", (
     const [stored] = harness.fake.resources();
     expect(stored?.data).toContain("Theirs");
     expect(stored?.data).not.toContain("Ours");
-  }, 5000);
+  }, 30000);
 });

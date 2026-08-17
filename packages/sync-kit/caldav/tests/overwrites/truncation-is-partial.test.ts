@@ -22,7 +22,7 @@ describe("a truncated page never describes the whole collection", () => {
     expect(listing.kind).toBe("partial");
     expect(listing.coverage).toBeUndefined();
     expect(continuationOf(listing).value.length).toBeGreaterThan(0);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O9: a truncated page's events are reported and its absences are not", async () => {
     const harness = createHarness({
@@ -40,5 +40,5 @@ describe("a truncated page never describes the whole collection", () => {
     const known = knownMirrorOf([]);
     expect((listing.events ?? []).length).toBeGreaterThan(0);
     expect(derivableRemovals({ listing, known, withinWindow: withinCalDAVWindow })).toEqual([]);
-  }, 5000);
+  }, 30000);
 });

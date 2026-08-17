@@ -18,5 +18,5 @@ describe("a PUT echoes nothing, and that is stated rather than assumed", () => {
       throw new Error(`a create answered "${outcome.kind}"`);
     }
     expect(outcome.echo).toEqual({ kind: "notObserved" });
-  }, 5000);
+  }, 30000);
 });

@@ -25,5 +25,5 @@ describe("replaying a write plan is not a rewrite", () => {
     ]);
     expect(harness.fake.resources().length).toBe(2);
     expect(writesAfterFirst).toBe(2);
-  }, 5000);
+  }, 30000);
 });

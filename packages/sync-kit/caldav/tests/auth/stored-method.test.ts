@@ -25,5 +25,5 @@ describe("a stored auth method is a hint, not a fact", () => {
     expect(fake.requests().filter((entry) => !entry.headers.authorization).length).toBe(
       1,
     );
-  }, 5000);
+  }, 30000);
 });

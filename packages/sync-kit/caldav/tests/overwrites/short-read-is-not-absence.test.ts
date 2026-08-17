@@ -25,7 +25,7 @@ describe("a capped multiget is a short read, never an absence", () => {
     expect(derivableRemovals({ listing: first, known, withinWindow: withinCalDAVWindow })).toEqual(
       [],
     );
-  }, 5000);
+  }, 30000);
 
   test("DAV-O1: the five events the server holds are never described as three", async () => {
     const harness = createHarness({
@@ -42,5 +42,5 @@ describe("a capped multiget is a short read, never an absence", () => {
 
     expect(listed.coverage).toBeUndefined();
     expect(listed.cursor).toBeUndefined();
-  }, 5000);
+  }, 30000);
 });

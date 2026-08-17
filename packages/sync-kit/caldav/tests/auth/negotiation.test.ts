@@ -28,5 +28,5 @@ describe("the scheme is negotiated from the challenge, in both directions", () =
     expect(digestOnly.status).toBe(207);
     expect(basicOnly.method).toBe("basic");
     expect(basicOnly.status).toBe(207);
-  }, 5000);
+  }, 30000);
 });

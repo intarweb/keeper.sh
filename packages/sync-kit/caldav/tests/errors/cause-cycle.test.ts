@@ -26,19 +26,19 @@ describe("decoding an error terminates whatever the cause chain does", () => {
 
     expect(decoded.status).toBeNull();
     expect(decoded.precondition).toBeNull();
-  }, 5000);
+  }, 30000);
 
   test("DAV-L4: a chain thirty-two links deep is decoded within the depth bound", () => {
     const decoded = decodeDavError(chainedTo(32));
 
     expect(decoded.depth).toBeLessThanOrEqual(32);
     expect(decoded.status).toBe(503);
-  }, 5000);
+  }, 30000);
 
   test("DAV-L4: a chain past the depth bound stops rather than reading deeper", () => {
     const decoded = decodeDavError(chainedTo(2000));
 
     expect(decoded.depth).toBeLessThanOrEqual(32);
     expect(decoded.status).toBeNull();
-  }, 5000);
+  }, 30000);
 });

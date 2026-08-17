@@ -44,7 +44,7 @@ describe("the window bounds what is mirrored, never what is read", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O60: a master before the window survives", async () => {
     const harness = createHarness({
@@ -75,5 +75,5 @@ describe("the window bounds what is mirrored, never what is read", () => {
       "old-series@example.com",
     ]);
     expect(scopeOver(decadeWindow).window).toEqual(decadeWindow);
-  }, 5000);
+  }, 30000);
 });

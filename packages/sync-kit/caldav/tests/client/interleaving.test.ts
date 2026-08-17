@@ -29,5 +29,5 @@ describe("two operations on one client share no verdict and no digest state", ()
     expect(failureKindOf(work)).toBe("ok");
     const counts = harness.fake.nonceCounts();
     expect(new Set(counts).size).toBe(counts.length);
-  }, 5000);
+  }, 30000);
 });

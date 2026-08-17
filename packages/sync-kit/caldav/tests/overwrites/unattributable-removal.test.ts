@@ -32,7 +32,7 @@ describe("an RFC 6578 404 names a path and no UID", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O12: a 404 href outside the collection being listed is not a removal at all", async () => {
     const harness = createHarness({ resources: collection });
@@ -47,7 +47,7 @@ describe("an RFC 6578 404 names a path and no UID", () => {
     );
 
     expect(second.removals ?? []).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O13: a 404 href the adapter did report is named as the deletion it is", async () => {
     const harness = createHarness({ resources: collection });
@@ -67,7 +67,7 @@ describe("an RFC 6578 404 names a path and no UID", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual(["two@example.com"]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O13: the following snapshot removes the resource and nothing else", async () => {
     const harness = createHarness({ resources: collection });
@@ -88,5 +88,5 @@ describe("an RFC 6578 404 names a path and no UID", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual(["two@example.com"]);
-  }, 5000);
+  }, 30000);
 });

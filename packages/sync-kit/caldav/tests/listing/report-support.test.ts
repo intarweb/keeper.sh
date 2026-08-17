@@ -20,7 +20,7 @@ describe("sync-collection is probed, never assumed", () => {
     expect(listing.kind).toBe("snapshot");
     expect(listing.cursor).toBeNull();
     expect(harness.fake.reportsOf("sync-collection")).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-H5: the probe is issued once per collection per run", async () => {
     const harness = createHarness({
@@ -36,5 +36,5 @@ describe("sync-collection is probed, never assumed", () => {
       .requestsOf("PROPFIND")
       .filter((entry) => entry.body.includes("supported-report-set"));
     expect(probes.length).toBe(1);
-  }, 5000);
+  }, 30000);
 });

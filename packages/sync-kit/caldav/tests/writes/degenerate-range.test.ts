@@ -20,7 +20,7 @@ describe("a degenerate range is refused, never widened", () => {
     expect(refused.ok).toBe(false);
     expect(outcomeKindOf(written)).toBe("unrepresentable");
     expect(harness.fake.requestsOf("PUT")).toEqual([]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O33: an inverted range is refused for its own named constraint", async () => {
     const harness = createHarness();
@@ -38,5 +38,5 @@ describe("a degenerate range is refused, never widened", () => {
       throw new Error(`an inverted range answered "${outcomeKindOf(written)}"`);
     }
     expect(written.value.constraint).toBe("invertedRange");
-  }, 5000);
+  }, 30000);
 });

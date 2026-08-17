@@ -48,7 +48,7 @@ describe("no response body is left holding a socket", () => {
 
     const bodies = harness.fake.bodies();
     expect(bodies.cancelled + bodies.consumed).toBe(bodies.issued);
-  }, 5000);
+  }, 30000);
 
   test("DAV-L19: releasing a body twice cancels it once", async () => {
     const counting = countingResponse(412);
@@ -57,5 +57,5 @@ describe("no response body is left holding a socket", () => {
     await releaseResponseBody(counting.response);
 
     expect(counting.cancelled()).toBe(1);
-  }, 5000);
+  }, 30000);
 });

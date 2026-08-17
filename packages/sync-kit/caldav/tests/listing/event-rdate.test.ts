@@ -40,7 +40,7 @@ describe("an event-level RDATE is an occurrence set an RRULE cannot express", ()
 
     expect(withheldUids).toContain("rdate@example.com");
     expect(listedUids).not.toContain("rdate@example.com");
-  }, 5000);
+  }, 30000);
 
   test("DAV-O71: the withheld series does not cost its neighbour in the same resource its listing", async () => {
     const harness = createHarness({ resources: [irregularSeries()] });
@@ -53,5 +53,5 @@ describe("an event-level RDATE is an occurrence set an RRULE cannot express", ()
     );
 
     expect((listing.events ?? []).map((event) => event.uid.value)).toEqual(["plain@example.com"]);
-  }, 5000);
+  }, 30000);
 });

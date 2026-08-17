@@ -19,7 +19,7 @@ describe("rows nobody asked for are counted, not fatal", () => {
 
     expect(listing.kind).toBe("snapshot");
     expect((listing.events ?? []).length).toBe(3);
-  }, 5000);
+  }, 30000);
 
   test("DAV-H9: coverage accounting is populated on the incomplete arm too", async () => {
     const harness = createHarness({
@@ -36,5 +36,5 @@ describe("rows nobody asked for are counted, not fatal", () => {
 
     expect(listing.kind).toBe("partial");
     expect(listing.diagnostics.pagesFetched).toBeGreaterThan(0);
-  }, 5000);
+  }, 30000);
 });

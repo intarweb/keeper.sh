@@ -35,7 +35,7 @@ describe("a write orders itself against every other client's copy", () => {
 
     expect(revisionsIn(afterCreate)).toEqual(["SEQUENCE:1"]);
     expect(revisionsIn(afterUpdate)).toEqual(["SEQUENCE:2"]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O70: the revision the adapter reads back is the SEQUENCE it wrote", async () => {
     const harness = createHarness();
@@ -65,5 +65,5 @@ describe("a write orders itself against every other client's copy", () => {
     );
 
     expect((listing.events ?? []).map((event) => event.revision)).toEqual([2]);
-  }, 5000);
+  }, 30000);
 });

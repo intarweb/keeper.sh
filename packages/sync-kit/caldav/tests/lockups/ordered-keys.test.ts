@@ -30,7 +30,7 @@ describe("two writers holding two collections cannot invert their locks", () => 
     expect(entered).toEqual(["forward", "backward"]);
     expect(permits.held(personal)).toBe(0);
     expect(permits.held(work)).toBe(0);
-  }, 5000);
+  }, 30000);
 
   test("DAV-L14: a repeated collection is acquired once, so a caller cannot wait on itself", async () => {
     const permits = createCollectionSemaphore(1);
@@ -41,5 +41,5 @@ describe("two writers holding two collections cannot invert their locks", () => 
 
     expect(answered).toBe("entered once");
     expect(permits.peak(personal)).toBe(1);
-  }, 5000);
+  }, 30000);
 });

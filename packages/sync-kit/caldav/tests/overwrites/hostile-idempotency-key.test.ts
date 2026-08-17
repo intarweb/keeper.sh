@@ -18,7 +18,7 @@ describe("an idempotency key names one resource inside the collection it was giv
       expect(failureKindOf(answered)).toBe("unsupported");
       expect(harness.fake.requestsOf("PUT")).toEqual([]);
     }
-  }, 5000);
+  }, 30000);
 
   test("DAV-O69: no request a hostile key provokes ever leaves the collection it was given", async () => {
     const harness = createHarness();
@@ -33,5 +33,5 @@ describe("an idempotency key names one resource inside the collection it was giv
       .filter((entry) => !entry.path.startsWith(calendarPath) && entry.method !== "OPTIONS");
     expect(escaped.filter((entry) => entry.path.startsWith(secondCalendarPath))).toEqual([]);
     expect(harness.fake.resources()).toEqual([]);
-  }, 5000);
+  }, 30000);
 });

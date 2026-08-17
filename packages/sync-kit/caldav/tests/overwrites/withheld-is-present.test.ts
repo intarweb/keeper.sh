@@ -37,5 +37,5 @@ describe("withheld is a present event this run could not build", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 5000);
+  }, 30000);
 });

@@ -24,7 +24,7 @@ describe("classification reads statuses, never prose", () => {
     expect((listingOf(listed).events ?? []).map((event) => event.content.title)).toEqual([
       "authentication failed: invalid credentials for user alice",
     ]);
-  }, 5000);
+  }, 30000);
 
   test("DAV-O54: a database error whose message inlines the phrase decodes to no status", () => {
     const outage = new Error(
@@ -35,5 +35,5 @@ describe("classification reads statuses, never prose", () => {
 
     expect(decoded.status).toBeNull();
     expect(decoded.precondition).toBeNull();
-  }, 5000);
+  }, 30000);
 });

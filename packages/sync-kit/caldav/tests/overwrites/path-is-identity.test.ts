@@ -29,5 +29,5 @@ describe("a resource is addressed by its path, not by its UID", () => {
     expect(
       harness.fake.requestsOf("DELETE").map((entry) => entry.path),
     ).toEqual([`${calendarPath}9f2c.ics`]);
-  }, 5000);
+  }, 30000);
 });

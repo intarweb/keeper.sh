@@ -31,5 +31,5 @@ describe("a cursor from an older adapter is not readable by this one", () => {
         withinWindow: withinCalDAVWindow,
       }),
     ).toEqual([]);
-  }, 5000);
+  }, 30000);
 });

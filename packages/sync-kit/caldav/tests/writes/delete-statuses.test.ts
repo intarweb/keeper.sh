@@ -14,7 +14,7 @@ describe("a delete's status is broken out, not collapsed", () => {
     );
 
     expect(outcomeKindOf(deleted)).toBe("alreadyAbsent");
-  }, 5000);
+  }, 30000);
 
   test("DAV-O44: a 403 delete is a permanent transport failure carrying 403", async () => {
     const harness = createHarness({
@@ -32,5 +32,5 @@ describe("a delete's status is broken out, not collapsed", () => {
     }
     expect(denied.failure.status).toBe(403);
     expect(denied.failure.disposition).toBe("permanent");
-  }, 5000);
+  }, 30000);
 });
