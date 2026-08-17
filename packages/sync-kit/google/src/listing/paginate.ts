@@ -58,16 +58,23 @@ const outOfTime = (options: PaginateOptions): boolean =>
 
 const paginateEvents = async (options: PaginateOptions): Promise<PageWalk> => {
   const collected: calendar_v3.Schema$Event[] = [];
-  let pageToken: string | null = null;
-  let pagesFetched = 0;
-  while (pagesFetched < options.maxPages) {
+  const walk: { pageToken: string | null; pagesFetched: number } = {
+    pageToken: null,
+    pagesFetched: 0,
+  };
+  while (walk.pagesFetched < options.maxPages) {
     if (outOfTime(options)) {
-      if (pageToken === null) {
+      if (walk.pageToken === null) {
         return { kind: "notAttempted", reason: "budgetExhausted" };
       }
-      return { kind: "truncated", items: collected, pageToken, pagesFetched };
+      return {
+        kind: "truncated",
+        items: collected,
+        pageToken: walk.pageToken,
+        pagesFetched: walk.pagesFetched,
+      };
     }
-    const answered: PageAnswer = await options.fetchPage(pageToken);
+    const answered: PageAnswer = await options.fetchPage(walk.pageToken);
     switch (answered.kind) {
       case "failed": {
         if (answered.failure.kind === "cursorLost") {
@@ -79,7 +86,7 @@ const paginateEvents = async (options: PaginateOptions): Promise<PageWalk> => {
         return { kind: "notAttempted", reason: answered.reason };
       }
       case "page": {
-        pagesFetched += 1;
+        walk.pagesFetched += 1;
         collected.push(...itemsOf(answered.page));
         const next = nextTokenOf(answered.page);
         if (next === null) {
@@ -87,9 +94,14 @@ const paginateEvents = async (options: PaginateOptions): Promise<PageWalk> => {
           if (syncToken === null) {
             return { kind: "cursorLost" };
           }
-          return { kind: "complete", items: collected, syncToken, pagesFetched };
+          return {
+            kind: "complete",
+            items: collected,
+            syncToken,
+            pagesFetched: walk.pagesFetched,
+          };
         }
-        pageToken = next;
+        walk.pageToken = next;
         break;
       }
       default: {
@@ -97,10 +109,15 @@ const paginateEvents = async (options: PaginateOptions): Promise<PageWalk> => {
       }
     }
   }
-  if (pageToken === null) {
+  if (walk.pageToken === null) {
     return { kind: "cursorLost" };
   }
-  return { kind: "truncated", items: collected, pageToken, pagesFetched };
+  return {
+        kind: "truncated",
+        items: collected,
+        pageToken: walk.pageToken,
+        pagesFetched: walk.pagesFetched,
+      };
 };
 
 export { paginateEvents };

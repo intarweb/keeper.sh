@@ -13,11 +13,12 @@ type GoogleWatchProfile = typeof googleWatchProfile;
 
 const staggerOffsetMs = (calendarId: string, hash: (input: string) => string): number => {
   const digest = hash(calendarId);
-  let accumulated = 0;
+  const rolling = { accumulated: 0 };
   for (const character of digest) {
-    accumulated = (accumulated * 31 + (character.codePointAt(0) ?? 0)) % 2_147_483_647;
+    rolling.accumulated =
+      (rolling.accumulated * 31 + (character.codePointAt(0) ?? 0)) % 2_147_483_647;
   }
-  return accumulated % googleWatchProfile.staggerWindowMs;
+  return rolling.accumulated % googleWatchProfile.staggerWindowMs;
 };
 
 const renewalInstantOf = (

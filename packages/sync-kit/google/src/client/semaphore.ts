@@ -18,7 +18,7 @@ interface Waiter {
 
 const createSemaphore = (permits: number): Semaphore => {
   const queue: Waiter[] = [];
-  let held = 0;
+  const permitsHeld = { held: 0 };
 
   const forget = (waiter: Waiter): void => {
     const position = queue.indexOf(waiter);
@@ -31,7 +31,7 @@ const createSemaphore = (permits: number): Semaphore => {
   const release = (): void => {
     const next = queue.shift();
     if (!next) {
-      held -= 1;
+      permitsHeld.held -= 1;
       return;
     }
     next.resume();
@@ -41,12 +41,12 @@ const createSemaphore = (permits: number): Semaphore => {
     signal: AbortSignal,
     body: () => Promise<Value>,
   ): Promise<Value> => {
-    let released = false;
+    const guard = { released: false };
     const releaseOnce = (): void => {
-      if (released) {
+      if (guard.released) {
         return;
       }
-      released = true;
+      guard.released = true;
       release();
     };
     const holding = new AbortController();
@@ -89,13 +89,13 @@ const createSemaphore = (permits: number): Semaphore => {
       if (signal.aborted) {
         return Promise.reject(new PermitAborted());
       }
-      if (held < permits) {
-        held += 1;
+      if (permitsHeld.held < permits) {
+        permitsHeld.held += 1;
         return runHolding(signal, body);
       }
       return queued(signal, body);
     },
-    available: () => permits - held,
+    available: () => permits - permitsHeld.held,
     waiting: () => queue.length,
   };
 };

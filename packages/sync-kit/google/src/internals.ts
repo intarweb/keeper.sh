@@ -79,7 +79,7 @@ const createGoogleInternals = (dependencies: GoogleDependencies): GoogleInternal
   const flights = createSingleFlight<Result<ChangeListing>>();
   const frontier = createCursorFrontier();
   const mintedIds = createMintedEventIds(googleListingLimits.mintedIdMemory);
-  let observed: readonly string[] = [];
+  const seen: { observed: readonly string[] } = { observed: [] };
 
   const listChanges = async (
     request: ListChangesRequest,
@@ -92,7 +92,7 @@ const createGoogleInternals = (dependencies: GoogleDependencies): GoogleInternal
       frontier,
       mintedIds,
     });
-    observed = calendarsBehind(answered);
+    seen.observed = calendarsBehind(answered);
     return answered;
   };
 
@@ -111,7 +111,7 @@ const createGoogleInternals = (dependencies: GoogleDependencies): GoogleInternal
     flights,
     mintedIds,
     inFlightKeys: () => flights.inFlightKeys(),
-    deletionCalendars: () => observed,
+    deletionCalendars: () => seen.observed,
   };
 };
 

@@ -40,8 +40,7 @@ const failureOfError = (error: unknown, operation: OperationName): GoogleFailure
 
 const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
   const { dependencies, permits } = options;
-  let spent = 0;
-  let allowed = 0;
+  const budget = { spent: 0, allowed: 0 };
 
   const attemptOnce = async <Value>(
     operation: OperationName,
@@ -49,7 +48,7 @@ const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
     call: (signal: AbortSignal) => Promise<Value>,
     attemptNumber: number,
   ): Promise<Attempt<Value>> => {
-    spent = Math.max(spent, attemptNumber);
+    budget.spent = Math.max(budget.spent, attemptNumber);
     try {
       const value = await permits.withPermit(context.signal, () =>
         dependencies.gate(operation, () => call(context.signal)),
@@ -75,7 +74,7 @@ const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
     if (context.signal.aborted) {
       return { kind: "notAttempted", reason: "aborted" };
     }
-    allowed = Math.max(allowed, context.retryBudget.maxAttempts);
+    budget.allowed = Math.max(budget.allowed, context.retryBudget.maxAttempts);
     const raced = await raceDeadline(context, dependencies.clock, (signal) =>
       withBackoff<Value>({
         clock: dependencies.clock,
@@ -111,8 +110,8 @@ const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
 
   return {
     send,
-    attemptsSpent: () => spent,
-    attemptsAllowed: () => allowed,
+    attemptsSpent: () => budget.spent,
+    attemptsAllowed: () => budget.allowed,
   };
 };
 

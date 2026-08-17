@@ -96,9 +96,9 @@ const listGoogleCalendars = async (
       surroundings.dependencies.calendar.calendarList.list(listParameters(token), { signal }),
     );
   const collected: CalendarRef[] = [];
-  let pageToken: string | null = null;
-  for (let page = 0; page < googleListingLimits.maxPages; page += 1) {
-    const answered = await fetchPage(pageToken);
+  const walk: { pageToken: string | null } = { pageToken: null };
+  for (const _page of Array.from({ length: googleListingLimits.maxPages })) {
+    const answered = await fetchPage(walk.pageToken);
     switch (answered.kind) {
       case "notAttempted": {
         return { ok: false, failure: { kind: "notAttempted", reason: answered.reason } };
@@ -111,14 +111,14 @@ const listGoogleCalendars = async (
       }
       case "answered": {
         collected.push(...refsOn(answered.value.data, account));
-        pageToken = nextTokenOf(answered.value.data);
+        walk.pageToken = nextTokenOf(answered.value.data);
         break;
       }
       default: {
         return assertNever(answered);
       }
     }
-    if (pageToken === null) {
+    if (walk.pageToken === null) {
       return { ok: true, value: { kind: "snapshot", account, calendars: collected } };
     }
   }

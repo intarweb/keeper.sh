@@ -2,11 +2,15 @@ const equalsInConstantTime = (left: string, right: string): boolean => {
   if (left.length !== right.length) {
     return false;
   }
-  let differences = 0;
-  for (let position = 0; position < left.length; position += 1) {
-    differences += Number(left.codePointAt(position) !== right.codePointAt(position));
+  /*
+   * Every position is compared with no early exit, so the running time depends on the length
+   * alone and never on how far the two strings agree.
+   */
+  const scan = { differences: 0 };
+  for (const position of Array.from({ length: left.length }, (unused, index) => index)) {
+    scan.differences += Number(left.codePointAt(position) !== right.codePointAt(position));
   }
-  return differences === 0;
+  return scan.differences === 0;
 };
 
 const verifyChannelToken = (

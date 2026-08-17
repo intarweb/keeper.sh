@@ -13,20 +13,19 @@ const symbolAt = (position: number): string => base32hexAlphabet[position] ?? "0
 
 const base32hexOf = (bytes: Uint8Array): string => {
   const characters: string[] = [];
-  let carried = 0;
-  let bits = 0;
+  const packed = { carried: 0, bits: 0 };
   for (const byte of bytes) {
-    carried = carried * 256 + byte;
-    bits += 8;
-    while (bits >= 5) {
-      bits -= 5;
-      const divisor = 2 ** bits;
-      characters.push(symbolAt(Math.floor(carried / divisor) % 32));
-      carried %= divisor;
+    packed.carried = packed.carried * 256 + byte;
+    packed.bits += 8;
+    while (packed.bits >= 5) {
+      packed.bits -= 5;
+      const divisor = 2 ** packed.bits;
+      characters.push(symbolAt(Math.floor(packed.carried / divisor) % 32));
+      packed.carried %= divisor;
     }
   }
-  if (bits > 0) {
-    characters.push(symbolAt((carried * 2 ** (5 - bits)) % 32));
+  if (packed.bits > 0) {
+    characters.push(symbolAt((packed.carried * 2 ** (5 - packed.bits)) % 32));
   }
   return characters.join("");
 };

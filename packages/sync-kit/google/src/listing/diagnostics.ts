@@ -17,16 +17,16 @@ const identifierOf = (entry: WithheldEvent): string => {
 
 const boundedSample = (identifiers: readonly string[], total: number): BoundedSample => {
   const sample: string[] = [];
-  let length = 0;
+  const budget = { length: 0 };
   for (const identifier of identifiers) {
     if (sample.length >= googleListingLimits.diagnosticSampleEntries) {
       break;
     }
-    if (length + identifier.length > googleListingLimits.diagnosticSampleUtf16Length) {
+    if (budget.length + identifier.length > googleListingLimits.diagnosticSampleUtf16Length) {
       continue;
     }
     sample.push(identifier);
-    length += identifier.length;
+    budget.length += identifier.length;
   }
   return { sample, total };
 };

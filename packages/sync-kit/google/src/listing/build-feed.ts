@@ -152,7 +152,7 @@ const resolveFeed = (inputs: FeedInputs): ResolvedFeed => {
   const removals: Removal[] = [];
   const withheld: WithheldEvent[] = [];
   const selfAuthored: string[] = [];
-  let unnamedDiscards = 0;
+  const discards = { unnamed: 0 };
 
   const claimedByUs = (item: calendar_v3.Schema$Event): boolean =>
     provenanceOf(item, inputs).kind === "ours";
@@ -172,7 +172,7 @@ const resolveFeed = (inputs: FeedInputs): ResolvedFeed => {
         const wasSuperseded = decoded.id !== null && superseded.has(decoded.id.value);
         const entry = withheldOf(decoded, wasSuperseded);
         if (entry === null) {
-          unnamedDiscards += 1;
+          discards.unnamed += 1;
           break;
         }
         withheld.push(entry);
@@ -200,7 +200,7 @@ const resolveFeed = (inputs: FeedInputs): ResolvedFeed => {
     }
   }
 
-  return { events, removals, withheld, unnamedDiscards, selfAuthored };
+  return { events, removals, withheld, unnamedDiscards: discards.unnamed, selfAuthored };
 };
 
 export { resolveFeed };
