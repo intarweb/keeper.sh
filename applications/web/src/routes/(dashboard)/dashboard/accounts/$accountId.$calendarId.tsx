@@ -43,7 +43,6 @@ import {
 } from "@/components/ui/composites/navigation-menu/navigation-menu.styles";
 import { Text } from "@/components/ui/primitives/text";
 import type { ButtonProps } from "@/components/ui/primitives/button";
-import { Collapsible } from "@/components/ui/primitives/collapsible";
 import { TemplateText } from "@/components/ui/primitives/template-text";
 import {
   calendarDetailAtom,
@@ -122,6 +121,8 @@ const PROVIDER_EXCLUSION_SETTINGS: SyncSetting[] = [
 ];
 
 const PROVIDERS_WITH_EXTRA_SETTINGS = new Set(["google"]);
+
+const TWO_WAY_SYNC_DOC_SLUG = "two-way-sync";
 
 function patchSource(
   store: ReturnType<typeof useStore>,
@@ -662,26 +663,15 @@ function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
     sourceName,
   );
 
-  const caveats = [
-    summary.conflict,
-    summary.hidden,
-    "Only the fields you actually change are written back, and repeating events stay one-way.",
-    summary.adopted,
-    summary.batch,
-    summary.repeated,
-  ].filter((caveat) => caveat !== null);
-
   return (
     <div className="flex flex-col gap-1">
       <Text size="xs">{summary.written}</Text>
-      <Collapsible
-        className="-mx-4"
-        trigger={<Text size="xs">{`When an edit will not reach ${sourceName}`}</Text>}
-      >
-        <div className="flex flex-col gap-2">
-          {caveats.map((caveat) => <Text key={caveat} size="xs">{caveat}</Text>)}
-        </div>
-      </Collapsible>
+      {summary.hidden && <Text size="xs">{summary.hidden}</Text>}
+      <Text size="xs">
+        <Link to="/docs/$slug" params={{ slug: TWO_WAY_SYNC_DOC_SLUG }}>
+          {`When an edit will not reach ${sourceName}`}
+        </Link>
+      </Text>
     </div>
   );
 }
