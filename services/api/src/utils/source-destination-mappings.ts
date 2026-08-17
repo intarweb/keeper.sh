@@ -6,7 +6,7 @@ import {
   syncStatusTable,
   userSyncRequestsTable,
 } from "@keeper.sh/database/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { isSourceSnapshotFresh, WRITE_BACK_WITNESS_RESET } from "@keeper.sh/calendar";
 import { createMappingMutationLockId, createSyncLock } from "@keeper.sh/sync";
 import type { SyncLockHandle } from "@keeper.sh/sync";
@@ -1043,6 +1043,32 @@ const clearPendingDeleteState = async (
 };
 
 /*
+ * Only the copies the question named. Their recorded observation describes an event the
+ * destination stopped reporting, so it must not be measured against the copy the repair
+ * puts back. Every other copy on the pair is still there, carrying whatever the user did
+ * to it while the pause held the write-back: dropping its observation would make the next
+ * pass adopt that edit as the new baseline instead of carrying it to the source, so the
+ * pause would swallow the change the dashboard promised answering would release.
+ */
+const clearMissingCopyWitness = async (
+  transactionClient: DatabaseTransactionClient,
+  sourceCalendarId: string,
+  destinationCalendarId: string,
+): Promise<void> => {
+  await transactionClient
+    .update(eventMappingsTable)
+    .set({ ...WRITE_BACK_WITNESS_RESET })
+    .where(and(
+      eq(eventMappingsTable.calendarId, destinationCalendarId),
+      eq(eventMappingsTable.sourceCalendarId, sourceCalendarId),
+      or(
+        gt(eventMappingsTable.missingObservationCount, NO_PENDING_DELETES),
+        isNotNull(eventMappingsTable.missingFirstObservedAt),
+      ),
+    ));
+};
+
+/*
  * The budget an escalation was reached on belongs to the question that escalation asked,
  * and the user has now answered it. Left spent, the first abandon of the very next pass
  * takes the mapping straight back over the threshold and re-arms the same pause — under a
@@ -1195,12 +1221,12 @@ const resolveDeleteConfirmation = async (
       );
     }
     if (!approved) {
-      await clearPendingDeleteState(
+      await clearMissingCopyWitness(
         transactionClient,
         sourceCalendarId,
         destinationCalendarId,
       );
-      await clearDestinationWitness(
+      await clearPendingDeleteState(
         transactionClient,
         sourceCalendarId,
         destinationCalendarId,

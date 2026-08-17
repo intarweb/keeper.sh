@@ -29,10 +29,8 @@ const USER_ID = "user-1";
 const MINUTE_MS = 60_000;
 const WAITING = "delete_confirmation_required";
 const COPIES_MISSING = "all_copies_missing";
-const SPENT_ABANDONS = 4;
-const NO_ABANDONS = 0;
-const RECORDED_EPOCH = 2;
-const OBSERVED_MISSING_TWICE = 2;
+const ONE_OBSERVATION = 1;
+const STANDING_WITNESS = "the-copy-as-keeper-last-observed-it";
 
 const DDL = `
 create table calendar_accounts (
@@ -67,6 +65,7 @@ create table event_mappings (
   "destinationContentHash" text,
   "destinationDescription" text,
   "destinationEndTime" timestamp,
+  "destinationEventUid" text,
   "destinationIsAllDay" boolean,
   "destinationLocation" text,
   "destinationStartTime" timestamp,
@@ -93,12 +92,6 @@ create table user_sync_requests (
   "userId" text primary key
 );
 `;
-
-interface EventMappingBudget {
-  destinationContentHash: string | null;
-  writeBackAbandonCount: number;
-  writeBackEpoch: number;
-}
 
 let accountId = "";
 let sourceCalendarId = "";
@@ -149,40 +142,48 @@ const seedPair = async (): Promise<void> => {
 };
 
 /*
- * A mapping one abandon short of escalating again, with the hour-long window it was spent
- * in still live — exactly the row a pass leaves behind when the per-event delete probe kept
- * answering "still present" or "cannot look" right up to the question the user is now
- * answering.
+ * The copy the question is about: it vanished from the destination listing, so its
+ * observation is the evidence the answer is given against.
  */
-const seedSpentMapping = async (): Promise<void> => {
+const seedMissingCopy = async (): Promise<void> => {
   await client.query(
     `insert into event_mappings
-       ("calendarId", "sourceCalendarId", "destinationContentHash",
-        "missingFirstObservedAt", "missingObservationCount",
-        "writeBackAbandonCount", "writeBackEpoch", "writeBackEpochWindowStart")
-     values ($1, $2, 'observed-content-hash', $3, $4, $5, $6, now())`,
-    [
-      destinationCalendarId,
-      sourceCalendarId,
-      minutesAgo(20),
-      OBSERVED_MISSING_TWICE,
-      SPENT_ABANDONS,
-      RECORDED_EPOCH,
-    ],
+       ("calendarId", "sourceCalendarId", "destinationEventUid",
+        "destinationContentHash", "missingFirstObservedAt", "missingObservationCount")
+     values ($1, $2, 'vanished-copy', 'vanished-copy-hash', now(), $3)`,
+    [destinationCalendarId, sourceCalendarId, ONE_OBSERVATION],
   );
 };
 
-const readMappingBudget = async (): Promise<EventMappingBudget> => {
-  const result = await client.query<EventMappingBudget>(
-    `select "destinationContentHash", "writeBackAbandonCount", "writeBackEpoch"
-     from event_mappings where "sourceCalendarId" = $1`,
-    [sourceCalendarId],
+/*
+ * A different copy on the same connection. It is still on the destination and the user
+ * edited it while the pair was held on the question, so its write-back has not run yet.
+ * The witness is the only record of what Keeper.sh last pushed to it, and the classifier
+ * adopts the copy as the new baseline — swallowing the edit — the moment it is gone.
+ */
+const seedEditedCopy = async (): Promise<void> => {
+  await client.query(
+    `insert into event_mappings
+       ("calendarId", "sourceCalendarId", "destinationEventUid",
+        "destinationContentHash", "destinationSummary")
+     values ($1, $2, 'edited-copy', $3, 'Quarterly review')`,
+    [destinationCalendarId, sourceCalendarId, STANDING_WITNESS],
+  );
+};
+
+const readWitness = async (
+  destinationEventUid: string,
+): Promise<string | null> => {
+  const result = await client.query<{ destinationContentHash: string | null }>(
+    `select "destinationContentHash" from event_mappings
+     where "destinationEventUid" = $1`,
+    [destinationEventUid],
   );
   const [row] = result.rows;
   if (!row) {
     throw new Error("The seeded mapping disappeared");
   }
-  return row;
+  return row.destinationContentHash;
 };
 
 beforeEach(async () => {
@@ -195,55 +196,25 @@ beforeEach(async () => {
   sourceCalendarId = await insertCalendar();
   destinationCalendarId = await insertCalendar();
   await seedPair();
-  await seedSpentMapping();
+  await seedMissingCopy();
+  await seedEditedCopy();
 });
 
 /*
- * Answering "yes, delete the originals" clears the pair's pause but leaves every
- * event_mappings row untouched. The abandon budget those rows spent reaching the pause is
- * still spent, so the first abandon of the next pass escalates again and re-arms the same
- * question — under a reason the approve endpoint refuses, which leaves the user with no
- * answer but Decline and reverses the batch they just approved.
+ * Declining answers one question — whether the copies that vanished were really deleted —
+ * and the answer is "no, put them back". The copies it speaks for are the ones that went
+ * missing. Every other copy on the connection is still there, and the pause is what stopped
+ * the edits made on them from being written back: the dashboard tells the user those changes
+ * "are not written back in the meantime", which is a promise that answering releases them.
+ *
+ * Clearing the witness on a copy that never went missing breaks that promise silently. With
+ * no witness the classifier adopts whatever the destination reports as the new baseline, so
+ * the edit is neither written back to the original nor put back on the copy: the user is
+ * left looking at a time on their copy that the real event does not have, with nothing
+ * anywhere to notice it.
  */
-describe("approving a deletion returns the budget the pause was reached on", () => {
-  it("hands the abandon budget back so the approved batch can actually run", async () => {
-    await resolveDeleteConfirmation(
-      USER_ID,
-      sourceCalendarId,
-      destinationCalendarId,
-      "apply",
-    );
-
-    const budget = await readMappingBudget();
-
-    expect(budget.writeBackAbandonCount).toBe(NO_ABANDONS);
-  });
-
-  /*
-   * Only the budget. The observation is what identifies the copies the approval is about,
-   * so clearing it here would make every copy read as never observed and cancel the
-   * deletions the user just approved.
-   */
-  it("keeps the observation the approval was given about", async () => {
-    await resolveDeleteConfirmation(
-      USER_ID,
-      sourceCalendarId,
-      destinationCalendarId,
-      "apply",
-    );
-
-    expect(await readMappingBudget()).toMatchObject({
-      destinationContentHash: "observed-content-hash",
-      writeBackEpoch: RECORDED_EPOCH,
-    });
-  });
-
-  /*
-   * Declining reverses the batch and puts the copies back, so it drops the observation and
-   * every budget with it — the path that already worked, pinned here so returning the
-   * abandon budget on approval cannot be mistaken for the same thing.
-   */
-  it("still drops the whole observation when the user declines instead", async () => {
+describe("declining a deletion", () => {
+  it("drops the observation for the copies the question was about", async () => {
     await resolveDeleteConfirmation(
       USER_ID,
       sourceCalendarId,
@@ -251,10 +222,17 @@ describe("approving a deletion returns the budget the pause was reached on", () 
       "revert",
     );
 
-    expect(await readMappingBudget()).toMatchObject({
-      destinationContentHash: null,
-      writeBackAbandonCount: NO_ABANDONS,
-      writeBackEpoch: NO_ABANDONS,
-    });
+    expect(await readWitness("vanished-copy")).toBeNull();
+  });
+
+  it("leaves a still-present copy's witness alone so its edit is still written back", async () => {
+    await resolveDeleteConfirmation(
+      USER_ID,
+      sourceCalendarId,
+      destinationCalendarId,
+      "revert",
+    );
+
+    expect(await readWitness("edited-copy")).toBe(STANDING_WITNESS);
   });
 });

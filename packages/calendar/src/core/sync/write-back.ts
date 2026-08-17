@@ -1257,12 +1257,21 @@ const classifyPresentMirror = (
     };
   }
 
+  /*
+   * The argument was already resolved per axis, so a conflict on one of them says nothing
+   * about a payload the other axis earned. Discarding that payload here would overwrite an
+   * edit the original never touched — the opposite of the rule the dashboard and the docs
+   * page both state — so the conflict is counted and only the axis that actually lost is
+   * left to the repair, which the recorded push hash is what schedules.
+   */
   if (resolution.conflicted) {
     counters.conflictSourceWins += FIRST_OBSERVATION;
-    return {
-      classification: { mappingId: mapping.id, resolution: "source-wins", type: "conflict" },
-      suppress: false,
-    };
+    if (Object.keys(resolution.updates).length === NO_OBSERVATIONS) {
+      return {
+        classification: { mappingId: mapping.id, resolution: "source-wins", type: "conflict" },
+        suppress: false,
+      };
+    }
   }
 
   const recordedWitness = resolveRecordedWitness(mapping, observed, resolution);
