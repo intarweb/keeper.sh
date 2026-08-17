@@ -60,30 +60,15 @@ interface CheckboxProps {
   onCheckedChange: (checked: boolean) => void;
   children?: ReactNode;
   className?: string;
-  disabled?: boolean;
 }
 
-export function Checkbox({
-  checked,
-  onCheckedChange,
-  children,
-  className,
-  disabled = false,
-}: CheckboxProps) {
+export function Checkbox({ checked, onCheckedChange, children, className }: CheckboxProps) {
   return (
-    <label
-      className={cn(
-        "flex items-center gap-2",
-        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-        className,
-      )}
-    >
+    <label className={cn("flex items-center gap-2 cursor-pointer", className)}>
       <button
         type="button"
         role="checkbox"
         aria-checked={checked}
-        aria-disabled={disabled}
-        disabled={disabled}
         onClick={() => onCheckedChange(!checked)}
         className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
       >

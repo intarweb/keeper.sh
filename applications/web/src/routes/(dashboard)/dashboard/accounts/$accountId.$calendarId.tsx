@@ -21,6 +21,7 @@ import type { CalendarAccount, CalendarDetail, CalendarSource } from "@/types/ap
 import {
   NavigationMenu,
   NavigationMenuButtonItem,
+  NavigationMenuCheckboxItem,
   NavigationMenuEmptyItem,
   NavigationMenuItemIcon,
   NavigationMenuItemLabel,
@@ -86,7 +87,6 @@ import {
   ModalFooter,
   ModalTitle,
 } from "@/components/ui/primitives/modal";
-import { Checkbox } from "@/components/ui/primitives/checkbox";
 import { Button } from "@/components/ui/primitives/button";
 import {
   getSyncRangeLabel,
@@ -605,52 +605,69 @@ function WriteBackPermissions({
   const moving = reachAtLeast(reach, "my_meetings_notifying");
 
   return (
-    <div className="flex flex-col gap-2">
-      <Checkbox
-        checked={twoWay}
-        disabled={locked}
-        onCheckedChange={(checked) => { onModeChange(checked ? "edits" : "off"); }}
-      >
-        {`Edits to a copy change the original on ${sourceName}`}
-      </Checkbox>
-      <Checkbox
-        checked={mode === "edits_and_deletes"}
-        disabled={locked || !twoWay}
-        onCheckedChange={(checked) => {
-          onModeChange(checked ? "edits_and_deletes" : "edits");
-        }}
-      >
-        Deleting a copy deletes the original too
-      </Checkbox>
-      <Checkbox
-        checked={meetings}
-        disabled={locked || !twoWay}
-        onCheckedChange={(checked) => { onReachChange(reachFor("my_meetings", checked)); }}
-      >
-        Include meetings I organise, for titles and details guests are not emailed about
-      </Checkbox>
-      <Checkbox
-        checked={moving}
-        disabled={locked || !meetings}
-        onCheckedChange={(checked) => {
-          onReachChange(reachFor("my_meetings_notifying", checked));
-        }}
-      >
-        Include moving and cancelling those meetings, which emails every guest
-      </Checkbox>
-      <Checkbox
-        checked={reachAtLeast(reach, "any_event")}
-        disabled={locked || !moving}
-        onCheckedChange={(checked) => { onReachChange(reachFor("any_event", checked)); }}
-      >
-        Include events somebody else created on calendars I can write to
-      </Checkbox>
+    <>
+      <NavigationMenu className="-mx-4">
+        <NavigationMenuCheckboxItem
+          checked={twoWay}
+          disabled={locked}
+          onCheckedChange={(checked) => { onModeChange(checked ? "edits" : "off"); }}
+        >
+          <NavigationMenuItemLabel>Write Edits Back</NavigationMenuItemLabel>
+          <NavigationMenuItemTrailing>
+            <Text size="sm" tone="muted" align="right">{`Changes ${sourceName}`}</Text>
+          </NavigationMenuItemTrailing>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={mode === "edits_and_deletes"}
+          disabled={locked || !twoWay}
+          onCheckedChange={(checked) => {
+            onModeChange(checked ? "edits_and_deletes" : "edits");
+          }}
+        >
+          <NavigationMenuItemLabel>Write Deletions Back</NavigationMenuItemLabel>
+          <NavigationMenuItemTrailing>
+            <Text size="sm" tone="muted" align="right">Deletes the original</Text>
+          </NavigationMenuItemTrailing>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={meetings}
+          disabled={locked || !twoWay}
+          onCheckedChange={(checked) => { onReachChange(reachFor("my_meetings", checked)); }}
+        >
+          <NavigationMenuItemLabel>Include Meetings I Organize</NavigationMenuItemLabel>
+          <NavigationMenuItemTrailing>
+            <Text size="sm" tone="muted" align="right">Guests are not emailed</Text>
+          </NavigationMenuItemTrailing>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={moving}
+          disabled={locked || !meetings}
+          onCheckedChange={(checked) => {
+            onReachChange(reachFor("my_meetings_notifying", checked));
+          }}
+        >
+          <NavigationMenuItemLabel>Include Moving and Cancelling</NavigationMenuItemLabel>
+          <NavigationMenuItemTrailing>
+            <Text size="sm" tone="muted" align="right">Emails every guest</Text>
+          </NavigationMenuItemTrailing>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={reachAtLeast(reach, "any_event")}
+          disabled={locked || !moving}
+          onCheckedChange={(checked) => { onReachChange(reachFor("any_event", checked)); }}
+        >
+          <NavigationMenuItemLabel>Include Events Others Created</NavigationMenuItemLabel>
+          <NavigationMenuItemTrailing>
+            <Text size="sm" tone="muted" align="right">Where I can write</Text>
+          </NavigationMenuItemTrailing>
+        </NavigationMenuCheckboxItem>
+      </NavigationMenu>
       {held && (
         <Text size="xs">
           A change to a meeting is waiting on one of these.
         </Text>
       )}
-    </div>
+    </>
   );
 }
 
