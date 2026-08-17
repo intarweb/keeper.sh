@@ -33,6 +33,7 @@ import { ProviderIconStack } from "@/components/ui/primitives/provider-icon-stac
 import { pluralize } from "@/lib/pluralize";
 import { useAnimatedSWR } from "@/hooks/use-animated-swr";
 import { SyncStatus } from "@/features/dashboard/components/sync-status";
+import { CalendarGrid } from "@/features/dashboard/components/calendar-grid/calendar-grid";
 
 export const Route = createFileRoute("/(dashboard)/dashboard/")({
   component: DashboardPage,
@@ -62,6 +63,9 @@ function DashboardPage() {
           </NavigationMenuLinkItem>
         </NavigationMenu>
         <CalendarsMenu />
+        <div className="py-4 -ml-7 pl-7">
+          <CalendarGrid />
+        </div>
         <NavigationMenu>
           <NavigationMenuLinkItem to="/dashboard/feedback">
             <NavigationMenuItemIcon>

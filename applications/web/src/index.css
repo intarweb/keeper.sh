@@ -39,6 +39,40 @@ body {
   display: none;
 }
 
+[data-calendar-stripes] {
+  --calendar-stripe: color-mix(in srgb, var(--ui-foreground), transparent 95%);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5.5px,
+    var(--calendar-stripe) 6px 7.5px,
+    transparent 8px
+  );
+  animation: calendar-stripe-drift 8s linear infinite;
+}
+
+@keyframes calendar-stripe-drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(11.3137px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-calendar-stripes] {
+    animation: none;
+  }
+}
+
+[data-hide-scrollbar] {
+  scrollbar-width: none;
+}
+
+[data-hide-scrollbar]::-webkit-scrollbar {
+  display: none;
+}
+
 html {
   color-scheme: light;
 }
