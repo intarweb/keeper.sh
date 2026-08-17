@@ -2,7 +2,7 @@ import { ErrorResponse } from "@/utils/responses";
 import {
   calendarIdsBodySchema,
   deleteConfirmationBodySchema,
-  sharedEventGrantBodySchema,
+  writeBackReachBodySchema,
   writeBackModeBodySchema,
 } from "@/utils/request-body";
 import { idParamSchema } from "@/utils/request-query";
@@ -297,23 +297,23 @@ interface PatchDeleteConfirmationDependencies {
  * calendar, so it carries the same plan gate the toggle does; declining only puts copies
  * back and is always allowed.
  */
-interface PatchSharedEventGrantDependencies {
+interface PatchWriteBackReachDependencies {
   canUseTwoWaySync: (userId: string) => Promise<boolean>;
-  resolveSharedEventGrant: (
+  setWriteBackReach: (
     userId: string,
     sourceCalendarId: string,
     destinationCalendarId: string,
-    decision: "grant" | "withdraw",
+    writeBackReach: string,
   ) => Promise<void>;
 }
 
 /*
- * Withdrawing is never gated on the plan. A permission the user can no longer reach to take
+ * Narrowing is never gated on the plan. A permission the user can no longer reach to take
  * back is not a permission they gave.
  */
-const handlePatchSharedEventGrantRoute = async (
+const handlePatchWriteBackReachRoute = async (
   context: MappingPutRouteContext,
-  dependencies: PatchSharedEventGrantDependencies,
+  dependencies: PatchWriteBackReachDependencies,
 ): Promise<Response> => {
   const sourceCalendarId = context.params.id;
   const destinationCalendarId = context.params.destinationId;
@@ -323,21 +323,23 @@ const handlePatchSharedEventGrantRoute = async (
     ).toResponse();
   }
 
-  if (!sharedEventGrantBodySchema.allows(context.body)) {
-    return ErrorResponse.badRequest("decision must be grant or withdraw").toResponse();
+  if (!writeBackReachBodySchema.allows(context.body)) {
+    return ErrorResponse.badRequest(
+      "writeBackReach must be own_events, my_meetings, my_meetings_notifying or any_event",
+    ).toResponse();
   }
-  const { decision } = sharedEventGrantBodySchema.assert(context.body);
+  const { writeBackReach } = writeBackReachBodySchema.assert(context.body);
 
-  if (decision === "grant" && !await dependencies.canUseTwoWaySync(context.userId)) {
+  if (writeBackReach !== "own_events" && !await dependencies.canUseTwoWaySync(context.userId)) {
     return ErrorResponse.forbidden(TWO_WAY_PRO_ERROR_MESSAGE).toResponse();
   }
 
   try {
-    await dependencies.resolveSharedEventGrant(
+    await dependencies.setWriteBackReach(
       context.userId,
       sourceCalendarId,
       destinationCalendarId,
-      decision,
+      writeBackReach,
     );
   } catch (error) {
     if (error instanceof Error && error.message === MAPPING_NOT_FOUND_ERROR_MESSAGE) {
@@ -401,7 +403,7 @@ const handlePatchDeleteConfirmationRoute = async (
 export {
   handleGetSourceDestinationsRoute,
   handlePatchDeleteConfirmationRoute,
-  handlePatchSharedEventGrantRoute,
+  handlePatchWriteBackReachRoute,
   handlePatchMappingWriteBackModeRoute,
   MAPPING_NOT_FOUND_ERROR_MESSAGE,
   handlePutSourceDestinationsRoute,

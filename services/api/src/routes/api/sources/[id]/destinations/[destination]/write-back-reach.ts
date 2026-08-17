@@ -1,12 +1,12 @@
 import { withAuth, withWideEvent } from "@/utils/middleware";
 import { premiumService } from "@/context";
-import { resolveSharedEventGrant } from "@/utils/source-destination-mappings";
-import { handlePatchSharedEventGrantRoute } from "../../mapping-routes";
+import { setWriteBackReach } from "@/utils/source-destination-mappings";
+import { handlePatchWriteBackReachRoute } from "../../mapping-routes";
 
 const PATCH = withWideEvent(
   withAuth(async ({ request, params, userId }) => {
     const payload = await request.json();
-    return handlePatchSharedEventGrantRoute(
+    return handlePatchWriteBackReachRoute(
       {
         body: payload,
         params: { destinationId: params.destination ?? "", id: params.id ?? "" },
@@ -15,7 +15,7 @@ const PATCH = withWideEvent(
       {
         canUseTwoWaySync: (candidateUserId) =>
           premiumService.canUseTwoWaySync(candidateUserId),
-        resolveSharedEventGrant,
+        setWriteBackReach,
       },
     );
   }),

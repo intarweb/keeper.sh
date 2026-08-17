@@ -1,5 +1,6 @@
 import { TWO_WAY_SOURCE_INGEST_MAX_AGE_MS } from "@keeper.sh/constants";
 import { resolveWriteBackFieldNames } from "@keeper.sh/data-schemas";
+import type { WriteBackReach } from "../source/writer";
 import type {
   WriteBackFieldExclusions,
   WriteBackFieldName,
@@ -50,12 +51,12 @@ interface WriteBackPolicy {
    */
   paused: boolean;
   /*
-   * The standing permission to write to a meeting the user organises. It is not part of the
-   * mode ladder because it answers a different question: the mode says which verbs are
-   * allowed, this says who the write is allowed to reach. Absent is not granted: a
-   * permission missing from a policy must never read as one that was given.
+   * How far a write may reach. Not part of the mode ladder because it answers a different
+   * question: the mode says which verbs are allowed, this says who they may be aimed at.
+   * Absent is the narrowest level: a permission missing from a policy must never read as
+   * one that was given.
    */
-  sharedEventsGranted?: boolean;
+  writeBackReach?: WriteBackReach;
   sourceCalendarId: string;
   writeBackMode: WriteBackMode;
 }

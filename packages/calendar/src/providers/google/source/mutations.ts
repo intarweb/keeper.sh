@@ -10,7 +10,7 @@ import { isRateLimitApiError, parseGoogleApiError } from "../shared/errors";
 import {
   attemptSourceWrite,
   isRetryableOAuthWriteStatus,
-  refuseWhenNotGranted,
+  refuseWhenOutOfReach,
   resolveAudience,
   resolveAuthorship,
   RICH_BODY_REFUSAL,
@@ -22,6 +22,7 @@ import type {
   SourceEventAuthorship,
   SourceEventUpdate,
   SourceWriteResult,
+  WriteBackReach,
 } from "../../../core/source/writer";
 
 const DEFAULT_GOOGLE_CALENDAR_ID = "primary";
@@ -37,7 +38,7 @@ const ISO_DATE_LENGTH = 10;
 interface GoogleSourceWriterConfig {
   accessToken: () => Promise<string>;
   accountEmail?: string | null;
-  sharedEventsGranted?: boolean;
+  writeBackReach?: WriteBackReach;
   externalCalendarId: string | null;
 }
 
@@ -328,20 +329,22 @@ const createGoogleSourceWriter = (
   const resolveWritableEventId = (
     lookup: { event: GoogleEventWithAttendees | null },
     reference: { sourceEventId: string | null },
-    writesDescription: boolean,
+    write: { isDelete: boolean; updates?: SourceEventUpdate },
   ): { eventId: string | null } | { refusal: SourceWriteResult } => {
     const { event } = lookup;
     if (!event) {
       return { eventId: null };
     }
-    const refusal = refuseWhenNotGranted({
+    const refusal = refuseWhenOutOfReach({
       audience: readEventAudience(event),
       authorship: readEventAuthorship(event, config.accountEmail),
-    }, { sharedEvents: config.sharedEventsGranted === true });
+      isDelete: write.isDelete,
+      updates: write.updates,
+    }, config.writeBackReach ?? "own_events");
     if (refusal) {
       return { refusal };
     }
-    if (writesDescription && carriesUnreadableMarkup(event)) {
+    if (write.updates && "description" in write.updates && carriesUnreadableMarkup(event)) {
       return { refusal: RICH_BODY_REFUSAL };
     }
     return { eventId: event.id ?? reference.sourceEventId };
@@ -361,7 +364,7 @@ const createGoogleSourceWriter = (
     if ("error" in lookup) {
       return toWriteFailure(lookup.error, lookup.retryable);
     }
-    const writable = resolveWritableEventId(lookup, reference, "description" in updates);
+    const writable = resolveWritableEventId(lookup, reference, { isDelete: false, updates });
     if ("refusal" in writable) {
       return writable.refusal;
     }
@@ -411,7 +414,7 @@ const createGoogleSourceWriter = (
     if ("error" in lookup) {
       return toWriteFailure(lookup.error, lookup.retryable);
     }
-    const writable = resolveWritableEventId(lookup, reference, false);
+    const writable = resolveWritableEventId(lookup, reference, { isDelete: true });
     if ("refusal" in writable) {
       return writable.refusal;
     }

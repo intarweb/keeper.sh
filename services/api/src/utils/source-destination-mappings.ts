@@ -698,7 +698,7 @@ const getWriteBackStatesForSource = async (
   Record<string, {
     deletesUnlocked: boolean;
     reason: string | null;
-    sharedEventsGranted: boolean;
+    writeBackReach: string;
     state: string;
   }>
 > => {
@@ -715,8 +715,7 @@ const getWriteBackStatesForSource = async (
       disabled: calendarsTable.disabled,
       ingestLastSucceededAt: calendarsTable.ingestLastSucceededAt,
       lastHealthyReadAt: sourceDestinationMappingsTable.lastHealthyReadAt,
-      sharedEventWritesGrantedAt:
-        sourceDestinationMappingsTable.sharedEventWritesGrantedAt,
+      writeBackReach: sourceDestinationMappingsTable.writeBackReach,
       writeBackMode: sourceDestinationMappingsTable.writeBackMode,
       writeBackState: sourceDestinationMappingsTable.writeBackState,
       writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
@@ -737,7 +736,7 @@ const getWriteBackStatesForSource = async (
       mapping.destinationCalendarId,
       {
         deletesUnlocked: resolveDeletesUnlocked(mapping, now),
-        sharedEventsGranted: mapping.sharedEventWritesGrantedAt !== null,
+        writeBackReach: mapping.writeBackReach,
         ...resolveReportedWriteBackState(mapping, now),
       },
     ]),
@@ -1147,18 +1146,11 @@ const resolveDestinationReachable = async (
  * It deliberately leaves a quarantine alone: those are refusals no permission widens, and
  * clearing one here would restart a pair that is stopped for a different reason entirely.
  */
-const grantedAtFor = (decision: "grant" | "withdraw"): Date | null => {
-  if (decision === "grant") {
-    return new Date();
-  }
-  return null;
-};
-
-const resolveSharedEventGrant = async (
+const setWriteBackReach = async (
   userId: string,
   sourceCalendarId: string,
   destinationCalendarId: string,
-  decision: "grant" | "withdraw",
+  writeBackReach: string,
 ): Promise<void> => {
   const { database } = await import("@/context");
   const ownedCalendarIds = await getOwnedCalendarIds(
@@ -1185,12 +1177,18 @@ const resolveSharedEventGrant = async (
       throw new Error(MAPPING_NOT_FOUND_ERROR_MESSAGE);
     }
 
-    const releasesHold = decision === "grant" && existing.writeBackState === "grant_required";
+    /*
+     * Any move off the narrowest level answers the question a hold was raised to ask, so the
+     * hold is released and the next pass re-decides on the new level. A quarantine is left
+     * alone: those are refusals no level widens.
+     */
+    const releasesHold = writeBackReach !== "own_events"
+      && existing.writeBackState === "grant_required";
 
     await transactionClient
       .update(sourceDestinationMappingsTable)
       .set({
-        sharedEventWritesGrantedAt: grantedAtFor(decision),
+        writeBackReach,
         ...(releasesHold && { writeBackState: "ok", writeBackStateReason: null }),
       })
       .where(and(
@@ -1375,7 +1373,7 @@ export {
   MAPPING_LIMIT_ERROR_MESSAGE,
   MAPPING_NOT_FOUND_ERROR_MESSAGE,
   resolveDeleteConfirmation,
-  resolveSharedEventGrant,
+  setWriteBackReach,
   setDestinationsForSource,
   setWriteBackMode,
   sourceSupportsWriteBack,

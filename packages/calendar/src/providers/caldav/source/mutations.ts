@@ -11,13 +11,14 @@ import {
 import {
   attemptSourceWrite,
   isRetryableWriteStatus,
-  refuseWhenNotGranted,
+  refuseWhenOutOfReach,
   toWriteFailure,
 } from "../../../core/source/writer";
 import type {
   CalendarSourceWriter,
   SourceEventUpdate,
   SourceWriteResult,
+  WriteBackReach,
 } from "../../../core/source/writer";
 
 const NOT_FOUND_STATUS = 404;
@@ -50,7 +51,7 @@ interface CalDAVWriterClient {
  */
 interface CalDAVSourceWriterConfig {
   accountEmail?: string | null;
-  sharedEventsGranted?: boolean;
+  writeBackReach?: WriteBackReach;
   accountUsername?: string | null;
   calendarUrl: string;
   client: () => Promise<CalDAVWriterClient>;
@@ -292,10 +293,12 @@ const createCalDAVSourceWriter = (
     if (!object?.data) {
       return { error: "Event not found on the CalDAV server.", success: false };
     }
-    const refusal = refuseWhenNotGranted({
+    const refusal = refuseWhenOutOfReach({
       audience: readEventAudience(object.data),
       authorship: readEventAuthorship(object.data, config.accountEmail),
-    }, { sharedEvents: config.sharedEventsGranted === true });
+      isDelete: false,
+      updates,
+    }, config.writeBackReach ?? "own_events");
     if (refusal) {
       return refusal;
     }
@@ -357,10 +360,11 @@ const createCalDAVSourceWriter = (
     if (!object) {
       return { success: true };
     }
-    const refusal = refuseWhenNotGranted({
+    const refusal = refuseWhenOutOfReach({
       audience: readEventAudience(object.data ?? ""),
       authorship: readEventAuthorship(object.data ?? "", config.accountEmail),
-    }, { sharedEvents: config.sharedEventsGranted === true });
+      isDelete: true,
+    }, config.writeBackReach ?? "own_events");
     if (refusal) {
       return refusal;
     }

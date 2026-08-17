@@ -60,11 +60,10 @@ import {
 import type { ExcludeField } from "@/state/calendar-detail";
 import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 import {
+  isHeldForPermission,
   resolveDeleteConfirmationAnswers,
   resolveModeSelection,
-  resolveSharedEventGrantAnswers,
 } from "@/lib/write-back-answers";
-import type { SharedEventGrantAnswer } from "@/lib/write-back-answers";
 import {
   resolveUnwritableSourceCopy,
   resolveWriteBackStateCopy,
@@ -680,11 +679,11 @@ function WriteBackModeControl({
       }));
   };
 
-  const resolveSharedEventGrant = (decision: SharedEventGrantAnswer) => {
+  const commitReach = (writeBackReach: string) => {
     const swrKey = `/api/sources/${calendarId}/destinations`;
     serializedCall(swrKey, () =>
-      apiFetch(`${swrKey}/${destinationId}/shared-event-grant`, {
-        body: JSON.stringify({ decision }),
+      apiFetch(`${swrKey}/${destinationId}/write-back-reach`, {
+        body: JSON.stringify({ writeBackReach }),
         headers: { "Content-Type": "application/json" },
         method: "PATCH",
       }).finally(() => {
@@ -737,9 +736,10 @@ function WriteBackModeControl({
         <WriteBackFieldSummary sourceName={sourceName || "this calendar"} />
       )}
       {mode !== "off" && writableSource && !locked && (
-        <SharedEventGrantControl
-          granted={status?.sharedEventsGranted === true}
-          onChange={resolveSharedEventGrant}
+        <WriteBackReachControl
+          held={isHeldForPermission(status)}
+          onChange={commitReach}
+          reach={status?.writeBackReach ?? "own_events"}
         />
       )}
       {!writableSource && (
@@ -751,7 +751,6 @@ function WriteBackModeControl({
       <WriteBackStatusLine
         destinationName={destinationName}
         onResolveDeleteConfirmation={resolveDeleteConfirmation}
-        onResolveSharedEventGrant={resolveSharedEventGrant}
         sourceName={sourceName || "this calendar"}
         status={status}
       />
@@ -783,46 +782,85 @@ const ANSWER_LABELS: Record<DeleteConfirmationAnswer, (sourceName: string) => st
 };
 
 /*
- * The permission stands beside the mode rather than appearing only once a meeting has been
- * held. A control the user meets for the first time in a failure is a control they cannot
- * decide about in advance, and one they can never take back.
+ * Ordered by blast radius, each level including the ones before it, and shown in full
+ * rather than revealed by a failure: a permission the user first meets in an error is one
+ * they could not decide about in advance.
  */
-function SharedEventGrantControl({
-  granted,
+const WRITE_BACK_REACH_OPTIONS = [
+  {
+    description: "Only events you created with nobody else invited.",
+    label: "My own events",
+    reach: "own_events",
+  },
+  {
+    description:
+      "Titles, descriptions and locations on meetings you organise. Guests see the new"
+      + " value; nobody is emailed.",
+    label: "Meetings I organise",
+    reach: "my_meetings",
+  },
+  {
+    description:
+      "Also moving and cancelling those meetings. Every guest is emailed, and no answer"
+      + " afterwards recalls that.",
+    label: "Moving and cancelling them",
+    reach: "my_meetings_notifying",
+  },
+  {
+    description:
+      "Also events somebody else created, on calendars you have write access to. Their"
+      + " data, changed on your say-so.",
+    label: "Events I did not create",
+    reach: "any_event",
+  },
+] as const;
+
+function WriteBackReachControl({
+  held,
   onChange,
+  reach,
 }: {
-  granted: boolean;
-  onChange: (decision: SharedEventGrantAnswer) => void;
+  held: boolean;
+  onChange: (reach: string) => void;
+  reach: string;
 }) {
   return (
-    <label className="flex items-start gap-2">
-      <input
-        type="checkbox"
-        className="mt-0.5"
-        checked={granted}
-        onChange={() => { onChange(granted ? "withdraw" : "grant"); }}
-      />
-      <span>
-        <Text size="xs">Include meetings I organise</Text>
+    <div className="flex flex-col gap-1">
+      <Text size="xs">How far changes may reach</Text>
+      <div className="flex flex-wrap gap-1">
+        {WRITE_BACK_REACH_OPTIONS.map((option) => (
+          <Button
+            key={option.reach}
+            type="button"
+            size="compact"
+            variant={resolveWriteBackOptionVariant(option.reach === reach)}
+            onClick={() => { onChange(option.reach); }}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
+      <Text size="xs">
+        {WRITE_BACK_REACH_OPTIONS.find((option) => option.reach === reach)?.description}
+      </Text>
+      {held && (
         <Text size="xs">
-          Moving one emails everyone invited and cancelling it calls the meeting off for
-          them. Events somebody else created are never included.
+          A change to a meeting is waiting on this. Pick a level that covers it and Keeper.sh
+          will apply the change on the next sync.
         </Text>
-      </span>
-    </label>
+      )}
+    </div>
   );
 }
 
 function WriteBackStatusLine({
   destinationName,
   onResolveDeleteConfirmation,
-  onResolveSharedEventGrant,
   sourceName,
   status,
 }: {
   destinationName: string;
   onResolveDeleteConfirmation: (decision: DeleteConfirmationAnswer) => void;
-  onResolveSharedEventGrant: (decision: SharedEventGrantAnswer) => void;
   sourceName: string;
   status: WriteBackStatus | null;
 }) {
@@ -834,7 +872,6 @@ function WriteBackStatusLine({
     `Two-way sync to ${destinationName} is paused.`,
   );
   const answers = resolveDeleteConfirmationAnswers(status);
-  const grants = resolveSharedEventGrantAnswers(status);
 
   return (
     <div className="flex flex-col gap-2">
@@ -853,20 +890,6 @@ function WriteBackStatusLine({
               onClick={() => { onResolveDeleteConfirmation(answer); }}
             >
               {ANSWER_LABELS[answer](sourceName)}
-            </Button>
-          ))}
-        </div>
-      )}
-      {grants.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {grants.map((grant) => (
-            <Button
-              key={grant}
-              type="button"
-              size="compact"
-              onClick={() => { onResolveSharedEventGrant(grant); }}
-            >
-              Allow writing to meetings I organise
             </Button>
           ))}
         </div>

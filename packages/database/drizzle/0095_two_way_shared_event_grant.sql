@@ -1,1 +1,0 @@
-ALTER TABLE "source_destination_mappings" ADD COLUMN IF NOT EXISTS "sharedEventWritesGrantedAt" timestamp with time zone;

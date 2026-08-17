@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCalDAVSourceWriter } from "../../../src/providers/caldav/source/mutations";
 import { createGoogleSourceWriter } from "../../../src/providers/google/source/mutations";
 import { createOutlookSourceWriter } from "../../../src/providers/outlook/source/mutations";
-import type { CalendarSourceWriter } from "../../../src/core/source/writer";
+import type { CalendarSourceWriter, WriteBackReach } from "../../../src/core/source/writer";
 
 const ACCESS_TOKEN = "access-token";
 const ACCOUNT_EMAIL = "me@example.com";
@@ -20,8 +20,8 @@ const ONE_WRITE = 1;
 const REFERENCE = { sourceEventId: SOURCE_EVENT_ID, sourceEventUid: SOURCE_EVENT_UID };
 const UPDATES = { summary: "Renamed on the destination" } as const;
 const ATTENDEE_REFUSAL = "event_has_attendees";
-const GRANTED = true;
-const WITHHELD = false;
+const GRANTED = "my_meetings_notifying";
+const WITHHELD = "own_events";
 
 /*
  * The three writers held three separate authorship predicates and drifted apart under
@@ -111,7 +111,7 @@ const buildIcs = (situation: Situation): string => [
   "END:VCALENDAR",
 ].join("\r\n");
 
-const createCalDAVHarness = (situation: Situation, sharedEventsGranted: boolean): Harness => {
+const createCalDAVHarness = (situation: Situation, writeBackReach: WriteBackReach): Harness => {
   let writes = NO_WRITES;
   const data = buildIcs(situation);
   const client = {
@@ -130,7 +130,7 @@ const createCalDAVHarness = (situation: Situation, sharedEventsGranted: boolean)
     writer: createCalDAVSourceWriter({
       calendarUrl: CALENDAR_URL,
       client: () => Promise.resolve(client),
-      sharedEventsGranted,
+      writeBackReach,
     }),
     writes: () => writes,
   };
@@ -173,24 +173,24 @@ const buildOutlookEvent = (situation: Situation): Record<string, unknown> => ({
   subject: "Studio booked",
 });
 
-const createGoogleHarness = (situation: Situation, sharedEventsGranted: boolean): Harness => {
+const createGoogleHarness = (situation: Situation, writeBackReach: WriteBackReach): Harness => {
   const providerWrites = stubProviderFetch(buildGoogleEvent(situation));
   return {
     writer: createGoogleSourceWriter({
       accessToken: () => Promise.resolve(ACCESS_TOKEN),
       externalCalendarId: SHARED_CALENDAR_ID,
-      sharedEventsGranted,
+      writeBackReach,
     }),
     writes: providerWrites,
   };
 };
 
-const createOutlookHarness = (situation: Situation, sharedEventsGranted: boolean): Harness => {
+const createOutlookHarness = (situation: Situation, writeBackReach: WriteBackReach): Harness => {
   const providerWrites = stubProviderFetch(buildOutlookEvent(situation));
   return {
     writer: createOutlookSourceWriter({
       accessToken: () => Promise.resolve(ACCESS_TOKEN),
-      sharedEventsGranted,
+      writeBackReach,
     }),
     writes: providerWrites,
   };

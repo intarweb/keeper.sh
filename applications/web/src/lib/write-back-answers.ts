@@ -2,23 +2,15 @@ import type { WriteBackMode, WriteBackStatus } from "@/state/destination-ids";
 
 type DeleteConfirmationAnswer = "apply" | "apply_empty_destination" | "decline";
 
-/*
- * A held meeting is the one pause with an answer that is purely a permission, so it is the
- * one whose buttons grant rather than resolve an incident. Without this the status line
- * renders its explanation with nothing to press, and the only way out is re-picking a mode.
- */
-type SharedEventGrantAnswer = "grant" | "withdraw";
-
 const GRANT_REQUIRED_STATE = "grant_required";
 
-const resolveSharedEventGrantAnswers = (
-  status: WriteBackStatus | null,
-): readonly SharedEventGrantAnswer[] => {
-  if (status?.state !== GRANT_REQUIRED_STATE) {
-    return [];
-  }
-  return ["grant"];
-};
+/*
+ * A held meeting is the one pause whose answer is purely a permission. The status line
+ * points at the level control rather than carrying its own button, so there is one place
+ * the permission is set and the held case cannot drift from the ordinary one.
+ */
+const isHeldForPermission = (status: WriteBackStatus | null): boolean =>
+  status?.state === GRANT_REQUIRED_STATE;
 
 const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
 
@@ -119,6 +111,6 @@ export {
   PROBE_BLOCKED_REASON,
   resolveDeleteConfirmationAnswers,
   resolveModeSelection,
-  resolveSharedEventGrantAnswers,
+  isHeldForPermission,
 };
-export type { DeleteConfirmationAnswer, ModeSelection, SharedEventGrantAnswer };
+export type { DeleteConfirmationAnswer, ModeSelection };

@@ -321,6 +321,18 @@ const installEventMappingConstraints = async (): Promise<void> => {
       END IF;
       IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
+        WHERE conname = 'source_destination_mappings_write_back_reach_check'
+          AND conrelid = 'source_destination_mappings'::regclass
+      ) THEN
+        ALTER TABLE "source_destination_mappings"
+          ADD CONSTRAINT "source_destination_mappings_write_back_reach_check"
+          CHECK ("writeBackReach" IN (
+            'own_events', 'my_meetings', 'my_meetings_notifying', 'any_event'
+          ))
+          NOT VALID;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
         WHERE conname = 'calendars_sync_ranges_check'
           AND conrelid = 'calendars'::regclass
       ) THEN
@@ -367,6 +379,7 @@ const validateEventMappingConstraints = async (): Promise<void> => {
     ["event_mappings", "event_mappings_destination_witness_check"],
     ["event_mappings", "event_mappings_pending_delete_check"],
     ["source_destination_mappings", "source_destination_mappings_write_back_mode_check"],
+    ["source_destination_mappings", "source_destination_mappings_write_back_reach_check"],
     ["calendars", "calendars_sync_ranges_check"],
     ["calendars", "calendars_ingest_coverage_check"],
   ] as const) {
@@ -433,13 +446,14 @@ const isPostMigrationRuntimeReady = async (): Promise<boolean> => {
           AND conname = 'event_mappings_sourceCalendarId_calendars_id_fk'
       )
       AND (
-        SELECT count(*) = 6
+        SELECT count(*) = 7
         FROM pg_constraint
         WHERE conname IN (
           'event_mappings_identity_check',
           'event_mappings_destination_witness_check',
           'event_mappings_pending_delete_check',
           'source_destination_mappings_write_back_mode_check',
+          'source_destination_mappings_write_back_reach_check',
           'calendars_sync_ranges_check',
           'calendars_ingest_coverage_check'
         )

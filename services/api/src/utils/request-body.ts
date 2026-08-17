@@ -14,14 +14,15 @@ const writeBackModeBodySchema = type({
 type WriteBackModeBody = typeof writeBackModeBodySchema.infer;
 
 /*
- * Granting and withdrawing are the same decision said two ways, so one body carries both:
- * a withdrawal that had to travel a different route could be lost while the grant survived.
+ * One level rather than a grant and a withdrawal, because the levels are ordered: moving
+ * between any two of them is the same request, and a narrowing cannot be lost while a
+ * widening survives.
  */
-const sharedEventGrantBodySchema = type({
-  decision: "'grant' | 'withdraw'",
+const writeBackReachBodySchema = type({
+  writeBackReach: "'own_events' | 'my_meetings' | 'my_meetings_notifying' | 'any_event'",
   "+": "reject",
 });
-type SharedEventGrantBody = typeof sharedEventGrantBodySchema.infer;
+type WriteBackReachBody = typeof writeBackReachBodySchema.infer;
 
 const deleteConfirmationBodySchema = type({
   decision: "'apply' | 'apply_empty_destination' | 'decline'",
@@ -118,7 +119,7 @@ type TokenCreateBody = typeof tokenCreateBodySchema.infer;
 export {
   calendarIdsBodySchema,
   deleteConfirmationBodySchema,
-  sharedEventGrantBodySchema,
+  writeBackReachBodySchema,
   writeBackModeBodySchema,
   calendarPausePatchBodySchema,
   sourcePatchBodySchema,
@@ -132,7 +133,7 @@ export {
 export type {
   CalendarIdsBody,
   DeleteConfirmationBody,
-  SharedEventGrantBody,
+  WriteBackReachBody,
   WriteBackModeBody,
   CalendarPausePatchBody,
   SourcePatchBody,

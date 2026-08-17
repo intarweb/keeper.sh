@@ -21,7 +21,7 @@ vi.mock("@keeper.sh/sync", () => ({
   createSyncLock: () => ({ acquire: () => Promise.resolve({ acquired: false }) }),
 }));
 
-const { getWriteBackStatesForSource, resolveSharedEventGrant } = await import(
+const { getWriteBackStatesForSource, setWriteBackReach } = await import(
   "../../src/utils/source-destination-mappings"
 );
 
@@ -47,7 +47,7 @@ create table source_destination_mappings (
   "deleteConfirmationApprovedAt" timestamptz,
   "destinationCalendarId" uuid not null,
   "lastHealthyReadAt" timestamptz,
-  "sharedEventWritesGrantedAt" timestamptz,
+  "writeBackReach" text not null default 'own_events',
   "sourceCalendarId" uuid not null,
   "writeBackMode" text not null default 'edits',
   "writeBackState" text not null default 'ok',
@@ -94,42 +94,35 @@ beforeEach(async () => {
  * sits unchecked whatever the user answered, and the answer they gave last week reads as one
  * they never gave.
  */
-describe("the permission to write to a meeting is reported to the dashboard", () => {
-  it("reports it as withheld until it is given", async () => {
+describe("how far a write may reach is reported to the dashboard", () => {
+  it("reports the narrowest level until the user picks another", async () => {
     const { destinationCalendarId, sourceCalendarId } = await seedPair();
 
     const states = await getWriteBackStatesForSource(USER_ID, sourceCalendarId);
 
-    expect(states[destinationCalendarId]?.sharedEventsGranted).toBe(false);
+    expect(states[destinationCalendarId]?.writeBackReach).toBe("own_events");
   });
 
-  it("reports it as given once granted, and releases the hold it answers", async () => {
-    const { destinationCalendarId, sourceCalendarId } = await seedPair("grant_required");
+  it("reports every level the user can pick, and releases the hold it answers", async () => {
+    for (const level of ["my_meetings", "my_meetings_notifying", "any_event"]) {
+      const { destinationCalendarId, sourceCalendarId } = await seedPair("grant_required");
 
-    await resolveSharedEventGrant(
-      USER_ID,
-      sourceCalendarId,
-      destinationCalendarId,
-      "grant",
-    );
-    const states = await getWriteBackStatesForSource(USER_ID, sourceCalendarId);
+      await setWriteBackReach(USER_ID, sourceCalendarId, destinationCalendarId, level);
+      const states = await getWriteBackStatesForSource(USER_ID, sourceCalendarId);
 
-    expect(states[destinationCalendarId]?.sharedEventsGranted).toBe(true);
-    expect(states[destinationCalendarId]?.state).toBe("ok");
+      expect(states[destinationCalendarId]?.writeBackReach).toBe(level);
+      expect(states[destinationCalendarId]?.state).toBe("ok");
+    }
   });
 
-  it("reports it as withheld again once it is taken back", async () => {
-    const { destinationCalendarId, sourceCalendarId } = await seedPair();
-    await resolveSharedEventGrant(USER_ID, sourceCalendarId, destinationCalendarId, "grant");
+  it("narrows back to the default without touching a quarantine", async () => {
+    const { destinationCalendarId, sourceCalendarId } = await seedPair("quarantined");
+    await setWriteBackReach(USER_ID, sourceCalendarId, destinationCalendarId, "any_event");
 
-    await resolveSharedEventGrant(
-      USER_ID,
-      sourceCalendarId,
-      destinationCalendarId,
-      "withdraw",
-    );
+    await setWriteBackReach(USER_ID, sourceCalendarId, destinationCalendarId, "own_events");
     const states = await getWriteBackStatesForSource(USER_ID, sourceCalendarId);
 
-    expect(states[destinationCalendarId]?.sharedEventsGranted).toBe(false);
+    expect(states[destinationCalendarId]?.writeBackReach).toBe("own_events");
+    expect(states[destinationCalendarId]?.state).toBe("quarantined");
   });
 });

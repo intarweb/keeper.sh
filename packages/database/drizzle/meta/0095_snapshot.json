@@ -1,5 +1,5 @@
 {
-  "id": "e723ca7d-1464-4782-9528-05391bb22bcc",
+  "id": "1657227e-5ec4-474c-b4a3-65481c59e269",
   "prevId": "bdab783b-8044-4a56-87f9-17b3c322356a",
   "version": "7",
   "dialect": "postgresql",
@@ -2492,11 +2492,12 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "sharedEventWritesGrantedAt": {
-          "name": "sharedEventWritesGrantedAt",
-          "type": "timestamp with time zone",
+        "writeBackReach": {
+          "name": "writeBackReach",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'own_events'"
         },
         "sourceCalendarId": {
           "name": "sourceCalendarId",
