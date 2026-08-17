@@ -21,6 +21,7 @@ import type { CalendarAccount, CalendarDetail, CalendarSource } from "@/types/ap
 import {
   NavigationMenu,
   NavigationMenuButtonItem,
+  NavigationMenuCheckboxItem,
   NavigationMenuEmptyItem,
   NavigationMenuItemIcon,
   NavigationMenuItemLabel,
@@ -445,6 +446,11 @@ function DestinationsSection({ calendarId }: { calendarId: string }) {
     () => (allCalendars ?? []).filter((calendar) => canPush(calendar) && calendar.id !== calendarId),
     [allCalendars, calendarId],
   );
+  const destinationIds = useAtomValue(destinationIdsAtom);
+  const selectedDestinations = useMemo(
+    () => pushCalendars.filter((calendar) => destinationIds.has(calendar.id)),
+    [destinationIds, pushCalendars],
+  );
 
   return (
     <>
@@ -466,6 +472,14 @@ function DestinationsSection({ calendarId }: { calendarId: string }) {
         )}
       </NavigationMenu>
       {atLimit && <UpgradeHint>Mapping limit reached.</UpgradeHint>}
+      {selectedDestinations.map((calendar) => (
+        <WriteBackModeControl
+          key={calendar.id}
+          calendarId={calendarId}
+          destinationId={calendar.id}
+          destinationName={calendar.name}
+        />
+      ))}
     </>
   );
 }
@@ -555,13 +569,6 @@ function DestinationCheckboxItem({
           <DestinationCheckboxIndicator destinationId={destinationId} />
         </button>
       </ItemDisabledContext>
-      {checked && (
-        <WriteBackModeControl
-          calendarId={calendarId}
-          destinationId={destinationId}
-          destinationName={name}
-        />
-      )}
     </li>
   );
 }
@@ -606,79 +613,47 @@ function WriteBackPermissions({
   const moving = reachAtLeast(reach, "my_meetings_notifying");
 
   return (
-    <div className="-mx-4 flex flex-col">
-      <WriteBackPermissionRow
-        checked={twoWay}
-        disabled={locked}
-        label="Two-Way Sync Copy Changes"
-        onCheckedChange={(checked) => { onModeChange(checked ? "edits" : "off"); }}
-      />
-      <WriteBackPermissionRow
-        checked={mode === "edits_and_deletes"}
-        disabled={locked || !twoWay}
-        label="Two-Way Sync Deleted Events"
-        onCheckedChange={(checked) => {
-          onModeChange(checked ? "edits_and_deletes" : "edits");
-        }}
-      />
-      <WriteBackPermissionRow
-        checked={meetings}
-        disabled={locked || !twoWay}
-        label="Two-Way Sync My Meetings"
-        onCheckedChange={(checked) => { onReachChange(reachFor("my_meetings", checked)); }}
-      />
-      <WriteBackPermissionRow
-        checked={moving}
-        disabled={locked || !meetings}
-        label="Two-Way Sync Moving & Cancelling"
-        onCheckedChange={(checked) => {
-          onReachChange(reachFor("my_meetings_notifying", checked));
-        }}
-      />
-      <WriteBackPermissionRow
-        checked={reachAtLeast(reach, "any_event")}
-        disabled={locked || !moving}
-        label="Two-Way Sync Changes to Others' Events"
-        onCheckedChange={(checked) => { onReachChange(reachFor("any_event", checked)); }}
-      />
-    </div>
-  );
-}
-
-/*
- * The rows carry the menu's own item style but no list around them: this control renders
- * inside a destination row that is already an item of the calendars menu, and nesting one
- * menu's list inside another's item is not done anywhere else in the app.
- */
-function WriteBackPermissionRow({
-  checked,
-  disabled,
-  label,
-  onCheckedChange,
-}: {
-  checked: boolean;
-  disabled: boolean;
-  label: string;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  const variant = use(MenuVariantContext);
-
-  return (
-    <ItemDisabledContext value={disabled}>
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={checked}
-        disabled={disabled}
-        onClick={() => { if (!disabled) onCheckedChange(!checked); }}
-        className={navigationMenuItemStyle({ variant, interactive: !disabled })}
-      >
-        <NavigationMenuItemLabel>{label}</NavigationMenuItemLabel>
-        <div className={navigationMenuCheckbox({ variant, checked, className: "ml-auto" })}>
-          {checked && <CheckIcon size={12} className={navigationMenuCheckboxIcon({ variant })} />}
-        </div>
-      </button>
-    </ItemDisabledContext>
+    <NavigationMenu>
+        <NavigationMenuCheckboxItem
+          checked={twoWay}
+          disabled={locked}
+          onCheckedChange={(checked) => { onModeChange(checked ? "edits" : "off"); }}
+        >
+          <NavigationMenuItemLabel>Two-Way Sync Copy Changes</NavigationMenuItemLabel>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={mode === "edits_and_deletes"}
+          disabled={locked || !twoWay}
+          onCheckedChange={(checked) => {
+            onModeChange(checked ? "edits_and_deletes" : "edits");
+          }}
+        >
+          <NavigationMenuItemLabel>Two-Way Sync Deleted Events</NavigationMenuItemLabel>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={meetings}
+          disabled={locked || !twoWay}
+          onCheckedChange={(checked) => { onReachChange(reachFor("my_meetings", checked)); }}
+        >
+          <NavigationMenuItemLabel>Two-Way Sync My Meetings</NavigationMenuItemLabel>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={moving}
+          disabled={locked || !meetings}
+          onCheckedChange={(checked) => {
+            onReachChange(reachFor("my_meetings_notifying", checked));
+          }}
+        >
+          <NavigationMenuItemLabel>Two-Way Sync Moving & Cancelling</NavigationMenuItemLabel>
+        </NavigationMenuCheckboxItem>
+        <NavigationMenuCheckboxItem
+          checked={reachAtLeast(reach, "any_event")}
+          disabled={locked || !moving}
+          onCheckedChange={(checked) => { onReachChange(reachFor("any_event", checked)); }}
+        >
+          <NavigationMenuItemLabel>Two-Way Sync Changes to Others' Events</NavigationMenuItemLabel>
+        </NavigationMenuCheckboxItem>
+    </NavigationMenu>
   );
 }
 
@@ -784,7 +759,11 @@ function WriteBackModeControl({
   };
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-3">
+    <>
+      <DashboardSection
+        title={destinationName}
+        description={`Copies of this calendar's events live on ${destinationName}. Choose what a change to one of those copies is allowed to do to the original.`}
+      />
       <WriteBackPermissions
         locked={locked || !writableSource}
         mode={mode}
@@ -816,7 +795,7 @@ function WriteBackModeControl({
           sourceName={sourceName || "this calendar"}
         />
       )}
-    </div>
+    </>
   );
 }
 
