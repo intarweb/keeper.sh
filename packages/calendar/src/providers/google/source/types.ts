@@ -23,6 +23,7 @@ interface GoogleEventDateTime {
 }
 
 interface GoogleCalendarEvent {
+  attendees?: { responseStatus?: string; self?: boolean }[];
   id?: string;
   iCalUID?: string;
   status?: "confirmed" | "tentative" | "cancelled";

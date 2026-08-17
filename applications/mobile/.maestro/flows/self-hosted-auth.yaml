@@ -1,0 +1,10 @@
+appId: sh.keeper.mobile
+name: Self-hosted username authentication
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/self-hosted-sign-in.yaml
+- tapOn: "Settings"
+- assertVisible: "Profile & Account"
+- assertVisible:
+    text: ".*${KEEPER_E2E_SELF_HOSTED_HOST}.*"

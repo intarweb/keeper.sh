@@ -6,6 +6,5 @@ node_modules
 dist/
 *.tsbuildinfo
 screenshots/
-applications/mobile/
 .pki/
 .gstack/

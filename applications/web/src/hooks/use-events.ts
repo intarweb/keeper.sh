@@ -11,7 +11,7 @@ export interface CalendarEvent {
   calendarId: string;
   calendarName: string;
   calendarProvider: string;
-  calendarUrl: string;
+  calendarUrl: string | null;
 }
 
 const DAYS_PER_PAGE = 7;

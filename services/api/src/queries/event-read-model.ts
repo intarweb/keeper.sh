@@ -37,6 +37,7 @@ interface SyncedEventRow {
 }
 
 interface UserEventRow {
+  availability: string | null;
   calendarId: string;
   description: string | null;
   endTime: Date;
@@ -53,11 +54,13 @@ interface EventReference {
 }
 
 interface KeeperEventProjection {
+  availability: "busy" | "free";
   calendarId: string;
   description: string | null;
   endTime: Date;
   eventStateId: string | null;
   id: string;
+  isAllDay: boolean;
   location: string | null;
   startTime: Date;
   title: string | null;
@@ -85,6 +88,13 @@ const parseAvailability = (
     return value;
   }
   return null;
+};
+
+const toPublicAvailability = (value: string | null | undefined): "busy" | "free" => {
+  if (value === "free") {
+    return "free";
+  }
+  return "busy";
 };
 
 const createOccurrenceEventId = (eventStateId: string, startTime: Date): string =>
@@ -165,10 +175,12 @@ const toSyncedProjection = (
   }
 
   return {
+    availability: toPublicAvailability(occurrence.availability),
     calendarId: occurrence.calendarId,
     description: occurrence.description ?? null,
     eventStateId,
     id,
+    isAllDay: occurrence.isAllDay ?? false,
     location: occurrence.location ?? null,
     title: occurrence.summary || null,
     ...resolveRepresentableTimeRange(occurrence),
@@ -176,10 +188,12 @@ const toSyncedProjection = (
 };
 
 const toUserProjection = (row: UserEventRow): KeeperEventProjection => ({
+  availability: toPublicAvailability(row.availability),
   calendarId: row.calendarId,
   description: row.description,
   eventStateId: null,
   id: row.id,
+  isAllDay: row.isAllDay ?? false,
   location: row.location,
   title: row.title,
   ...resolveRepresentableTimeRange({
@@ -255,10 +269,12 @@ const toKeeperEvent = (
   calendarName: source.name,
   calendarProvider: source.provider,
   calendarUrl: source.url,
+  availability: event.availability,
   description: event.description,
   endTime: event.endTime.toISOString(),
   eventStateId: event.eventStateId,
   id: event.id,
+  isAllDay: event.isAllDay,
   location: event.location,
   startTime: event.startTime.toISOString(),
   title: event.title,
@@ -270,6 +286,7 @@ export {
   projectSyncedEvents,
   toKeeperEvent,
   toSyncableEvent,
+  toPublicAvailability,
   toUserProjection,
 };
 export type {

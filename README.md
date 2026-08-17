@@ -160,8 +160,18 @@ There are seven images currently available: two designed for convenience, and fi
 | REDIS_URL                      | `api`, `cron`, `worker` | Redis connection URL. Must be the same Redis instance across all services.<br><br>e.g. `redis://redis:6379`                                                        |
 | WORKER_JOB_QUEUE_ENABLED       | `cron`        | Required. Set to `true` to enqueue sync jobs to the worker queue, or `false` to disable. If unset, the cron service will exit with a migration notice.              |
 | WORKER_CONCURRENCY             | `worker`      | Optional. Number of sync jobs the worker processes concurrently. Defaults to `25`.                                                                                  |
+| PUSH_OUTBOX_ENABLED            | `worker`      | Optional. Enables durable mobile push delivery. Defaults to `true`; set to `false` to pause dispatch without dropping queued notifications.                         |
+| PUSH_OUTBOX_BATCH_SIZE         | `worker`      | Optional. Maximum notifications, deliveries, and receipts claimed in one push pass. Defaults to `50` and is capped at Expo's limit of `100`.                       |
+| PUSH_OUTBOX_INTERVAL_MS        | `worker`      | Optional. Delay in milliseconds between push outbox passes. Defaults to `5000`.                                                                                     |
+| EXPO_PUSH_ACCESS_TOKEN         | `worker`      | Optional. Expo Push Service access token when enhanced push security is enabled for the Expo project.                                                              |
 | BETTER_AUTH_URL                | `api`, `mcp`  | The base URL used for auth redirects.<br><br>e.g. `http://localhost:3000`                                                                                           |
 | BETTER_AUTH_SECRET             | `api`, `mcp`  | Secret key for session signing.<br><br>e.g. `openssl rand -base64 32`                                                                                               |
+| MOBILE_TRUSTED_ORIGINS         | `api`         | Optional. Comma-separated production mobile schemes and associated-link origins accepted by Better Auth. Defaults to the exact `keeper://oauth/callback` flow; HTTPS callbacks must use `/open/oauth/callback`. |
+| MOBILE_PLAN_MANAGEMENT_URL     | `api`         | Optional. HTTPS URL returned to mobile clients for hosted subscription management.                                                                                 |
+| MOBILE_IOS_TEAM_ID             | `web`         | Required for production universal links. Apple Developer Team ID used to serve `apple-app-site-association`; the endpoint returns `503` when unset.                |
+| MOBILE_IOS_BUNDLE_ID           | `web`         | Optional. iOS bundle identifier used in the association file. Defaults to `sh.keeper.mobile`.                                                                      |
+| MOBILE_ANDROID_PACKAGE_NAME    | `web`         | Optional. Android application ID used in `assetlinks.json`. Defaults to `sh.keeper.mobile`.                                                                         |
+| MOBILE_ANDROID_SHA256_CERT_FINGERPRINTS | `web` | Required for production Android app links. Comma-separated Play App Signing SHA-256 fingerprints; the endpoint returns `503` when unset.                           |
 | API_PORT                       | `api`         | Required. Port the Bun API listens on. Pre-set to `3001` in the `keeper-standalone` and `keeper-services` images.                                                    |
 | ENV                            | `web`         | Optional. Runtime environment. One of `development`, `production`, or `test`. Defaults to `production`.                                                             |
 | PORT                           | `web`         | Required. Port the web server listens on. Pre-set to `3000` in the `keeper-standalone` and `keeper-services` images.                                                 |
@@ -170,19 +180,20 @@ There are seven images currently available: two designed for convenience, and fi
 | POLAR_ACCESS_TOKEN             | `api`, `cron` | Optional. Polar API token for subscription management.                                                                                                              |
 | POLAR_MODE                     | `api`, `cron` | Optional. Polar environment, `sandbox` or `production`.                                                                                                             |
 | POLAR_WEBHOOK_SECRET           | `api`         | Optional. Secret to verify Polar webhooks.                                                                                                                          |
-| ENCRYPTION_KEY                 | `api`, `cron`, `worker` | Key for encrypting CalDAV credentials at rest.<br><br>e.g. `openssl rand -base64 32`                                                                                |
+| ENCRYPTION_KEY                 | `api`, `cron`, `worker` | Key for encrypting CalDAV and authenticated remote ICS credentials at rest. Required to create or migrate credentialed remote ICS sources.<br><br>e.g. `openssl rand -base64 32` |
 | RESEND_API_KEY                 | `api`         | Optional. API key for sending emails via Resend.                                                                                                                    |
 | FEEDBACK_EMAIL                 | `api`         | Optional. Address that in-app feedback submissions are emailed to. Requires `RESEND_API_KEY`.                                                                        |
 | PASSKEY_RP_ID                  | `api`         | Optional. Relying party ID for passkey authentication.                                                                                                              |
 | PASSKEY_RP_NAME                | `api`         | Optional. Relying party display name for passkeys.                                                                                                                  |
 | PASSKEY_ORIGIN                 | `api`         | Optional. Origin allowed for passkey flows (e.g., `https://keeper.example.com`).                                                                                    |
+| PASSKEY_ANDROID_ORIGINS        | `api`         | Optional. Comma-separated `android:apk-key-hash:<base64-sha256>` origins for Android development, direct-distribution, and Play signing certificates.               |
 | GOOGLE_CLIENT_ID               | `api`, `cron`, `worker` | Optional. Required for Google Calendar integration.                                                                                                                 |
 | GOOGLE_CLIENT_SECRET           | `api`, `cron`, `worker` | Optional. Required for Google Calendar integration.                                                                                                                 |
 | MICROSOFT_CLIENT_ID            | `api`, `cron`, `worker` | Optional. Required for Microsoft Outlook integration.                                                                                                               |
 | MICROSOFT_CLIENT_SECRET        | `api`, `cron`, `worker` | Optional. Required for Microsoft Outlook integration.                                                                                                               |
 | POSTGRES_PASSWORD              | `standalone`  | Optional. Custom password for the internal PostgreSQL database in `keeper-standalone`. If unset, defaults to `keeper`. The database is not exposed outside the container, so this is low risk, but can be set for defense in depth. |
-| BLOCK_PRIVATE_RESOLUTION       | `api`, `cron` | Optional. Set to `true` to block outbound fetches (ICS subscriptions, CalDAV servers) from resolving to private/reserved network addresses. Prevents SSRF. Defaults to `false` for backward compatibility with self-hosted setups that use local CalDAV/ICS servers. |
-| PRIVATE_RESOLUTION_WHITELIST          | `api`, `cron` | Optional. When `BLOCK_PRIVATE_RESOLUTION` is `true`, this comma-separated list of hostnames or IPs is exempt from the restriction.<br><br>e.g. `192.168.1.50,radicale.local,10.0.2.12` |
+| BLOCK_PRIVATE_RESOLUTION       | `api`, `cron` | Optional. Blocks outbound ICS and CalDAV fetches from resolving to private/reserved network addresses to prevent SSRF. Defaults to `true`; explicitly set `false` only for trusted self-hosted networks. |
+| PRIVATE_RESOLUTION_WHITELIST          | `api`, `cron` | Optional. When private-resolution blocking is enabled, this comma-separated list of trusted hostnames or IPs is exempt.<br><br>e.g. `192.168.1.50,radicale.local,10.0.2.12` |
 | TRUSTED_ORIGINS                | `api`         | Optional. Comma-separated list of additional trusted origins for CSRF protection.<br><br>e.g. `http://192.168.1.100,http://keeper.local,https://keeper.example.com` |
 | WEBSOCKET_URL                  | `api`         | Optional. External URL clients should open the realtime socket against. When unset, clients connect to the API's own `/api/socket` path.<br><br>e.g. `wss://socket.keeper.example.com` |
 | MCP_PUBLIC_URL                 | `api`, `mcp`  | Optional on `api`, required by `mcp`. Public URL of the MCP resource. Enables OAuth on the API and identifies the MCP server to clients. In `keeper-standalone` it defaults to `BETTER_AUTH_URL` with `/mcp` appended.<br><br>e.g. `https://keeper.example.com/mcp` |
@@ -392,6 +403,8 @@ services:
       REDIS_URL: ${REDIS_URL}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      MOBILE_TRUSTED_ORIGINS: ${MOBILE_TRUSTED_ORIGINS:-}
+      MOBILE_PLAN_MANAGEMENT_URL: ${MOBILE_PLAN_MANAGEMENT_URL:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
@@ -477,6 +490,10 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      EXPO_PUSH_ACCESS_TOKEN: ${EXPO_PUSH_ACCESS_TOKEN:-}
+      PUSH_OUTBOX_ENABLED: ${PUSH_OUTBOX_ENABLED:-true}
+      PUSH_OUTBOX_BATCH_SIZE: ${PUSH_OUTBOX_BATCH_SIZE:-50}
+      PUSH_OUTBOX_INTERVAL_MS: ${PUSH_OUTBOX_INTERVAL_MS:-5000}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
@@ -525,6 +542,10 @@ services:
     environment:
       VITE_API_URL: ${VITE_API_URL}
       PORT: 3000
+      MOBILE_IOS_TEAM_ID: ${MOBILE_IOS_TEAM_ID:-}
+      MOBILE_IOS_BUNDLE_ID: ${MOBILE_IOS_BUNDLE_ID:-sh.keeper.mobile}
+      MOBILE_ANDROID_PACKAGE_NAME: ${MOBILE_ANDROID_PACKAGE_NAME:-sh.keeper.mobile}
+      MOBILE_ANDROID_SHA256_CERT_FINGERPRINTS: ${MOBILE_ANDROID_SHA256_CERT_FINGERPRINTS:-}
     ports:
       - "3000:3000"
     depends_on:

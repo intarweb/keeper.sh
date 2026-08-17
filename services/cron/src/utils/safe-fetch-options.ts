@@ -4,7 +4,7 @@ import env from "@/env";
 
 const parseSafeFetchOptions = (): SafeFetchOptions => {
   const options: SafeFetchOptions = {
-    blockPrivateResolution: env.BLOCK_PRIVATE_RESOLUTION === true,
+    blockPrivateResolution: env.BLOCK_PRIVATE_RESOLUTION !== false,
     timeoutMs: PROVIDER_INGEST_REQUEST_TIMEOUT_MS,
   };
 

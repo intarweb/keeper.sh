@@ -1,0 +1,14 @@
+appId: sh.keeper.mobile
+---
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 20000
+- tapOn: "Email"
+- inputText: "${KEEPER_E2E_EMAIL}"
+- tapOn: "Password"
+- inputText: "${KEEPER_E2E_PASSWORD}"
+- hideKeyboard
+- tapOn: "Sign In"
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 30000

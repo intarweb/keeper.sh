@@ -166,6 +166,7 @@ describe("resolveEventReadModel", () => {
 
   it("keeps a user event addressable by its UUID without an event state", async () => {
     const userEvent: KeeperEvent = {
+      availability: "busy",
       calendarId: CALENDAR_ID,
       calendarName: "Source",
       calendarProvider: "google",
@@ -174,6 +175,7 @@ describe("resolveEventReadModel", () => {
       endTime: "2026-03-02T11:00:00.000Z",
       eventStateId: null,
       id: USER_EVENT_ID,
+      isAllDay: false,
       location: null,
       startTime: "2026-03-02T10:00:00.000Z",
       title: "User event",

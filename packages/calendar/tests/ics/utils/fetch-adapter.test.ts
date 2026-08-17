@@ -65,6 +65,25 @@ describe("createIcsSourceFetcher", () => {
     expect(mockPrepareCalendarSnapshot).not.toHaveBeenCalled();
   });
 
+  it("passes remote credentials separately from the stored URL", async () => {
+    const { createIcsSourceFetcher } = await import("../../../src/ics/utils/fetch-adapter");
+    mockPullRemoteCalendar.mockResolvedValueOnce({ ical: MINIMAL_ICS });
+    mockPrepareCalendarSnapshot.mockResolvedValueOnce({
+      changed: true,
+      snapshot: { contentHash: "credentialed", ical: MINIMAL_ICS },
+    });
+    const credentials = { password: "secret", username: "calendar-user" };
+
+    await createIcsSourceFetcher({ ...buildConfig(), credentials }).fetchEvents();
+
+    expect(mockPullRemoteCalendar).toHaveBeenCalledWith(
+      "ical",
+      "https://example.com/calendar.ics",
+      globalThis.undefined,
+      credentials,
+    );
+  });
+
   it("returns parsed events on a successful changed fetch", async () => {
     const { createIcsSourceFetcher } = await import("../../../src/ics/utils/fetch-adapter");
     mockPullRemoteCalendar.mockResolvedValueOnce({ ical: MINIMAL_ICS });

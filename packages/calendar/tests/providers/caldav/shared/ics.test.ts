@@ -59,6 +59,22 @@ const toExistingSourceEventState = (
 });
 
 describe("eventToICalString", () => {
+  it("projects a NEEDS-ACTION attendee without adding attendee fields to sync events", () => {
+    const resources = parseICalCalendarsToRemoteEvents([buildIcs([buildVevent({
+      "ATTENDEE;PARTSTAT=NEEDS-ACTION": "mailto:user@example.com",
+      DTEND: "20260814T170000Z",
+      DTSTART: "20260814T160000Z",
+      SUMMARY: "Private invitation",
+      UID: "invite-uid",
+    })])], { invitationEmail: "USER@example.com" });
+
+    expect(resources.pendingInvitations).toEqual([{
+      occurrenceStart: "2026-08-14T16:00:00.000Z",
+      sourceEventUid: "invite-uid",
+    }]);
+    expect(resources.events[0]).not.toHaveProperty("attendees");
+  });
+
   it("serializes all-day free events as transparent DATE events", () => {
     const icsString = eventToICalString(
       {

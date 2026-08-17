@@ -1,0 +1,22 @@
+appId: sh.keeper.mobile
+name: Account setup and mappings
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- openLink: "keeper:///account/${KEEPER_E2E_ACCOUNT_ID}/setup"
+- extendedWaitUntil:
+    visible: "Setup & Mappings"
+    timeout: 20000
+- assertVisible: "Which calendars would you like to configure?"
+- tapOn: "${KEEPER_E2E_SETUP_CALENDAR}"
+- tapOn: "Next"
+- assertVisible: "Rename your calendars"
+- tapOn: "Save and Continue"
+- extendedWaitUntil:
+    visible: "Where should.*"
+    timeout: 20000
+- tapOn: "${KEEPER_E2E_MAPPING_CALENDAR}"
+- tapOn: "Save and Continue"
+- assertVisible:
+    text: "Where should.*|Calendars"

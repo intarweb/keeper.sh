@@ -1,4 +1,8 @@
-import type { FetchEventsResult } from "../../../core/sync-engine/ingest";
+import type {
+  FetchEventsResult,
+  PendingProviderInvitation,
+} from "../../../core/sync-engine/ingest";
+import type { GoogleCalendarEvent } from "./types";
 import type { RedisRateLimiter } from "../../../core/utils/redis-rate-limiter";
 import type { SourceIngestionPlan } from "../../../core/sync/sync-range";
 import { encodeStoredSyncToken, resolveSyncTokenForWindow } from "../../../core/oauth/sync-token";
@@ -19,6 +23,26 @@ interface GoogleSourceFetcherConfig {
 interface GoogleSourceFetcher {
   fetchEvents: () => Promise<FetchEventsResult>;
 }
+
+const collectPendingInvitations = (
+  events: GoogleCalendarEvent[],
+  window: SourceIngestionPlan["window"],
+): PendingProviderInvitation[] => events.flatMap((event): PendingProviderInvitation[] => {
+  const selfAttendee = event.attendees?.find(({ self }) => self === true);
+  const occurrenceValue = event.start?.dateTime ?? event.start?.date;
+  if (selfAttendee?.responseStatus !== "needsAction" || !event.iCalUID || !occurrenceValue) {
+    return [];
+  }
+  const occurrenceStart = new Date(occurrenceValue);
+  if (
+    !Number.isFinite(occurrenceStart.getTime())
+    || occurrenceStart < window.timeMin
+    || occurrenceStart >= window.timeMax
+  ) {
+    return [];
+  }
+  return [{ occurrenceStart: occurrenceStart.toISOString(), sourceEventUid: event.iCalUID }];
+});
 
 const createGoogleSourceFetcher = (config: GoogleSourceFetcherConfig): GoogleSourceFetcher => {
   const fetchEvents = async (): Promise<FetchEventsResult> => {
@@ -57,6 +81,7 @@ const createGoogleSourceFetcher = (config: GoogleSourceFetcherConfig): GoogleSou
 
     return {
       events,
+      pendingInvitations: collectPendingInvitations(result.events, syncWindow),
       discardedEventCounts: {
         outsideSyncWindow: filteredCount,
         unrepresentable: parsed.unrepresentableCount,

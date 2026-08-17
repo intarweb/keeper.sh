@@ -19,6 +19,7 @@ import type {
   SyncedEventRow,
   UserEventRow,
 } from "./event-read-model";
+import { redactUrlCredentials } from "@/utils/redact-url-credentials";
 
 const EMPTY_RESULT_COUNT = 0;
 
@@ -70,7 +71,12 @@ const getSourcesForUser = async (
   const sourceMap = new Map(
     sources.map((source) => [
       source.id,
-      { name: source.name, provider: source.provider, url: source.url, userId: source.userId },
+      {
+        name: source.name,
+        provider: source.provider,
+        url: redactUrlCredentials(source.url),
+        userId: source.userId,
+      },
     ]),
   );
 
@@ -215,6 +221,7 @@ const getEventsInRange = async (
 
   const userEventRows: UserEventRow[] = await database
     .select({
+      availability: userEventsTable.availability,
       calendarId: userEventsTable.calendarId,
       description: userEventsTable.description,
       endTime: userEventsTable.endTime,

@@ -12,6 +12,7 @@
     "lint": "oxlint ."
   },
   "dependencies": {
+    "@keeper.sh/api-contracts": "workspace:*",
     "@keeper.sh/auth": "workspace:*",
     "@keeper.sh/broadcast": "workspace:*",
     "@keeper.sh/calendar": "workspace:*",

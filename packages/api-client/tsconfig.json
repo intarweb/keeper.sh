@@ -1,0 +1,10 @@
+{
+  "extends": "@keeper.sh/typescript-config",
+  "compilerOptions": {
+    "paths": {
+      "@keeper.sh/api-contracts": ["../api-contracts/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules"]
+}

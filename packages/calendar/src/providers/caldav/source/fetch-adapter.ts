@@ -11,6 +11,7 @@ interface CalDAVSourceFetcherConfig {
   serverUrl: string;
   username: string;
   password: string;
+  userEmail?: string;
   safeFetchOptions?: SafeFetchOptions;
   plan: SourceIngestionPlan;
 }
@@ -42,7 +43,10 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
      * An empty body is an unread resource, not an absent one; it must reach the
      * parser to be counted as skipped.
      */
-    const resources = parseICalCalendarsToRemoteEvents(objects.map(({ data }) => data ?? ""));
+    const resources = parseICalCalendarsToRemoteEvents(
+      objects.map(({ data }) => data ?? ""),
+      { invitationEmail: config.userEmail },
+    );
     const { events, outsideSyncWindowCount, selfAuthoredEventCount } = partitionCalDAVSourceEvents(
       resources.events,
       syncWindow,
@@ -50,6 +54,10 @@ const createCalDAVSourceFetcher = (config: CalDAVSourceFetcherConfig): CalDAVSou
 
     return {
       events,
+      pendingInvitations: resources.pendingInvitations.filter(({ occurrenceStart }) => {
+        const start = new Date(occurrenceStart);
+        return start >= syncWindow.timeMin && start < syncWindow.timeMax;
+      }),
       discardedEventCounts: {
         outsideSyncWindow: outsideSyncWindowCount,
         unrepresentable: resources.unrepresentableEventCount,

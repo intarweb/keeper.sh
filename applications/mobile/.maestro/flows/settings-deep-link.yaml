@@ -1,0 +1,12 @@
+appId: sh.keeper.mobile
+name: Settings and deep-link smoke
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- openLink: "keeper:///(tabs)/settings/about"
+- extendedWaitUntil:
+    visible: "About"
+    timeout: 20000
+- assertVisible: "Keeper.sh"
+- assertVisible: "Privacy-first calendar synchronization.*"

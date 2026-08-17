@@ -10,6 +10,7 @@ const toCalendar = (source: KeeperSource) => ({
   name: source.name,
   provider: source.providerName,
   account: source.accountLabel,
+  disabled: source.disabled,
 });
 
 const GET = withWideEvent(

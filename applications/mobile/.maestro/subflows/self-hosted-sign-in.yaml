@@ -1,0 +1,25 @@
+appId: sh.keeper.mobile
+---
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 20000
+- tapOn:
+    text: "Server:.*"
+- assertVisible: "Keeper Server URL"
+- tapOn: "Keeper Server URL"
+- eraseText
+- inputText: "${KEEPER_E2E_SELF_HOSTED_URL}"
+- hideKeyboard
+- tapOn: "Validate and Use Server"
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 30000
+- tapOn: "Username"
+- inputText: "${KEEPER_E2E_SELF_HOSTED_USERNAME}"
+- tapOn: "Password"
+- inputText: "${KEEPER_E2E_SELF_HOSTED_PASSWORD}"
+- hideKeyboard
+- tapOn: "Sign In"
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 30000

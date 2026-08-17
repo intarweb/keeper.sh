@@ -37,15 +37,20 @@ type FeedbackRequest = typeof feedbackRequestSchema.infer;
 
 const createSourceSchema = type({
   name: "string",
+  "password?": "string",
   url: "string",
+  "username?": "string",
   "+": "reject",
-});
+}).narrow((value, ctx) =>
+  Boolean(value.username) === Boolean(value.password)
+  || ctx.mustBe("username and password together"));
 
 type CreateSource = typeof createSourceSchema.infer;
 
 const stringSchema = type("string");
 
 const googleEventSchema = type({
+  "attendees?": type({ "responseStatus?": "string", "self?": "boolean" }).array(),
   "description?": "string",
   "end?": { "date?": "string", "dateTime?": "string", "timeZone?": "string" },
   "eventType?": "string",
@@ -151,10 +156,12 @@ const outlookEventSchema = type({
   "id?": "string",
   "isAllDay?": "boolean",
   "isCancelled?": "boolean",
+  "isOrganizer?": "boolean",
   "lastModifiedDateTime?": "string",
   "location?": { "displayName?": "string" },
   "originalEndTimeZone?": "string",
   "originalStartTimeZone?": "string",
+  "responseStatus?": { "response?": "string" },
   "showAs?": "string",
   "start?": { "dateTime?": "string", "timeZone?": "string" },
   "subject?": "string | null",

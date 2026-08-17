@@ -1,6 +1,5 @@
 import { resolve4, resolve6 } from "node:dns/promises";
 import ipaddr from "ipaddr.js";
-import { getDomain } from "tldts";
 import { RequestTimeoutError, buildTimeoutSignal } from "../core/utils/fetch-with-timeout";
 import type { TimeoutSignal } from "../core/utils/fetch-with-timeout";
 
@@ -118,19 +117,10 @@ const resolveRedirectUrl = (response: Response, originalUrl: string): string | n
 const isTransportDowngrade = (current: URL, next: URL): boolean =>
   current.protocol === "https:" && next.protocol !== "https:";
 
-const isDifferentSite = (current: URL, next: URL): boolean => {
-  const currentDomain = getDomain(current.hostname);
-  const nextDomain = getDomain(next.hostname);
-  if (!currentDomain || !nextDomain) {
-    return current.hostname !== next.hostname;
-  }
-  return currentDomain !== nextDomain;
-};
-
 const shouldWithholdAuthorization = (current: string, next: string): boolean => {
   const currentUrl = new URL(current);
   const nextUrl = new URL(next);
-  return isTransportDowngrade(currentUrl, nextUrl) || isDifferentSite(currentUrl, nextUrl);
+  return isTransportDowngrade(currentUrl, nextUrl) || currentUrl.origin !== nextUrl.origin;
 };
 
 const toHeaderRecord = (headers: RequestInit["headers"]): Record<string, string> => {

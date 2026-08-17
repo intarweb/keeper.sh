@@ -6,6 +6,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(fileURLToPath(import.meta.url), "../src"),
+      "@keeper.sh/api-contracts": resolve(
+        fileURLToPath(import.meta.url),
+        "../../../packages/api-contracts/src/index.ts",
+      ),
     },
   },
   test: {

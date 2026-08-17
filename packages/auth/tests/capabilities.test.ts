@@ -51,4 +51,17 @@ describe("resolveAuthCapabilities", () => {
       supportsPasswordReset: true,
     });
   });
+
+  it("enables passkeys when web and native origins are configured together", () => {
+    const capabilities = resolveAuthCapabilities({
+      commercialMode: true,
+      passkeyOrigin: [
+        "https://www.keeper.sh",
+        "android:apk-key-hash:development-signing-hash",
+      ],
+      passkeyRpId: "www.keeper.sh",
+    });
+
+    expect(capabilities.supportsPasskeys).toBe(true);
+  });
 });

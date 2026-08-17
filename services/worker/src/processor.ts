@@ -18,6 +18,7 @@ import { database, refreshLockRedis, refreshLockStore } from "./context";
 import { context, widelog } from "./utils/logging";
 import { applySyncEventFields } from "./utils/sync-event-fields";
 import env from "./env";
+import { enqueueSyncFailureNotification } from "./push/producers";
 
 const resolveCount = (value: unknown): number => {
   if (typeof value === "number") {
@@ -219,6 +220,22 @@ const processJob = (
     const deadlineTimer = setTimeout(() => deadlineController.abort(), USER_TIMEOUT_MS);
     let needsFlush = true;
     const pendingDestinationSyncs: Promise<void>[] = [];
+    const pendingNotifications: Promise<void>[] = [];
+
+    const enqueueSyncFailure = (failedCalendarId: string): void => {
+      const idempotencyScope = job.id ?? job.data.correlationId;
+      pendingNotifications.push(
+        enqueueSyncFailureNotification(database, {
+          calendarId: failedCalendarId,
+          idempotencyKey: `sync-failed:${failedCalendarId}:${idempotencyScope}`,
+          userId,
+        })
+          .then(() => globalThis.undefined)
+          .catch((error: unknown) => {
+            widelog.error("push.notification_enqueue_failed", toError(error));
+          }),
+      );
+    };
 
     try {
       const abortSignal = mergeAbortSignals(deadlineController.signal, signal);
@@ -304,6 +321,7 @@ const processJob = (
           let outcome = "success";
           if (totalFailed > 0) {
             outcome = resolveSyncOutcome(totalFailed, totalAttempted);
+            enqueueSyncFailure(completion.calendarId);
           } else if (typeof syncOutcome === "string") {
             outcome = syncOutcome;
           }
@@ -320,6 +338,7 @@ const processJob = (
           widelog.set("outcome", "error");
           applyDatabaseErrorFields(failure.error);
           widelog.errorFields(failure.error, { slug: classifySyncError(failure.error) });
+          enqueueSyncFailure(failure.calendarId);
           widelog.flush();
           needsFlush = false;
         },
@@ -349,10 +368,12 @@ const processJob = (
       widelog.set("outcome", "error");
       applyDatabaseErrorFields(error);
       widelog.errorFields(error, { slug: classifySyncError(error) });
+      enqueueSyncFailure(calendarId);
       needsFlush = true;
       throw error;
     } finally {
       await Promise.all(pendingDestinationSyncs);
+      await Promise.all(pendingNotifications);
       clearTimeout(deadlineTimer);
       if (deadlineController.signal.aborted) {
         widelog.set("timeout.fired", true);

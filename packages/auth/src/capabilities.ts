@@ -8,7 +8,7 @@ interface ResolveAuthCapabilitiesConfig {
   microsoftClientId?: string;
   microsoftClientSecret?: string;
   passkeyRpId?: string;
-  passkeyOrigin?: string;
+  passkeyOrigin?: string | readonly string[];
 }
 
 const hasOAuthCredentials = (clientId?: string, clientSecret?: string): boolean =>

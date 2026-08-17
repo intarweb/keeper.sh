@@ -1,0 +1,44 @@
+appId: sh.keeper.mobile
+name: Event form
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- openLink: "keeper:///event/new"
+- extendedWaitUntil:
+    visible: "New Event"
+    timeout: 20000
+- assertVisible: "Title"
+- tapOn: "Title"
+- inputText: "Maestro Event"
+- assertVisible: "Location"
+- assertVisible: "Starts"
+- assertVisible: "Ends"
+- tapOn: "All-Day Event"
+- assertVisible: "Notes"
+- assertVisible: "Create Event"
+- tapOn: "Create Event"
+- extendedWaitUntil:
+    visible: "Maestro Event"
+    timeout: 30000
+- tapOn: "Maestro Event"
+- assertVisible: "Edit Event"
+- assertVisible: "Delete Event"
+- tapOn: "Edit Event"
+- extendedWaitUntil:
+    visible: "Save Changes"
+    timeout: 20000
+- tapOn: "Title"
+- eraseText
+- inputText: "Maestro Event Updated"
+- hideKeyboard
+- tapOn: "Save Changes"
+- extendedWaitUntil:
+    visible: "Maestro Event Updated"
+    timeout: 30000
+- tapOn: "Delete Event"
+- assertVisible: "Delete event?"
+- tapOn: "Delete"
+- extendedWaitUntil:
+    notVisible: "Maestro Event Updated"
+    timeout: 30000

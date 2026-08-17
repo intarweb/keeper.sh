@@ -1,0 +1,16 @@
+appId: sh.keeper.mobile
+name: Invitation occurrence RSVP
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- tapOn: "Invitations"
+- extendedWaitUntil:
+    visible: "${KEEPER_E2E_INVITATION_TITLE}"
+    timeout: 30000
+- tapOn:
+    text: "Accept"
+    index: 0
+- extendedWaitUntil:
+    notVisible: "${KEEPER_E2E_INVITATION_TITLE}"
+    timeout: 30000

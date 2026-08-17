@@ -5,6 +5,7 @@ import { coerceCompliantDate } from "../patches/coerce-compliant-date";
 import { parseIcsCalendarLenient } from "./lenient-parser";
 import { parseIcsEventsWithDiagnostics } from "./parse-ics-events";
 import { pullRemoteCalendar } from "./pull-remote-calendar";
+import type { RemoteCalendarCredentials } from "./pull-remote-calendar";
 import { prepareCalendarSnapshot } from "./create-snapshot";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import type { SourceIngestionPlan } from "../../core/sync/sync-range";
@@ -24,6 +25,7 @@ interface IcsSourceFetcherConfig {
   calendarId: string;
   url: string;
   database: BunSQLDatabase;
+  credentials?: RemoteCalendarCredentials;
   safeFetchOptions?: SafeFetchOptions;
   plan: SourceIngestionPlan;
 }
@@ -319,7 +321,12 @@ const createIcsSourceFetcher = (config: IcsSourceFetcherConfig): IcsSourceFetche
    * cron mark the run as failed and leave existing events intact for retry.
    */
   const fetchRemoteIcal = async (): Promise<string> => {
-    const { ical } = await pullRemoteCalendar("ical", config.url, config.safeFetchOptions);
+    const { ical } = await pullRemoteCalendar(
+      "ical",
+      config.url,
+      config.safeFetchOptions,
+      config.credentials,
+    );
     return ical;
   };
 

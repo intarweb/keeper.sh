@@ -1,0 +1,17 @@
+appId: sh.keeper.mobile
+name: Auth shell
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 20000
+- assertVisible: "Email"
+- assertVisible: "Password"
+- assertVisible: "Sign In"
+- assertVisible: "New to Keeper.sh? Create an account"
+- tapOn:
+    text: "Server:.*"
+- assertVisible: "Keeper Server URL"
+- assertVisible: "Validate and Use Server"
+

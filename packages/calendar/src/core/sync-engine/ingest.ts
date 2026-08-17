@@ -59,6 +59,7 @@ interface DiscardedSourceEventCounts {
 
 interface FetchEventsResult {
   events: SourceEvent[];
+  pendingInvitations?: PendingProviderInvitation[];
   discardedEventCounts?: DiscardedSourceEventCounts;
   /**
    * Keeper's own mirrored events, skipped on purpose. Kept out of
@@ -86,6 +87,11 @@ interface FetchEventsResult {
     historicRange: SyncRange;
     window: SyncWindow;
   };
+}
+
+interface PendingProviderInvitation {
+  occurrenceStart: string;
+  sourceEventUid: string;
 }
 
 interface IngestionChanges {
@@ -402,4 +408,5 @@ export type {
   IngestionResult,
   IngestionChanges,
   FetchEventsResult,
+  PendingProviderInvitation,
 };

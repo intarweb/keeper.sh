@@ -23,7 +23,7 @@ import {
   PROVIDER_INGEST_REQUEST_TIMEOUT_MS,
   REAUTHENTICATION_SOURCE_INGEST,
 } from "@keeper.sh/constants";
-import type { CalendarBackoffState, IngestWideEventFields, IngestionFetchEventsResult, IngestionPersistenceWork, RedisRateLimiter, RequiredSourceRanges, TokenState } from "@keeper.sh/calendar";
+import type { CalendarBackoffState, IngestWideEventFields, IngestionFetchEventsResult, IngestionPendingInvitation, IngestionPersistenceWork, RedisRateLimiter, RequiredSourceRanges, TokenState } from "@keeper.sh/calendar";
 import {
   createIcsSourceFetcher,
   interpretFullDayTimedEventsAsAllDay,
@@ -36,13 +36,14 @@ import {
   CalDAVUnreadableResourceError,
   createCalDAVSourceFetcher,
 } from "@keeper.sh/calendar/caldav";
-import { decryptPassword, resolveDatabaseErrorClassification } from "@keeper.sh/database";
+import { decryptPassword, encryptPassword, resolveDatabaseErrorClassification } from "@keeper.sh/database";
 import {
   calendarAccountsTable,
   calendarsTable,
   caldavCredentialsTable,
   eventStatesTable,
   oauthCredentialsTable,
+  remoteIcsCredentialsTable,
   sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
 import { and, arrayContains, eq, isNull, ne, or, sql } from "drizzle-orm";
@@ -62,6 +63,8 @@ import { createSyncLock } from "@keeper.sh/sync";
 import { enqueueDestinationSyncsForUsers } from "@/utils/enqueue-destination-syncs";
 import { deleteEventStatesInChunks } from "@/utils/delete-event-states";
 import { selectIngestWideEventFields } from "@/utils/ingest-wide-event";
+import { convergeReauthenticationNotification } from "@/utils/reauthentication-notifications";
+import { enqueueInvitationNotifications } from "@/utils/invitation-notifications";
 
 const SOURCE_TIMEOUT_MS = INGEST_SOURCE_TIMEOUT_MS;
 const SOURCE_TIMEOUT_DATABASE_GRACE_MS = 5000;
@@ -193,6 +196,10 @@ const createIngestionPersistenceTransaction = (
   calendarId: string,
   signal: AbortSignal,
   deadlineAt: number,
+  notificationContext?: {
+    getPendingInvitations: () => IngestionPendingInvitation[];
+    userId: string;
+  },
 ) =>
   (work: IngestionPersistenceWork) => database.transaction(async (transaction) => {
     const setRemainingStatementTimeout = async (): Promise<void> => {
@@ -302,6 +309,19 @@ const createIngestionPersistenceTransaction = (
         if (changes.snapshot) {
           await setRemainingStatementTimeout();
           await persistCalendarSnapshot(transaction, calendarId, changes.snapshot);
+          signal.throwIfAborted();
+        }
+
+        if (notificationContext) {
+          await setRemainingStatementTimeout();
+          await enqueueInvitationNotifications(
+            transaction as unknown as typeof database,
+            {
+              calendarId,
+              invitations: notificationContext.getPendingInvitations(),
+              userId: notificationContext.userId,
+            },
+          );
           signal.throwIfAborted();
         }
       },
@@ -566,6 +586,13 @@ const applyReauthenticationDemands = async (
           recordedProvenance: recordedDemandSource,
           signal: resolveRaiseSignal(needsReauthentication, decidingVote),
         }));
+        await convergeReauthenticationNotification(database, {
+            accountId,
+            needsReauthentication,
+          })
+          .catch((error: unknown) => {
+            widelog.error("push.notification_convergence_failed", error);
+          });
         widelog.set("outcome", "success");
       } catch (error) {
         widelog.set("outcome", "error");
@@ -790,12 +817,25 @@ const ingestOAuthSources = async (): Promise<IngestionBatchResult> => {
                 if (!fetcher) {
                   return createSkippedIngestionResult(currentSource.userId);
                 }
+                let pendingInvitations: IngestionPendingInvitation[] = [];
                 const ingestionResult = await ingestSource({
                   calendarId: source.calendarId,
-                  fetchEvents: () => fetcher.fetchEvents(),
+                  fetchEvents: async () => {
+                    const fetchResult = await fetcher.fetchEvents();
+                    pendingInvitations = fetchResult.pendingInvitations ?? [];
+                    return fetchResult;
+                  },
                   isCurrent,
                   withPersistenceTransaction:
-                    createIngestionPersistenceTransaction(source.calendarId, signal, deadlineAt),
+                    createIngestionPersistenceTransaction(
+                      source.calendarId,
+                      signal,
+                      deadlineAt,
+                      {
+                        getPendingInvitations: () => pendingInvitations,
+                        userId: currentSource.userId,
+                      },
+                    ),
                   onIngestEvent: recordIngestWideEvent,
                 });
                 return {
@@ -880,6 +920,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
       accountId: calendarAccountsTable.id,
       calendarId: calendarsTable.id,
       calendarUrl: calendarsTable.calendarUrl,
+      email: calendarAccountsTable.email,
       provider: calendarAccountsTable.provider,
       reauthenticationSource: calendarAccountsTable.reauthenticationSource,
       username: caldavCredentialsTable.username,
@@ -918,6 +959,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                 const [currentSource] = await database
                   .select({
                     calendarUrl: calendarsTable.calendarUrl,
+                    email: calendarAccountsTable.email,
                     encryptedPassword: caldavCredentialsTable.encryptedPassword,
                     ingestFutureRange: calendarsTable.ingestFutureRange,
                     ingestHistoricRange: calendarsTable.ingestHistoricRange,
@@ -950,6 +992,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                   calendarUrl: currentSource.calendarUrl ?? currentSource.serverUrl,
                   serverUrl: currentSource.serverUrl,
                   username: currentSource.username,
+                  userEmail: currentSource.email ?? currentSource.username,
                   password: decryptPassword(currentSource.encryptedPassword, encryptionKey),
                   safeFetchOptions: { ...safeFetchOptions, signal },
                   plan: createSourceIngestionPlan(
@@ -957,6 +1000,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                     ranges.futureRange,
                   ),
                 });
+                let pendingInvitations: IngestionPendingInvitation[] = [];
                 const ingestionResult = await ingestSource({
                   calendarId: source.calendarId,
                   fetchEvents: async () => {
@@ -965,11 +1009,20 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                       fetchResult.skippedResourceCount ?? 0,
                       fetchResult.skippedResourceReasons ?? [],
                     );
+                    pendingInvitations = fetchResult.pendingInvitations ?? [];
                     return fetchResult;
                   },
                   isCurrent,
                   withPersistenceTransaction:
-                    createIngestionPersistenceTransaction(source.calendarId, signal, deadlineAt),
+                    createIngestionPersistenceTransaction(
+                      source.calendarId,
+                      signal,
+                      deadlineAt,
+                      {
+                        getPendingInvitations: () => pendingInvitations,
+                        userId: currentSource.userId,
+                      },
+                    ),
                   onIngestEvent: recordIngestWideEvent,
                 });
                 return {
@@ -1071,6 +1124,8 @@ const ingestIcsSources = async (): Promise<IngestionBatchResult> => {
               runSourceIngest(source.calendarId, signal, async (isCurrent) => {
                 const [currentSource] = await database
                   .select({
+                    encryptedIcsPassword: remoteIcsCredentialsTable.encryptedPassword,
+                    encryptedIcsUsername: remoteIcsCredentialsTable.encryptedUsername,
                     ingestFutureRange: calendarsTable.ingestFutureRange,
                     ingestHistoricRange: calendarsTable.ingestHistoricRange,
                     ingestWindowRecordedAt: calendarsTable.ingestWindowRecordedAt,
@@ -1080,6 +1135,10 @@ const ingestIcsSources = async (): Promise<IngestionBatchResult> => {
                     userId: calendarsTable.userId,
                   })
                   .from(calendarsTable)
+                  .leftJoin(
+                    remoteIcsCredentialsTable,
+                    eq(remoteIcsCredentialsTable.calendarId, calendarsTable.id),
+                  )
                   .where(and(
                     eq(calendarsTable.id, source.calendarId),
                     eq(calendarsTable.calendarType, "ical"),
@@ -1089,10 +1148,65 @@ const ingestIcsSources = async (): Promise<IngestionBatchResult> => {
                 if (!currentSource?.url) {
                   return createSkippedIngestionResult(source.userId);
                 }
+                const parsedUrl = new URL(currentSource.url);
+                let credentials: { password: string; username: string } | undefined = globalThis.undefined;
+                if (parsedUrl.username || parsedUrl.password) {
+                  const encryptionKey = env.ENCRYPTION_KEY;
+                  if (!encryptionKey) {
+                    throw new Error(
+                      "ENCRYPTION_KEY is required to migrate authenticated remote ICS credentials",
+                    );
+                  }
+                  credentials = {
+                    password: decodeURIComponent(parsedUrl.password),
+                    username: decodeURIComponent(parsedUrl.username),
+                  };
+                  parsedUrl.username = "";
+                  parsedUrl.password = "";
+                  parsedUrl.hash = "";
+                  const encryptedPassword = encryptPassword(credentials.password, encryptionKey);
+                  const encryptedUsername = encryptPassword(credentials.username, encryptionKey);
+                  await database.transaction(async (transaction) => {
+                    await transaction
+                      .update(calendarsTable)
+                      .set({ url: parsedUrl.toString() })
+                      .where(eq(calendarsTable.id, source.calendarId));
+                    await transaction
+                      .insert(remoteIcsCredentialsTable)
+                      .values({
+                        calendarId: source.calendarId,
+                        encryptedPassword,
+                        encryptedUsername,
+                      })
+                      .onConflictDoUpdate({
+                        set: {
+                          encryptedPassword,
+                          encryptedUsername,
+                        },
+                        target: remoteIcsCredentialsTable.calendarId,
+                      });
+                  });
+                } else if (
+                  env.ENCRYPTION_KEY
+                  && currentSource.encryptedIcsPassword
+                  && currentSource.encryptedIcsUsername
+                ) {
+                  credentials = {
+                    password: decryptPassword(
+                      currentSource.encryptedIcsPassword,
+                      env.ENCRYPTION_KEY,
+                    ),
+                    username: decryptPassword(
+                      currentSource.encryptedIcsUsername,
+                      env.ENCRYPTION_KEY,
+                    ),
+                  };
+                }
                 const ranges = await getRequiredSourceRanges(source.calendarId);
                 const fetcher = createIcsSourceFetcher({
                   calendarId: source.calendarId,
-                  url: currentSource.url,
+                  credentials,
+                  url: parsedUrl.toString(),
                   database,
                   safeFetchOptions: { ...safeFetchOptions, signal },
                   plan: createSourceIngestionPlan(

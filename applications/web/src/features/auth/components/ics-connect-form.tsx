@@ -31,7 +31,12 @@ export function ICSFeedForm() {
 
     if (!rawUrl || typeof rawUrl !== "string") return;
 
-    let url = rawUrl;
+    const payload: {
+      name: string;
+      password?: string;
+      url: string;
+      username?: string;
+    } = { name: "iCal Feed", url: rawUrl };
 
     if (requiresAuth) {
       const username = formData.get("username");
@@ -42,15 +47,8 @@ export function ICSFeedForm() {
         return;
       }
 
-      try {
-        const parsed = new URL(rawUrl);
-        parsed.username = encodeURIComponent(String(username));
-        parsed.password = encodeURIComponent(String(password));
-        url = parsed.toString();
-      } catch {
-        setError("Invalid URL.");
-        return;
-      }
+      payload.username = String(username);
+      payload.password = String(password);
     }
 
     setError(null);
@@ -60,7 +58,7 @@ export function ICSFeedForm() {
 
       try {
         const response = await apiFetch("/api/ics", {
-          body: JSON.stringify({ name: "iCal Feed", url }),
+          body: JSON.stringify(payload),
           headers: { "Content-Type": "application/json" },
           method: "POST",
         });

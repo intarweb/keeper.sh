@@ -93,8 +93,14 @@ interface HandleOAuthCallbackDependencies {
     provider: string;
     refreshToken: string;
     userId: string;
-  }) => Promise<void>;
+  }) => Promise<unknown>;
   enqueuePushSync: (userId: string) => Promise<void>;
+  notifyReauthentication?: (input: {
+    accountId: string;
+    provider: string;
+    userId: string;
+  }) => Promise<void>;
+  clearReauthentication?: (accountId: string) => Promise<void>;
   validateState: (state: string) => Promise<ValidatedState | null>;
 }
 
@@ -177,7 +183,7 @@ const handleOAuthCallbackWithDependencies = async (
     destinationPayload.destinationId = destinationId;
   }
 
-  await dependencies.persistCalendarDestination({
+  const persistedAccountId = await dependencies.persistCalendarDestination({
     accountId: userInfo.id,
     accessToken: tokens.access_token,
     ...destinationPayload,
@@ -189,6 +195,24 @@ const handleOAuthCallbackWithDependencies = async (
     userId,
   });
 
+  if (
+    needsReauthentication
+    && dependencies.notifyReauthentication
+    && typeof persistedAccountId === "string"
+  ) {
+    await dependencies.notifyReauthentication({
+      accountId: persistedAccountId,
+      provider: params.provider,
+      userId,
+    });
+  } else if (
+    !needsReauthentication
+    && dependencies.clearReauthentication
+    && typeof persistedAccountId === "string"
+  ) {
+    await dependencies.clearReauthentication(persistedAccountId);
+  }
+
   await dependencies.enqueuePushSync(userId);
 
   return { redirectUrl: successUrl, userId };
@@ -197,10 +221,20 @@ const handleOAuthCallbackWithDependencies = async (
 const handleOAuthCallback = async (
   params: OAuthCallbackParams,
 ): Promise<{ userId: string; redirectUrl: URL }> => {
-  const [{ baseUrl, database, premiumService }, destinationsModule, { enqueuePushSync }] = await Promise.all([
+  const [
+    { baseUrl, database, premiumService },
+    destinationsModule,
+    { enqueuePushSync },
+    {
+      clearReauthenticationNotification,
+      createReauthenticationNotificationKey,
+      enqueueReauthenticationNotification,
+    },
+  ] = await Promise.all([
     import("@/context"),
     import("./destinations"),
     import("./enqueue-push-sync"),
+    import("./push-notifications"),
   ]);
 
   const persistCalendarDestination = async (payload: {
@@ -213,9 +247,9 @@ const handleOAuthCallback = async (
     provider: string;
     refreshToken: string;
     userId: string;
-  }): Promise<void> => {
+  }): Promise<string | null> => {
     const plan = await premiumService.getUserPlan(payload.userId);
-    await database.transaction(async (tx) => {
+    return database.transaction(async (tx) => {
       await tx.execute(
         sql`select pg_advisory_xact_lock(${USER_ACCOUNT_LOCK_NAMESPACE}, hashtext(${payload.userId}))`,
       );
@@ -252,6 +286,8 @@ const handleOAuthCallback = async (
         payload.expiresAt,
         payload.needsReauthentication,
       );
+      const account = await getExistingDestinationAccount(tx, payload.provider, payload.accountId);
+      return account?.id ?? null;
     });
   };
 
@@ -269,6 +305,18 @@ const handleOAuthCallback = async (
       }
       await enqueuePushSync(userId, plan);
     },
+    notifyReauthentication: async ({ accountId, provider, userId }) => {
+      await enqueueReauthenticationNotification(
+        userId,
+        {
+          accountId,
+          deepLink: { params: { id: accountId }, path: "/accounts/[id]" },
+          provider,
+        },
+        createReauthenticationNotificationKey(accountId),
+      );
+    },
+    clearReauthentication: clearReauthenticationNotification,
     validateState: destinationsModule.validateState,
   });
 };

@@ -1,0 +1,18 @@
+appId: sh.keeper.mobile
+name: Android offline restart with cached agenda
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- extendedWaitUntil:
+    visible: "Sync Now"
+    timeout: 30000
+- toggleAirplaneMode
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 20000
+- assertVisible:
+    text: "Offline copy|Your agenda is clear|Sync Now"
+- toggleAirplaneMode

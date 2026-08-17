@@ -1,0 +1,11 @@
+appId: sh.keeper.mobile
+name: Hosted email authentication
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- assertVisible: "Invitations"
+- tapOn: "Settings"
+- assertVisible: "Profile & Account"
+- assertVisible:
+    text: "https://keeper.sh|keeper.sh"

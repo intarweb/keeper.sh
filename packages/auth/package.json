@@ -10,6 +10,7 @@
     "lint": "oxlint ."
   },
   "dependencies": {
+    "@better-auth/expo": "1.5.5",
     "@better-auth/oauth-provider": "1.5.5",
     "@better-auth/passkey": "^1.5.5",
     "@keeper.sh/constants": "workspace:*",

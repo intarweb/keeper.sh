@@ -12,8 +12,10 @@ import {
   parseEventReference,
   projectSyncedEvents,
   toKeeperEvent,
+  toPublicAvailability,
   toUserProjection,
 } from "./event-read-model";
+import { redactUrlCredentials } from "@/utils/redact-url-credentials";
 import type {
   KeeperEventProjection,
   SourceInfo,
@@ -56,6 +58,7 @@ const getUserEvent = async (
 ): Promise<KeeperEvent | null> => {
   const [result] = await database
     .select({
+      availability: userEventsTable.availability,
       id: userEventsTable.id,
       calendarId: userEventsTable.calendarId,
       startTime: userEventsTable.startTime,
@@ -88,7 +91,7 @@ const getUserEvent = async (
     {
       name: result.calendarName,
       provider: result.calendarProvider,
-      url: result.calendarUrl,
+      url: redactUrlCredentials(result.calendarUrl),
       userId,
     },
   );
@@ -139,10 +142,12 @@ const getSeriesRows = (
 };
 
 const toPersistedSyncedProjection = (row: SyncedEventRow): KeeperEventProjection => ({
+  availability: toPublicAvailability(row.availability),
   calendarId: row.calendarId,
   description: row.description,
   eventStateId: row.id,
   id: row.id,
+  isAllDay: row.isAllDay ?? false,
   location: row.location,
   title: row.title,
   ...resolveRepresentableTimeRange({
@@ -178,7 +183,7 @@ const resolveEventReadModel = async (
   const source: SourceInfo = {
     name: owner.calendarName,
     provider: owner.calendarProvider,
-    url: owner.calendarUrl,
+    url: redactUrlCredentials(owner.calendarUrl),
     userId,
   };
 

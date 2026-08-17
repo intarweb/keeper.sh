@@ -33,6 +33,11 @@ interface ParsedUrl {
   headers: Record<string, string>;
 }
 
+interface RemoteCalendarCredentials {
+  password: string;
+  username: string;
+}
+
 const parseUrlWithCredentials = (url: string): ParsedUrl => {
   const parsed = new URL(url);
   const headers: Record<string, string> = {};
@@ -49,8 +54,23 @@ const parseUrlWithCredentials = (url: string): ParsedUrl => {
 
 const ICS_USER_AGENT = "Keeper/1.0 (+https://www.keeper.sh)";
 
-const fetchRemoteText = async (url: string, options?: SafeFetchOptions): Promise<string> => {
+const createAuthorizationHeader = (credentials?: RemoteCalendarCredentials): string | null => {
+  if (!credentials) {
+    return null;
+  }
+  return `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64")}`;
+};
+
+const fetchRemoteText = async (
+  url: string,
+  options?: SafeFetchOptions,
+  credentials?: RemoteCalendarCredentials,
+): Promise<string> => {
   const { url: cleanUrl, headers } = parseUrlWithCredentials(url);
+  const authorization = createAuthorizationHeader(credentials);
+  if (authorization) {
+    headers.Authorization = authorization;
+  }
   const safeFetch = createSafeFetch(options);
   const response = await safeFetch(cleanUrl, {
     headers: { "User-Agent": ICS_USER_AGENT, ...headers },
@@ -59,7 +79,7 @@ const fetchRemoteText = async (url: string, options?: SafeFetchOptions): Promise
   if (!response.ok) {
     if (response.status === HTTP_STATUS.UNAUTHORIZED || response.status === HTTP_STATUS.FORBIDDEN) {
       throw new CalendarFetchError(
-        "Calendar requires authentication. Use a public URL or include credentials in the URL (https://user:pass@host/path).",
+        "Calendar requires authentication. Use a public URL or provide a username and password.",
         response.status,
       );
     }
@@ -103,11 +123,11 @@ const normalizeOutputToArray = (output: OutputJSON | OutputICal | OutputICALOrJS
   return output;
 };
 
-async function pullRemoteCalendar(output: OutputICal, url: string, options?: SafeFetchOptions): Promise<JustICal>;
+async function pullRemoteCalendar(output: OutputICal, url: string, options?: SafeFetchOptions, credentials?: RemoteCalendarCredentials): Promise<JustICal>;
 
-async function pullRemoteCalendar(output: OutputJSON, url: string, options?: SafeFetchOptions): Promise<JustJSON>;
+async function pullRemoteCalendar(output: OutputJSON, url: string, options?: SafeFetchOptions, credentials?: RemoteCalendarCredentials): Promise<JustJSON>;
 
-async function pullRemoteCalendar(output: OutputICALOrJSON, url: string, options?: SafeFetchOptions): Promise<ICalOrJSON>;
+async function pullRemoteCalendar(output: OutputICALOrJSON, url: string, options?: SafeFetchOptions, credentials?: RemoteCalendarCredentials): Promise<ICalOrJSON>;
 
 /**
  * @throws
@@ -116,10 +136,11 @@ async function pullRemoteCalendar(
   output: OutputJSON | OutputICal | OutputICALOrJSON,
   url: string,
   options?: SafeFetchOptions,
+  credentials?: RemoteCalendarCredentials,
 ): Promise<JustICal | JustJSON | ICalOrJSON> {
   const outputs = normalizeOutputToArray(output);
   const normalizedUrl = normalizeCalendarUrl(url);
-  const ical = await fetchRemoteText(normalizedUrl, options);
+  const ical = await fetchRemoteText(normalizedUrl, options, credentials);
   const json = parseIcsCalendarLenient({ icsString: ical, patches: [coerceCompliantDate] });
 
   if (!json.version || !json.prodId) {
@@ -140,3 +161,4 @@ async function pullRemoteCalendar(
 }
 
 export { CalendarFetchError, pullRemoteCalendar };
+export type { RemoteCalendarCredentials };

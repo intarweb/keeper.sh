@@ -3,9 +3,13 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import {
   calendarAccountsTable,
   calendarsTable,
+  deviceInstallationsTable,
   eventMappingsTable,
   eventStatesTable,
   userSyncRequestsTable,
+  pushNotificationOutboxTable,
+  pushNotificationDeliveriesTable,
+  remoteIcsCredentialsTable,
 } from "../../src/database/schema";
 
 describe("calendar account schema", () => {
@@ -29,7 +33,46 @@ describe("calendar account schema", () => {
   });
 });
 
+describe("mobile notification schema", () => {
+  it("deduplicates installations per user and supports durable dispatch", () => {
+    const deviceConfig = getTableConfig(deviceInstallationsTable);
+    const installationIndex = deviceConfig.indexes.find(
+      (index) => index.config.name === "device_installations_user_installation_idx",
+    );
+    expect(installationIndex?.config.unique).toBe(true);
+
+    const outboxConfig = getTableConfig(pushNotificationOutboxTable);
+    expect(outboxConfig.indexes.some(
+      (index) => index.config.name === "push_notification_outbox_dispatch_idx",
+    )).toBe(true);
+    expect(outboxConfig.checks.map((check) => check.name)).toEqual(expect.arrayContaining([
+      "push_notification_outbox_status_check",
+      "push_notification_outbox_type_check",
+    ]));
+
+    const deliveryConfig = getTableConfig(pushNotificationDeliveriesTable);
+    const deliveryIdentity = deliveryConfig.indexes.find(
+      (index) => index.config.name
+        === "push_notification_deliveries_notification_installation_idx",
+    );
+    expect(deliveryIdentity?.config.unique).toBe(true);
+    expect(deliveryConfig.checks.map((check) => check.name)).toContain(
+      "push_notification_deliveries_status_check",
+    );
+  });
+});
+
 describe("calendar schema", () => {
+  it("stores remote ICS credentials separately from calendar URLs", () => {
+    const credentialsConfig = getTableConfig(remoteIcsCredentialsTable);
+    expect(credentialsConfig.columns.map(({ name }) => name)).toEqual(expect.arrayContaining([
+      "calendarId",
+      "encryptedPassword",
+      "encryptedUsername",
+    ]));
+    expect(credentialsConfig.foreignKeys).toHaveLength(1);
+  });
+
   it("anonymises event detail by default regardless of the flow that inserted the row", () => {
     const tableConfig = getTableConfig(calendarsTable);
     const defaults = Object.fromEntries(

@@ -4,7 +4,7 @@ import { PROVIDER_INGEST_REQUEST_TIMEOUT_MS } from "@keeper.sh/constants";
 
 const parseSafeFetchOptions = (): SafeFetchOptions => {
   const options: SafeFetchOptions = {
-    blockPrivateResolution: env.BLOCK_PRIVATE_RESOLUTION === true,
+    blockPrivateResolution: env.BLOCK_PRIVATE_RESOLUTION !== false,
     timeoutMs: PROVIDER_INGEST_REQUEST_TIMEOUT_MS,
   };
 

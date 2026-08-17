@@ -1,0 +1,23 @@
+diff --git a/out/shared/disjoint.js b/out/shared/disjoint.js
+index 9fb94ad4f257b95225536eb5fdf20eaf6193b7a6..0696a4c4ea53c52bc1886a30933f63d8a8e200f5 100644
+--- a/out/shared/disjoint.js
++++ b/out/shared/disjoint.js
+@@ -48,11 +48,17 @@ export class Disjoint extends Array {
+         return result;
+     }
+     withPrefixKey(key, kind) {
+-        return this.map(entry => ({
++        const result = this.map(entry => ({
+             ...entry,
+             path: [key, ...entry.path],
+             optional: entry.optional || kind === "optional"
+         }));
++        // Static Hermes does not preserve Array subclasses through Array#map.
++        // Keep the return type consistent with invert() so downstream
++        // intersection logic can reliably identify Disjoint results.
++        if (!(result instanceof Disjoint))
++            return new Disjoint(...result);
++        return result;
+     }
+     toNeverIfDisjoint() {
+         return $ark.intrinsic.never;

@@ -11,6 +11,7 @@ import {
   updateEventMutation,
   deleteEventMutation,
   rsvpEventMutation,
+  rsvpInviteMutation,
   getPendingInvitesMutation,
 } from "./mutations";
 import type { OAuthTokenRefresher } from "./mutations";
@@ -45,6 +46,16 @@ const createKeeperApi = (database: KeeperDatabase, options?: KeeperApiOptions): 
     updateEvent: (userId, eventId, updates) => updateEventMutation(deps, userId, eventId, updates),
     deleteEvent: (userId, eventId) => deleteEventMutation(deps, userId, eventId),
     rsvpEvent: (userId, eventId, status) => rsvpEventMutation(deps, userId, eventId, status),
+    rsvpInvite: (userId, calendarId, sourceEventUid, sourceEventId, status, occurrenceStart) =>
+      rsvpInviteMutation(
+        deps,
+        userId,
+        calendarId,
+        sourceEventUid,
+        sourceEventId,
+        status,
+        occurrenceStart,
+      ),
     getPendingInvites: (userId, calendarId, from, to) => getPendingInvitesMutation(deps, userId, calendarId, from, to),
   };
 };

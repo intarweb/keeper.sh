@@ -15,6 +15,7 @@ import type {
   IcsTimezone,
 } from "ts-ics";
 import type { MaterializedSyncableEvent, SyncableEvent } from "../../../core/types";
+import type { PendingProviderInvitation } from "../../../core/sync-engine/ingest";
 import { isKeeperEvent } from "../../../core/events/identity";
 import { resolveIsAllDayEvent } from "../../../core/events/all-day";
 import {
@@ -89,11 +90,13 @@ interface ParsedCalendarEvent {
 }
 
 interface ParseICalCalendarsOptions {
+  invitationEmail?: string;
   rejectUnsupportedRecurrenceDates?: boolean;
 }
 
 interface ParsedCalendarResources {
   events: ParsedCalendarEvent[];
+  pendingInvitations: PendingProviderInvitation[];
   /** VEVENTs in a readable resource that `skippedResourceCount` cannot see. */
   unrepresentableEventCount: number;
   skippedResourceCount: number;
@@ -204,6 +207,7 @@ const parseICalCalendarsToRemoteEvents = (
     }
     return {
       events: [],
+      pendingInvitations: [],
       skippedResourceCount: 0,
       skippedResourceReasons,
       unrepresentableEventCount: 0,
@@ -214,6 +218,24 @@ const parseICalCalendarsToRemoteEvents = (
     ...firstCalendar,
     events: calendars.flatMap((entry) => entry.events ?? []),
   };
+  const normalizedInvitationEmail = options.invitationEmail
+    ?.toLowerCase()
+    .replace(/^mailto:/, "");
+  const pendingInvitations: PendingProviderInvitation[] = [];
+  if (normalizedInvitationEmail) {
+    for (const event of calendar.events) {
+      const attendee = event.attendees?.find(({ email }) =>
+        email.toLowerCase().replace(/^mailto:/, "") === normalizedInvitationEmail,
+      );
+      if (attendee?.partstat !== "NEEDS-ACTION" || !event.uid || !event.start?.date) {
+        continue;
+      }
+      pendingInvitations.push({
+        occurrenceStart: event.start.date.toISOString(),
+        sourceEventUid: event.uid,
+      });
+    }
+  }
   const parsed = parseIcsEventsWithDiagnostics(calendar, { includeKeeperEvents: true });
   const unsupportedEvents = [
     ...parsed.unsupportedEvents,
@@ -238,6 +260,7 @@ const parseICalCalendarsToRemoteEvents = (
   }));
   return {
     events,
+    pendingInvitations,
     skippedResourceCount: skippedResourceReasons.length,
     skippedResourceReasons,
     unrepresentableEventCount: parsed.unrepresentableCount,

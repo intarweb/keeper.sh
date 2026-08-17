@@ -12,6 +12,11 @@ import {
 import { createOAuthSourceCredential } from "@/utils/oauth-source-credentials";
 import { importOAuthAccountCalendars } from "@/utils/oauth-sources";
 import { baseUrl } from "@/context";
+import {
+  buildNativeOAuthResponse,
+  consumeNativeReturnContext,
+  resolveNativeOAuthFailure,
+} from "@/utils/mobile-oauth-return";
 
 const MS_PER_SECOND = 1000;
 
@@ -23,6 +28,12 @@ const GET = withWideEvent(async ({ request, params }) => {
   widelog.set("provider.name", params.provider);
 
   const { provider } = params;
+  const requestUrl = new URL(request.url);
+  const nativeContext = await consumeNativeReturnContext(
+    requestUrl.searchParams.get("state"),
+    "source",
+    provider,
+  );
 
   const errorUrl = buildRedirectUrl("/dashboard/integrations", baseUrl, {
     error: "Failed to connect source",
@@ -30,7 +41,7 @@ const GET = withWideEvent(async ({ request, params }) => {
   });
 
   try {
-    const url = new URL(request.url);
+    const url = requestUrl;
     const callbackQuery = Object.fromEntries(url.searchParams.entries());
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
@@ -54,6 +65,9 @@ const GET = withWideEvent(async ({ request, params }) => {
     }
 
     const { userId } = validatedState;
+    if (nativeContext && nativeContext.userId !== userId) {
+      throw new OAuthError("OAuth state user binding mismatch", errorUrl);
+    }
 
     const callbackUrl = new URL(`/api/sources/callback/${provider}`, baseUrl);
     const tokens = await exchangeCodeForTokens(provider, code, callbackUrl.toString());
@@ -82,14 +96,32 @@ const GET = withWideEvent(async ({ request, params }) => {
     });
 
     const successUrl = buildRedirectUrl(`/dashboard/accounts/${accountId}/setup`, baseUrl);
+    if (nativeContext) {
+      return buildNativeOAuthResponse(nativeContext, {
+        resourceId: accountId,
+        status: "success",
+      });
+    }
     return Response.redirect(successUrl.toString());
   } catch (error) {
     if (error instanceof OAuthError) {
       widelog.errorFields(error, { slug: "oauth-callback-failed" });
+      if (nativeContext) {
+        return buildNativeOAuthResponse(
+          nativeContext,
+          resolveNativeOAuthFailure(requestUrl.searchParams.get("error")),
+        );
+      }
       return Response.redirect(error.redirectUrl.toString());
     }
 
     labelFailure(error, { slug: "unclassified" });
+    if (nativeContext) {
+      return buildNativeOAuthResponse(nativeContext, {
+        errorCode: "oauth_failed",
+        status: "error",
+      });
+    }
     return Response.redirect(errorUrl.toString());
   }
 });

@@ -442,24 +442,14 @@ const deleteEventMutation = async (
   return { success: true };
 };
 
-const rsvpEventMutation = async (
+const rsvpWithCredentials = async (
   deps: MutationDependencies,
-  userId: string,
-  eventId: string,
+  credentials: ProviderCredentials,
+  sourceEventUid: string,
   status: RsvpStatus,
+  occurrenceStart: Date | null,
+  sourceEventId: string | null,
 ): Promise<EventActionResult> => {
-  const resolved = await resolveCredentialsByEventId(deps.database, userId, eventId);
-
-  if (!resolved) {
-    return { success: false, error: "Event not found." };
-  }
-
-  const { credentials, occurrenceStart, sourceEventId, sourceEventUid } = resolved;
-
-  if (!sourceEventUid) {
-    return { success: false, error: "Event cannot be responded to (no source UID)." };
-  }
-
   if (!credentials.email) {
     return { success: false, error: "No email associated with this calendar account." };
   }
@@ -476,7 +466,7 @@ const rsvpEventMutation = async (
       return rsvpGoogleEvent(
         accessToken,
         credentials.externalCalendarId,
-        { sourceEventId, sourceEventUid },
+        { occurrenceStart, sourceEventId, sourceEventUid },
         status,
         credentials.email,
       );
@@ -485,7 +475,7 @@ const rsvpEventMutation = async (
     if (credentials.provider === "outlook") {
       return rsvpOutlookEvent(
         accessToken,
-        { sourceEventId, sourceEventUid },
+        { occurrenceStart, sourceEventId, sourceEventUid },
         status,
       );
     }
@@ -511,6 +501,57 @@ const rsvpEventMutation = async (
   }
 
   return { success: false, error: "RSVP not supported for this calendar provider." };
+};
+
+const rsvpEventMutation = async (
+  deps: MutationDependencies,
+  userId: string,
+  eventId: string,
+  status: RsvpStatus,
+): Promise<EventActionResult> => {
+  const resolved = await resolveCredentialsByEventId(deps.database, userId, eventId);
+
+  if (!resolved) {
+    return { success: false, error: "Event not found." };
+  }
+
+  const { credentials, occurrenceStart, sourceEventId, sourceEventUid } = resolved;
+
+  if (!sourceEventUid) {
+    return { success: false, error: "Event cannot be responded to (no source UID)." };
+  }
+
+  return rsvpWithCredentials(
+    deps,
+    credentials,
+    sourceEventUid,
+    status,
+    occurrenceStart,
+    sourceEventId,
+  );
+};
+
+const rsvpInviteMutation = async (
+  deps: MutationDependencies,
+  userId: string,
+  calendarId: string,
+  sourceEventUid: string,
+  sourceEventId: string | null,
+  status: RsvpStatus,
+  occurrenceStart: Date | null,
+): Promise<EventActionResult> => {
+  const credentials = await resolveCredentialsByCalendarId(deps.database, userId, calendarId);
+  if (!credentials) {
+    return { success: false, error: "Calendar not found." };
+  }
+  return rsvpWithCredentials(
+    deps,
+    credentials,
+    sourceEventUid,
+    status,
+    occurrenceStart,
+    sourceEventId,
+  );
 };
 
 const fetchOAuthPendingInvites = async (
@@ -625,5 +666,5 @@ const getPendingInvitesMutation = async (
   return invites;
 };
 
-export { completeUpdateRange, createEventMutation, updateEventMutation, deleteEventMutation, rsvpEventMutation, getPendingInvitesMutation };
+export { completeUpdateRange, createEventMutation, updateEventMutation, deleteEventMutation, rsvpEventMutation, rsvpInviteMutation, getPendingInvitesMutation };
 export type { MutationDependencies, OAuthTokenRefresher };

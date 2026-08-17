@@ -4,7 +4,7 @@ import { withAuth, withWideEvent } from "@/utils/middleware";
 import { ErrorResponse } from "@/utils/responses";
 import { getAuthorizationUrl, isOAuthProvider } from "@/utils/destinations";
 import { destinationAuthorizeQuerySchema } from "@/utils/request-query";
-import { baseUrl, database, premiumService } from "@/context";
+import { baseUrl, database, nativeOAuth, premiumService } from "@/context";
 
 const FIRST_RESULT_LIMIT = 1;
 
@@ -33,11 +33,12 @@ const countUserAccounts = async (userId: string): Promise<number> => {
 };
 
 const GET = withWideEvent(
-  withAuth(async ({ request, userId }) => {
+  withAuth(async ({ request, sessionId, userId }) => {
     const url = new URL(request.url);
     const query = Object.fromEntries(url.searchParams.entries());
     const provider = url.searchParams.get("provider");
     const destinationId = url.searchParams.get("destinationId");
+    const returnTo = url.searchParams.get("returnTo");
 
     if (
       !destinationAuthorizeQuerySchema.allows(query)
@@ -77,6 +78,24 @@ const GET = withWideEvent(
       authorizationOptions.destinationId = destinationId;
     }
     const authUrl = await getAuthorizationUrl(provider, userId, authorizationOptions);
+
+    if (returnTo) {
+      const providerState = new URL(authUrl).searchParams.get("state");
+      if (!providerState) {
+        return ErrorResponse.badRequest("Provider did not issue OAuth state").toResponse();
+      }
+      try {
+        await nativeOAuth.registerContext(providerState, {
+          flow: "destination",
+          provider,
+          returnUrl: returnTo,
+          sessionId,
+          userId,
+        });
+      } catch {
+        return ErrorResponse.badRequest("Mobile return URL is not allowlisted").toResponse();
+      }
+    }
 
     return Response.redirect(authUrl);
   }),

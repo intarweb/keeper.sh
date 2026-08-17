@@ -1,0 +1,12 @@
+appId: sh.keeper.mobile
+name: Authenticated tab navigation
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- tapOn: "Calendars"
+- assertVisible: "Connect a calendar account"
+- tapOn: "Settings"
+- assertVisible: "Profile & Account"
+- tapOn: "Today"
+- assertVisible: "Invitations"

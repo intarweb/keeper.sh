@@ -467,6 +467,7 @@ const getPendingCalDAVInvites = async (
   to: string,
   userEmail: string,
 ): Promise<{
+  sourceEventId: string | null;
   sourceEventUid: string;
   title: string | null;
   description: string | null;
@@ -484,6 +485,7 @@ const getPendingCalDAVInvites = async (
     });
 
     const pendingEvents: {
+      sourceEventId: string | null;
       sourceEventUid: string;
       title: string | null;
       description: string | null;
@@ -526,6 +528,7 @@ const getPendingCalDAVInvites = async (
       const endTime = event.end?.date?.toISOString() ?? event.start.date.toISOString();
 
       pendingEvents.push({
+        sourceEventId: null,
         sourceEventUid: event.uid,
         title: event.summary ?? null,
         description: event.description ?? null,

@@ -1,0 +1,27 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "plugins": ["import", "typescript", "unicorn", "promise"],
+  "env": { "browser": true, "node": true, "es2024": true },
+  "globals": { "__DEV__": "readonly" },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off"
+  },
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/no-unused-vars": "error",
+    "import/no-cycle": "error",
+    "import/no-self-import": "error",
+    "import/no-unassigned-import": "off",
+    "promise/always-return": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "react/react-in-jsx-scope": "off"
+  },
+  "ignorePatterns": ["node_modules/**", "dist/**", ".expo/**"]
+}

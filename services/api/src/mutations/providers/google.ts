@@ -97,6 +97,7 @@ const findGoogleEventByUid = async (
   accessToken: string,
   externalCalendarId: string | null,
   sourceEventUid: string,
+  occurrenceStart?: Date | null,
 ): Promise<GoogleEventWithAttendees | null> => {
   const calendarId = getCalendarId(externalCalendarId);
   const url = new URL(`calendars/${encodeURIComponent(calendarId)}/events`, GOOGLE_CALENDAR_API);
@@ -112,8 +113,17 @@ const findGoogleEventByUid = async (
   }
 
   const body = googleEventWithAttendeesListSchema.assert(await response.json());
-  const [item] = body.items ?? [];
-  return item ?? null;
+  const items = body.items ?? [];
+  if (occurrenceStart) {
+    return items.find((item) => {
+      const value = item.start?.dateTime ?? item.start?.date;
+      return value && new Date(value).getTime() === occurrenceStart.getTime();
+    }) ?? null;
+  }
+  if (items.length === 1) {
+    return items[0] ?? null;
+  }
+  return null;
 };
 
 const findGoogleEventById = async (
@@ -138,22 +148,27 @@ const findGoogleEventById = async (
   return googleEventWithAttendeesSchema.assert(await response.json());
 };
 
-const resolveGoogleEvent = (
+const resolveGoogleEvent = async (
   accessToken: string,
   externalCalendarId: string | null,
   reference: ProviderEventReference,
 ): Promise<GoogleEventWithAttendees | null> => {
   if (reference.sourceEventId) {
-    return findGoogleEventById(
+    const event = await findGoogleEventById(
       accessToken,
       externalCalendarId,
       reference.sourceEventId,
     );
+    if (event?.iCalUID === reference.sourceEventUid) {
+      return event;
+    }
+    return null;
   }
   return findGoogleEventByUid(
     accessToken,
     externalCalendarId,
     reference.sourceEventUid,
+    reference.occurrenceStart,
   );
 };
 
@@ -319,6 +334,7 @@ const rsvpGoogleEvent = async (
 };
 
 interface PendingGoogleEvent {
+  sourceEventId: string | null;
   sourceEventUid: string;
   title: string | null;
   description: string | null;
@@ -356,6 +372,7 @@ const parseGooglePendingEvent = (event: GoogleEventWithAttendees): PendingGoogle
   const isAllDay = Boolean(event.start && "date" in event.start);
 
   return {
+    sourceEventId: event.id ?? null,
     sourceEventUid: event.iCalUID,
     title: event.summary ?? null,
     description: event.description ?? null,

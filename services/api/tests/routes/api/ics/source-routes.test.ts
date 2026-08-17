@@ -77,6 +77,43 @@ describe("handlePostIcsSourceRoute", () => {
     expect(await readJson(response)).toEqual({ id: "source-1", name: "Team Calendar" });
   });
 
+  it("passes authenticated remote ICS credentials separately from the URL", async () => {
+    const calls: unknown[][] = [];
+    const response = await handlePostIcsSourceRoute(
+      {
+        body: {
+          name: "Private Calendar",
+          password: "secret",
+          url: "https://example.com/private.ics",
+          username: "calendar-user",
+        },
+        userId: "user-1",
+      },
+      {
+        createSource: (...arguments_) => {
+          calls.push(arguments_);
+          return Promise.resolve({ id: "source-private" });
+        },
+        isInvalidSourceUrlError: (_error): _error is TestInvalidSourceUrlError => false,
+        isSourceLimitError: () => false,
+        parseCreateSourceBody: () => ({
+          name: "Private Calendar",
+          password: "secret",
+          url: "https://example.com/private.ics",
+          username: "calendar-user",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(calls).toEqual([[
+      "user-1",
+      "Private Calendar",
+      "https://example.com/private.ics",
+      { password: "secret", username: "calendar-user" },
+    ]]);
+  });
+
   it("maps source-limit errors to payment required", async () => {
     const response = await handlePostIcsSourceRoute(
       {

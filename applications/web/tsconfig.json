@@ -22,7 +22,9 @@
 
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@keeper.sh/api-client": ["../../packages/api-client/src/index.ts"],
+      "@keeper.sh/api-contracts": ["../../packages/api-contracts/src/index.ts"]
     }
   },
   "include": ["src","tests/**/*"],

@@ -1,4 +1,10 @@
-import { calendarAccountsTable, calendarsTable, eventStatesTable } from "@keeper.sh/database/schema";
+import {
+  calendarAccountsTable,
+  calendarsTable,
+  eventStatesTable,
+  remoteIcsCredentialsTable,
+} from "@keeper.sh/database/schema";
+import { decryptPassword, encryptPassword } from "@keeper.sh/database";
 import {
   pullRemoteCalendar,
   createIcsSourceFetcher,
@@ -29,7 +35,7 @@ import {
 import { safeFetchOptions } from "./safe-fetch-options";
 
 import { spawnBackgroundJob } from "./background-task";
-import { database, premiumService, redis } from "@/context";
+import { database, encryptionKey, premiumService, redis } from "@/context";
 import { widelog } from "@/utils/logging";
 import { createSyncLock } from "@keeper.sh/sync";
 
@@ -41,6 +47,51 @@ const destinationRangesReader = createDestinationRangesReader(database);
 const FIRST_RESULT_LIMIT = 1;
 const ICAL_CALENDAR_TYPE = "ical";
 type Source = typeof calendarsTable.$inferSelect;
+interface RemoteIcsCredentials {
+  password: string;
+  username: string;
+}
+
+const stripUrlCredentials = (value: string): {
+  credentials: RemoteIcsCredentials | null;
+  url: string;
+} => {
+  const parsed = new URL(value);
+  let credentials: RemoteIcsCredentials | null = null;
+  if (parsed.username || parsed.password) {
+    credentials = {
+      password: decodeURIComponent(parsed.password),
+      username: decodeURIComponent(parsed.username),
+    };
+    parsed.username = "";
+    parsed.password = "";
+  }
+  parsed.hash = "";
+  return { credentials, url: parsed.toString() };
+};
+
+const readRemoteIcsCredentials = async (
+  calendarId: string,
+): Promise<RemoteIcsCredentials | undefined> => {
+  if (!encryptionKey) {
+    return;
+  }
+  const [row] = await database
+    .select({
+      encryptedPassword: remoteIcsCredentialsTable.encryptedPassword,
+      encryptedUsername: remoteIcsCredentialsTable.encryptedUsername,
+    })
+    .from(remoteIcsCredentialsTable)
+    .where(eq(remoteIcsCredentialsTable.calendarId, calendarId))
+    .limit(1);
+  if (!row) {
+    return;
+  }
+  return {
+    password: decryptPassword(row.encryptedPassword, encryptionKey),
+    username: decryptPassword(row.encryptedUsername, encryptionKey),
+  };
+};
 
 const createIngestionPersistenceTransaction = (calendarId: string) =>
   (work: IngestionPersistenceWork) => withSourceIngestLock(
@@ -117,9 +168,12 @@ const ingestIcsSource = async (source: Source): Promise<void> => {
     return;
   }
 
+  const legacy = stripUrlCredentials(source.url);
+  const credentials = legacy.credentials ?? await readRemoteIcsCredentials(source.id);
   const fetcher = createIcsSourceFetcher({
     calendarId: source.id,
-    url: source.url,
+    credentials,
+    url: legacy.url,
     database,
     plan: await buildSourceIngestionPlan(source.id, destinationRangesReader),
     safeFetchOptions,
@@ -163,7 +217,12 @@ const getUserSources = async (userId: string): Promise<Source[]> => {
       ),
     );
 
-  return sources;
+  return sources.map((source) => {
+    if (!source.url) {
+      return source;
+    }
+    return { ...source, url: stripUrlCredentials(source.url).url };
+  });
 };
 
 const verifySourceOwnership = async (userId: string, calendarId: string): Promise<boolean> => {
@@ -182,8 +241,11 @@ const verifySourceOwnership = async (userId: string, calendarId: string): Promis
   return Boolean(source);
 };
 
-const validateSourceUrl = async (url: string): Promise<void> => {
-  await pullRemoteCalendar("json", url, safeFetchOptions);
+const validateSourceUrl = async (
+  url: string,
+  credentials?: RemoteIcsCredentials,
+): Promise<void> => {
+  await pullRemoteCalendar("json", url, safeFetchOptions, credentials);
 };
 
 const countExistingAccounts = async (userId: string): Promise<number> => {
@@ -194,14 +256,24 @@ const countExistingAccounts = async (userId: string): Promise<number> => {
   return result?.value ?? 0;
 };
 
-const createSource = async (userId: string, name: string, url: string): Promise<Source> => {
-  const input = { userId, name, url };
+const createSource = async (
+  userId: string,
+  name: string,
+  url: string,
+  suppliedCredentials?: RemoteIcsCredentials,
+): Promise<Source> => {
+  const normalized = stripUrlCredentials(url);
+  const credentials = suppliedCredentials ?? normalized.credentials ?? globalThis.undefined;
+  if (credentials && !encryptionKey) {
+    throw new Error("Encryption key not configured");
+  }
+  const input = { userId, name, url: normalized.url };
 
   await runSourceCreationPreflight(input, {
     canAddAccount: (userIdToCheck, existingAccountCount) =>
       premiumService.canAddAccount(userIdToCheck, existingAccountCount),
     countExistingAccounts,
-    validateSourceUrl,
+    validateSourceUrl: (sourceUrl) => validateSourceUrl(sourceUrl, credentials),
   });
 
   return database.transaction((tx) =>
@@ -245,6 +317,13 @@ const createSource = async (userId: string, name: string, url: string): Promise<
               userId: sourceUserId,
             }))
             .returning();
+          if (source && credentials && encryptionKey) {
+            await tx.insert(remoteIcsCredentialsTable).values({
+              calendarId: source.id,
+              encryptedPassword: encryptPassword(credentials.password, encryptionKey),
+              encryptedUsername: encryptPassword(credentials.username, encryptionKey),
+            });
+          }
           return source;
         },
         fetchAndSyncSource: async (source) => {

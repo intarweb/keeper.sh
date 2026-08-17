@@ -16,6 +16,11 @@ export interface ServerConfig {
   isProduction: boolean;
   serverPort: number;
   vitePort: number;
+  mobileAssociations?: {
+    androidPackageName: string;
+    androidSha256CertFingerprints: string[];
+    iosAppId: string | null;
+  };
 }
 
 export interface SocketProxyData {

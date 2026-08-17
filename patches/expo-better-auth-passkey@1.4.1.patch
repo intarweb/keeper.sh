@@ -1,0 +1,297 @@
+diff --git a/ios/BetterAuthReactNativePasskeyModule.swift b/ios/BetterAuthReactNativePasskeyModule.swift
+index 765297f0a987218ef559354d2e1e951cb223abd8..94e9f065c124d2bc01c1ead65eb39d1eeeb157a2 100644
+--- a/ios/BetterAuthReactNativePasskeyModule.swift
++++ b/ios/BetterAuthReactNativePasskeyModule.swift
+@@ -22,12 +22,14 @@ public class BetterAuthReactNativePasskeyModule: Module {
+     AsyncFunction("registerPasskey") { (input: [String: Any], promise: Promise) in
+       self.handleCreatePasskey(input: input, promise: promise)
+     }
++    .runOnQueue(.main)
+ 
+     // Native passkey authentication using ASAuthorizationController
+     // Supports only the wrapped shape from TypeScript: { optionsJSON, useAutofill? }
+     AsyncFunction("authenticatePasskey") { (input: [String: Any], promise: Promise) in
+       self.handleGetPasskey(input: input, promise: promise)
+     }
++    .runOnQueue(.main)
+   }
+ }
+ 
+@@ -36,20 +38,43 @@ public class BetterAuthReactNativePasskeyModule: Module {
+ extension BetterAuthReactNativePasskeyModule {
+   fileprivate func handleCreatePasskey(input: [String: Any], promise: Promise) {
+     // Input must be @simplewebauthn/types PublicKeyCredentialCreationOptionsJSON
+-    let options = input["optionsJSON"] as! [String: Any]
+-    let creation = PublicKeyCredentialCreationOptionsJSONLite(dict: options)
++    guard let options = input["optionsJSON"] as? [String: Any] else {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", "Passkey registration options are missing.")
++      return
++    }
++
++    let creation: PublicKeyCredentialCreationOptionsJSONLite
++    do {
++      creation = try PublicKeyCredentialCreationOptionsJSONLite(dict: options)
++    } catch {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", error.localizedDescription)
++      return
++    }
+ 
+-    let challenge = BetterAuthReactNativePasskeyModule.fromBase64URL(creation.challenge)!
+-    let userId = BetterAuthReactNativePasskeyModule.fromBase64URL(creation.user.id)!
++    guard
++      let challenge = BetterAuthReactNativePasskeyModule.fromBase64URL(creation.challenge),
++      let userId = BetterAuthReactNativePasskeyModule.fromBase64URL(creation.user.id)
++    else {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", "Passkey registration options contain invalid base64url data.")
++      return
++    }
+ 
+     let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: creation.rp.id)
+     let passkeyName = creation.user.name.isEmpty ? creation.user.displayName : creation.user.name
+     let request = provider.createCredentialRegistrationRequest(challenge: challenge, name: passkeyName, userID: userId)
+ 
+     // Exclusions
+-    let descriptors: [ASAuthorizationPlatformPublicKeyCredentialDescriptor] = creation.excludeCredentials.map { cred in
+-      let id = BetterAuthReactNativePasskeyModule.fromBase64URL(cred.id)!
+-      return ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: id)
++    let descriptors: [ASAuthorizationPlatformPublicKeyCredentialDescriptor]
++    do {
++      descriptors = try creation.excludeCredentials.map { cred in
++        guard let id = BetterAuthReactNativePasskeyModule.fromBase64URL(cred.id) else {
++          throw PasskeyOptionsError.invalidField("excludeCredentials.id")
++        }
++        return ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: id)
++      }
++    } catch {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", error.localizedDescription)
++      return
+     }
+     if #available(iOS 17.4, *) {
+       request.excludedCredentials = descriptors
+@@ -62,10 +87,14 @@ extension BetterAuthReactNativePasskeyModule {
+ 
+     let delegate = PasskeyDelegate()
+     delegate.onRegistration = { reg in
++      guard let attestationObject = reg.rawAttestationObject else {
++        promise.reject("ERR_CREATE_PASSKEY", "The passkey provider did not return an attestation object.")
++        return
++      }
+       let id = BetterAuthReactNativePasskeyModule.toBase64URL(reg.credentialID)
+       let response = RegistrationResponseJSONLite.ResponseFields(
+         clientDataJSON: BetterAuthReactNativePasskeyModule.toBase64URL(reg.rawClientDataJSON),
+-        attestationObject: BetterAuthReactNativePasskeyModule.toBase64URL(reg.rawAttestationObject ?? Data()),
++        attestationObject: BetterAuthReactNativePasskeyModule.toBase64URL(attestationObject),
+         transports: ["internal"]
+       )
+       let result = RegistrationResponseJSONLite(
+@@ -86,6 +115,7 @@ extension BetterAuthReactNativePasskeyModule {
+     controller.delegate = delegate
+     controller.presentationContextProvider = delegate
+     delegate.presentationAnchor = BetterAuthReactNativePasskeyModule.presentationAnchor(appContext: self.appContext)
++    BetterAuthReactNativePasskeyModule.retain(delegate)
+ 
+     // Optional hint for auto register, when supported
+     let useAutoRegister = (input["useAutoRegister"] as? Bool) ?? false
+@@ -99,22 +129,43 @@ extension BetterAuthReactNativePasskeyModule {
+       controller.performRequests()
+     }
+ 
+-    BetterAuthReactNativePasskeyModule.retain(delegate)
+   }
+ 
+   fileprivate func handleGetPasskey(input: [String: Any], promise: Promise) {
+     // Only support wrapped shape from TS bridge
+-    let options = input["optionsJSON"] as! [String: Any]
+-    let req = PublicKeyCredentialRequestOptionsJSONLite(dict: options)
+-    let challenge = BetterAuthReactNativePasskeyModule.fromBase64URL(req.challenge)!
++    guard let options = input["optionsJSON"] as? [String: Any] else {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", "Passkey authentication options are missing.")
++      return
++    }
++
++    let req: PublicKeyCredentialRequestOptionsJSONLite
++    do {
++      req = try PublicKeyCredentialRequestOptionsJSONLite(dict: options)
++    } catch {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", error.localizedDescription)
++      return
++    }
++
++    guard let challenge = BetterAuthReactNativePasskeyModule.fromBase64URL(req.challenge) else {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", "Passkey authentication options contain an invalid challenge.")
++      return
++    }
+ 
+     let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: req.rpId)
+     let request = provider.createCredentialAssertionRequest(challenge: challenge)
+ 
+     // Allow list
+-    let descriptors: [ASAuthorizationPlatformPublicKeyCredentialDescriptor] = req.allowCredentials.map { cred in
+-      let id = BetterAuthReactNativePasskeyModule.fromBase64URL(cred.id)!
+-      return ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: id)
++    let descriptors: [ASAuthorizationPlatformPublicKeyCredentialDescriptor]
++    do {
++      descriptors = try req.allowCredentials.map { cred in
++        guard let id = BetterAuthReactNativePasskeyModule.fromBase64URL(cred.id) else {
++          throw PasskeyOptionsError.invalidField("allowCredentials.id")
++        }
++        return ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: id)
++      }
++    } catch {
++      promise.reject("ERR_INVALID_PASSKEY_OPTIONS", error.localizedDescription)
++      return
+     }
+     request.allowedCredentials = descriptors
+ 
+@@ -126,7 +177,9 @@ extension BetterAuthReactNativePasskeyModule {
+     let delegate = PasskeyDelegate()
+     delegate.onAssertion = { asrt in
+       let id = BetterAuthReactNativePasskeyModule.toBase64URL(asrt.credentialID)
+-      let userHandle = (asrt.userID?.isEmpty == false) ? BetterAuthReactNativePasskeyModule.toBase64URL(asrt.userID!) : nil
++      let userHandle = asrt.userID.flatMap { userID in
++        userID.isEmpty ? nil : BetterAuthReactNativePasskeyModule.toBase64URL(userID)
++      }
+       let response = AuthenticationResponseJSONLite.ResponseFields(
+         clientDataJSON: BetterAuthReactNativePasskeyModule.toBase64URL(asrt.rawClientDataJSON),
+         authenticatorData: BetterAuthReactNativePasskeyModule.toBase64URL(asrt.rawAuthenticatorData),
+@@ -151,6 +204,7 @@ extension BetterAuthReactNativePasskeyModule {
+     controller.delegate = delegate
+     controller.presentationContextProvider = delegate
+     delegate.presentationAnchor = BetterAuthReactNativePasskeyModule.presentationAnchor(appContext: self.appContext)
++    BetterAuthReactNativePasskeyModule.retain(delegate)
+ 
+     let useAutofill = (input["useAutofill"] as? Bool) ?? false
+     if #available(iOS 16.0, macOS 13.0, *) {
+@@ -163,7 +217,6 @@ extension BetterAuthReactNativePasskeyModule {
+       controller.performRequests()
+     }
+ 
+-    BetterAuthReactNativePasskeyModule.retain(delegate)
+   }
+ }
+ 
+@@ -247,8 +300,19 @@ extension BetterAuthReactNativePasskeyModule {
+ 
+   // Keep delegates alive while ASAuthorizationController is operating
+   private static var retainedDelegates: [PasskeyDelegate] = []
+-  fileprivate static func retain(_ d: PasskeyDelegate) { retainedDelegates.append(d) }
+-  fileprivate static func release(_ d: PasskeyDelegate) { retainedDelegates.removeAll { $0 === d } }
++  fileprivate static func retain(_ d: PasskeyDelegate) {
++    dispatchPrecondition(condition: .onQueue(.main))
++    retainedDelegates.append(d)
++  }
++  fileprivate static func release(_ d: PasskeyDelegate) {
++    if Thread.isMainThread {
++      retainedDelegates.removeAll { $0 === d }
++    } else {
++      DispatchQueue.main.async {
++        retainedDelegates.removeAll { $0 === d }
++      }
++    }
++  }
+ }
+ 
+ // MARK: - String helpers
+diff --git a/ios/TypeHandlers.swift b/ios/TypeHandlers.swift
+index 0308ff1aceebbcf4736929d294b10300d1724d6a..84579c67abcc985eeae6544f0827f3de93f935c3 100644
+--- a/ios/TypeHandlers.swift
++++ b/ios/TypeHandlers.swift
+@@ -3,27 +3,58 @@ import AuthenticationServices
+ 
+ // Simplified WebAuthn JSON shapes, assuming inputs conform to @simplewebauthn/types.
+ 
++enum PasskeyOptionsError: LocalizedError {
++  case missingField(String)
++  case invalidField(String)
++
++  var errorDescription: String? {
++    switch self {
++    case .missingField(let field):
++      return "Passkey options are missing required field '\(field)'."
++    case .invalidField(let field):
++      return "Passkey options contain an invalid '\(field)' field."
++    }
++  }
++}
++
++private func requiredString(_ key: String, in dict: [String: Any], path: String) throws -> String {
++  guard let value = dict[key] as? String else {
++    throw PasskeyOptionsError.missingField("\(path).\(key)")
++  }
++  guard !value.isEmpty else {
++    throw PasskeyOptionsError.invalidField("\(path).\(key)")
++  }
++  return value
++}
++
++private func requiredDictionary(_ key: String, in dict: [String: Any], path: String) throws -> [String: Any] {
++  guard let value = dict[key] as? [String: Any] else {
++    throw PasskeyOptionsError.missingField("\(path).\(key)")
++  }
++  return value
++}
++
+ // MARK: - Creation Options
+ 
+ struct PKCCreationRP {
+   let id: String
+-  init(dict: [String: Any]) { self.id = dict["id"] as! String }
++  init(dict: [String: Any]) throws { self.id = try requiredString("id", in: dict, path: "rp") }
+ }
+ 
+ struct PKCCreationUser {
+   let id: String
+   let name: String
+   let displayName: String
+-  init(dict: [String: Any]) {
+-    self.id = dict["id"] as! String
+-    self.name = dict["name"] as! String
+-    self.displayName = dict["displayName"] as! String
++  init(dict: [String: Any]) throws {
++    self.id = try requiredString("id", in: dict, path: "user")
++    self.name = try requiredString("name", in: dict, path: "user")
++    self.displayName = try requiredString("displayName", in: dict, path: "user")
+   }
+ }
+ 
+ struct PKCDescriptor {
+   let id: String
+-  init(dict: [String: Any]) { self.id = dict["id"] as! String }
++  init(dict: [String: Any]) throws { self.id = try requiredString("id", in: dict, path: "credential") }
+ }
+ 
+ struct PKCAuthenticatorSelection {
+@@ -38,12 +69,12 @@ struct PublicKeyCredentialCreationOptionsJSONLite {
+   let excludeCredentials: [PKCDescriptor]
+   let authenticatorSelection: PKCAuthenticatorSelection?
+ 
+-  init(dict: [String: Any]) {
+-    self.rp = PKCCreationRP(dict: dict["rp"] as! [String: Any])
+-    self.challenge = dict["challenge"] as! String
+-    self.user = PKCCreationUser(dict: dict["user"] as! [String: Any])
++  init(dict: [String: Any]) throws {
++    self.rp = try PKCCreationRP(dict: requiredDictionary("rp", in: dict, path: "optionsJSON"))
++    self.challenge = try requiredString("challenge", in: dict, path: "optionsJSON")
++    self.user = try PKCCreationUser(dict: requiredDictionary("user", in: dict, path: "optionsJSON"))
+     if let arr = dict["excludeCredentials"] as? [[String: Any]] {
+-      self.excludeCredentials = arr.map { PKCDescriptor(dict: $0) }
++      self.excludeCredentials = try arr.map { try PKCDescriptor(dict: $0) }
+     } else {
+       self.excludeCredentials = []
+     }
+@@ -62,11 +93,11 @@ struct PublicKeyCredentialRequestOptionsJSONLite {
+   let allowCredentials: [PKCDescriptor]
+   let userVerification: String?
+ 
+-  init(dict: [String: Any]) {
+-    self.rpId = dict["rpId"] as! String
+-    self.challenge = dict["challenge"] as! String
++  init(dict: [String: Any]) throws {
++    self.rpId = try requiredString("rpId", in: dict, path: "optionsJSON")
++    self.challenge = try requiredString("challenge", in: dict, path: "optionsJSON")
+     if let arr = dict["allowCredentials"] as? [[String: Any]] {
+-      self.allowCredentials = arr.map { PKCDescriptor(dict: $0) }
++      self.allowCredentials = try arr.map { try PKCDescriptor(dict: $0) }
+     } else {
+       self.allowCredentials = []
+     }

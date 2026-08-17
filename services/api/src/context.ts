@@ -3,7 +3,7 @@ import env from "./env";
 import { createDatabase } from "@keeper.sh/database";
 import { syncStatusTable } from "@keeper.sh/database/schema";
 import Redis from "ioredis";
-import { createAuth } from "@keeper.sh/auth";
+import { createAuth, parseMobileTrustedOrigins } from "@keeper.sh/auth";
 import { createBroadcastService } from "@keeper.sh/broadcast";
 import { createPremiumService } from "@keeper.sh/premium";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@keeper.sh/calendar";
 import { widelog } from "@/utils/logging";
 import type { OAuthStateStore, RefreshLockStore, DestinationSyncResult } from "@keeper.sh/calendar";
+import { createNativeOAuthCoordinator } from "./utils/mobile-oauth";
 
 const MIN_TRUSTED_ORIGINS_COUNT = 0;
 
@@ -28,15 +29,11 @@ const createRedisStateStore = (redisClient: Redis): OAuthStateStore => ({
     await redisClient.expire(key, ttlSeconds);
   },
   async consume(key) {
-    const value = await redisClient.get(key);
-    if (!value) {
-      return null;
+    const result = await redisClient.call("GETDEL", key);
+    if (typeof result === "string") {
+      return result;
     }
-    const deleted = await redisClient.del(key);
-    if (!deleted) {
-      return null;
-    }
-    return value;
+    return null;
   },
 });
 
@@ -57,10 +54,22 @@ const parseTrustedOrigins = (origins?: string): string[] => {
   if (!origins) {
     return [];
   }
-  return origins.split(",").map((origin): string => origin.trim());
+  return origins.split(",").map((origin): string => origin.trim()).filter(Boolean);
 };
 
-const trustedOrigins = parseTrustedOrigins(env.TRUSTED_ORIGINS);
+const mobileTrustedOrigins = parseMobileTrustedOrigins(env.MOBILE_TRUSTED_ORIGINS);
+const trustedOrigins = [
+  ...new Set([...parseTrustedOrigins(env.TRUSTED_ORIGINS), ...mobileTrustedOrigins]),
+];
+const passkeyOrigins = [
+  ...new Set([
+    ...(env.PASSKEY_ORIGIN ? [env.PASSKEY_ORIGIN] : []),
+    ...parseTrustedOrigins(env.PASSKEY_ANDROID_ORIGINS),
+  ]),
+];
+const passkeyOrigin = passkeyOrigins.length === 0
+  ? undefined
+  : passkeyOrigins.length === 1 ? passkeyOrigins[0] : passkeyOrigins;
 
 const { auth, capabilities: authCapabilities } = createAuth({
   database,
@@ -76,7 +85,7 @@ const { auth, capabilities: authCapabilities } = createAuth({
   resendApiKey: env.RESEND_API_KEY,
   passkeyRpId: env.PASSKEY_RP_ID,
   passkeyRpName: env.PASSKEY_RP_NAME,
-  passkeyOrigin: env.PASSKEY_ORIGIN,
+  passkeyOrigin,
   mcpResourceUrl: env.MCP_PUBLIC_URL,
   mcpApiBaseUrl: env.MCP_API_URL,
   ...(trustedOrigins.length > MIN_TRUSTED_ORIGINS_COUNT && { trustedOrigins }),
@@ -154,12 +163,19 @@ const feedbackEmail = env.FEEDBACK_EMAIL ?? null;
 
 const baseUrl = env.BETTER_AUTH_URL;
 const encryptionKey = env.ENCRYPTION_KEY;
+const nativeOAuth = createNativeOAuthCoordinator({
+  secret: env.BETTER_AUTH_SECRET,
+  store: oauthStateStore,
+  trustedOrigins: mobileTrustedOrigins,
+});
 
 export {
   database,
   redis,
   env,
   trustedOrigins,
+  mobileTrustedOrigins,
+  nativeOAuth,
   auth,
   authCapabilities,
   broadcastService,

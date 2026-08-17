@@ -8,7 +8,8 @@
   },
   "license": "AGPL-3.0-only",
   "overrides": {
-    "arktype": "^2.2.0"
+    "arktype": "^2.2.0",
+    "react-native-screens": "4.26.2"
   },
   "packageManager": "bun@1.3.11",
   "private": true,
@@ -30,5 +31,9 @@
       "applications/*",
       "services/*"
     ]
+  },
+  "patchedDependencies": {
+    "@ark/schema@0.56.0": "patches/@ark%2Fschema@0.56.0.patch",
+    "expo-better-auth-passkey@1.4.1": "patches/expo-better-auth-passkey@1.4.1.patch"
   }
 }

@@ -42,6 +42,35 @@ afterEach(() => {
 });
 
 describe("createOutlookSourceFetcher", () => {
+  it("projects not-responded provider events as pending invitations", async () => {
+    const occurrenceStart = new Date(TEST_PLAN.window.timeMin.getTime() + 60_000);
+    const queuedFetch = (): Promise<Response> => Promise.resolve(Response.json({
+      "@odata.deltaLink": "https://graph.microsoft.com/delta?$deltatoken=next",
+      value: [{
+        end: { dateTime: new Date(occurrenceStart.getTime() + 60_000).toISOString() },
+        iCalUId: "invite-uid",
+        id: "invite-id",
+        responseStatus: { response: "notResponded" },
+        start: { dateTime: occurrenceStart.toISOString() },
+      }],
+    }));
+    queuedFetch.preconnect = originalFetch.preconnect;
+    globalThis.fetch = queuedFetch;
+
+    const result = await createOutlookSourceFetcher({
+      accessToken: "test-token",
+      calendarId: CALENDAR_ID,
+      plan: TEST_PLAN,
+      externalCalendarId: "calendar-id",
+      syncToken: null,
+    }).fetchEvents();
+
+    expect(result.pendingInvitations).toEqual([{
+      occurrenceStart: occurrenceStart.toISOString(),
+      sourceEventUid: "invite-uid",
+    }]);
+  });
+
   it("returns a versioned delta link that the next cron run accepts", async () => {
     const rawDeltaLink = "https://graph.microsoft.com/delta?$deltatoken=next";
     const queuedFetch = (): Promise<Response> => Promise.resolve(Response.json({

@@ -37,9 +37,9 @@ describe("sourcePatchBodySchema", () => {
     expect(result instanceof type.errors).toBe(false);
   });
 
-  it("accepts empty object (all fields optional)", () => {
+  it("rejects empty updates", () => {
     const result = sourcePatchBodySchema({});
-    expect(result instanceof type.errors).toBe(false);
+    expect(result instanceof type.errors).toBe(true);
   });
 
   it("accepts boolean exclude fields", () => {

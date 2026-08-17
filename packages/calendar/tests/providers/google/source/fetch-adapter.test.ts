@@ -50,6 +50,36 @@ afterEach(() => {
 });
 
 describe("createGoogleSourceFetcher", () => {
+  it("projects only the signed-in attendee's pending invitations", async () => {
+    const occurrenceStart = new Date(TEST_PLAN.window.timeMin.getTime() + 60_000);
+    const queuedFetch = (): Promise<Response> => Promise.resolve(Response.json({
+      items: [{
+        attendees: [{ responseStatus: "needsAction", self: true }],
+        end: { dateTime: new Date(occurrenceStart.getTime() + 60_000).toISOString() },
+        iCalUID: "invite-uid",
+        id: "invite-id",
+        start: { dateTime: occurrenceStart.toISOString() },
+        status: "confirmed",
+      }],
+      nextSyncToken: "next-google-token",
+    }));
+    queuedFetch.preconnect = originalFetch.preconnect;
+    globalThis.fetch = queuedFetch;
+
+    const result = await createGoogleSourceFetcher({
+      accessToken: "test-token",
+      calendarId: CALENDAR_ID,
+      plan: TEST_PLAN,
+      externalCalendarId: "primary",
+      syncToken: null,
+    }).fetchEvents();
+
+    expect(result.pendingInvitations).toEqual([{
+      occurrenceStart: occurrenceStart.toISOString(),
+      sourceEventUid: "invite-uid",
+    }]);
+  });
+
   it("returns a versioned token that the next cron run accepts", async () => {
     const rawSyncToken = "google-sync-token";
     const queuedFetch = (): Promise<Response> => Promise.resolve(Response.json({

@@ -2,14 +2,10 @@ import { useState } from "react";
 import { type } from "arktype";
 import useSWR from "swr";
 import { planSchema } from "@keeper.sh/data-schemas";
+import type { SubscriptionState } from "@keeper.sh/api-contracts";
 import { fetcher, HttpError } from "@/lib/fetcher";
 import { getCommercialMode } from "@/config/commercial";
 import { retainKnownInterval } from "@/lib/upgrade-mode";
-
-export interface SubscriptionState {
-  plan: "free" | "pro";
-  interval: "month" | "year" | null;
-}
 
 const customerStateSchema = type({
   activeSubscriptions: type({
@@ -112,3 +108,4 @@ export async function fetchSubscriptionStateWithApi(
 }
 
 export { fetchSubscriptionState };
+export type { SubscriptionState };

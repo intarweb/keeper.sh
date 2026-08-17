@@ -13,7 +13,9 @@ interface IcsPostRouteContext extends IcsRouteContext {
 
 interface ParsedCreateSourceBody {
   name: string;
+  password?: string;
   url: string;
+  username?: string;
 }
 
 interface InvalidSourceUrlErrorLike {
@@ -27,7 +29,12 @@ interface GetIcsSourcesDependencies {
 
 interface PostIcsSourceDependencies {
   parseCreateSourceBody: (body: unknown) => ParsedCreateSourceBody;
-  createSource: (userId: string, name: string, url: string) => Promise<unknown>;
+  createSource: (
+    userId: string,
+    name: string,
+    url: string,
+    credentials?: { password: string; username: string },
+  ) => Promise<unknown>;
   isSourceLimitError: (error: unknown) => boolean;
   isInvalidSourceUrlError: (error: unknown) => error is InvalidSourceUrlErrorLike;
 }
@@ -45,8 +52,12 @@ const handlePostIcsSourceRoute = async (
   dependencies: PostIcsSourceDependencies,
 ): Promise<Response> => {
   try {
-    const { name, url } = dependencies.parseCreateSourceBody(context.body);
-    const source = await dependencies.createSource(context.userId, name, url);
+    const { name, password, url, username } = dependencies.parseCreateSourceBody(context.body);
+    let credentials: { password: string; username: string } | undefined = globalThis.undefined;
+    if (password && username) {
+      credentials = { password, username };
+    }
+    const source = await dependencies.createSource(context.userId, name, url, credentials);
     return Response.json(source, { status: HTTP_STATUS.CREATED });
   } catch (error) {
     if (dependencies.isSourceLimitError(error)) {

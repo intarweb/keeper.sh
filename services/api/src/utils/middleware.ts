@@ -18,6 +18,7 @@ interface RouteContext {
 }
 
 interface AuthenticatedRouteContext extends RouteContext {
+  sessionId: string;
   userId: string;
 }
 
@@ -80,6 +81,7 @@ const enrichWithUserContext = async (userId: string): Promise<UserContext> => {
 };
 
 interface Session {
+  session?: { id: string };
   user?: { id: string };
 }
 
@@ -131,12 +133,12 @@ const withAuth =
     const session = await widelog.time.measure("auth.duration_ms", () => getSession(request));
     widelog.set("auth.method", "session");
 
-    if (!session?.user?.id) {
+    if (!session?.user?.id || !session.session?.id) {
       return ErrorResponse.unauthorized().toResponse();
     }
 
     await enrichWithUserContext(session.user.id);
-    return handler({ params, request, userId: session.user.id });
+    return handler({ params, request, sessionId: session.session.id, userId: session.user.id });
   };
 
 const resolveApiTokenUserId = async (bearerToken: string): Promise<string | null> => {
@@ -203,7 +205,7 @@ const withV1Auth =
         if (rateLimitResponse) {
           return rateLimitResponse;
         }
-        return handler({ params, request, userId });
+        return handler({ params, request, sessionId: `api-token:${userId}`, userId });
       }
 
       if (isKeeperMcpEnabledAuth(auth)) {
@@ -222,19 +224,19 @@ const withV1Auth =
         if (rateLimitResponse) {
           return rateLimitResponse;
         }
-        return handler({ params, request, userId: mcpSession.userId });
+        return handler({ params, request, sessionId: `mcp-token:${mcpSession.userId}`, userId: mcpSession.userId });
       }
     }
 
     const session = await widelog.time.measure("auth.duration_ms", () => getSession(request));
     widelog.set("auth.method", "session");
 
-    if (!session?.user?.id) {
+    if (!session?.user?.id || !session.session?.id) {
       return ErrorResponse.unauthorized().toResponse();
     }
 
     await enrichWithUserContext(session.user.id);
-    return handler({ params, request, userId: session.user.id });
+    return handler({ params, request, sessionId: session.session.id, userId: session.user.id });
   };
 
 export { resolveOutcome, withAuth, withV1Auth, withWideEvent };

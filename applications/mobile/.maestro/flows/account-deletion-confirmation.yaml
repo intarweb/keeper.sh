@@ -1,0 +1,14 @@
+appId: sh.keeper.mobile
+name: Account deletion confirmation
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/hosted-sign-in.yaml
+- tapOn: "Settings"
+- tapOn: "Profile & Account"
+- assertVisible: "Delete Keeper Account"
+- tapOn: "Delete Keeper Account"
+- assertVisible: "Delete Keeper account?"
+- assertVisible: "This permanently deletes your Keeper account and calendar connections. This cannot be undone."
+- tapOn: "Cancel"
+- assertVisible: "Delete Keeper Account"

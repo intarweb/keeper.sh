@@ -13,6 +13,7 @@ import {
 } from "@/utils/source-destination-mappings";
 import { withProviderMetadata } from "@/utils/provider-display";
 import { handlePatchSourceRoute } from "./[id]/source-item-routes";
+import { redactUrlCredentials } from "@/utils/redact-url-credentials";
 
 const GET = withWideEvent(
   withAuth(async ({ params, userId }) => {
@@ -41,6 +42,7 @@ const GET = withWideEvent(
         syncFutureRange: calendarsTable.syncFutureRange,
         syncHistoricRange: calendarsTable.syncHistoricRange,
         treatFullDayTimedEventsAsAllDay: calendarsTable.treatFullDayTimedEventsAsAllDay,
+        disabled: calendarsTable.disabled,
         createdAt: calendarsTable.createdAt,
         updatedAt: calendarsTable.updatedAt,
       })
@@ -62,6 +64,8 @@ const GET = withWideEvent(
       getDestinationsForSource(userId, id),
       getSourcesForDestination(userId, id),
     ]);
+
+    source.url = redactUrlCredentials(source.url);
 
     return Response.json({
       ...withProviderMetadata(source),

@@ -272,4 +272,5 @@ export type {
   DiscardedSourceEventCounts,
   IngestWideEventFields,
   FetchEventsResult as IngestionFetchEventsResult,
+  PendingProviderInvitation as IngestionPendingInvitation,
 } from "./core/sync-engine/ingest";

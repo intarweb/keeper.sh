@@ -47,6 +47,35 @@ const buildProtectedResourceMetadata = (requestOrigin: string) => ({
   scopes_supported: RESOURCE_SCOPES,
 });
 
+function associatedLinksResponse(pathname: string, config: ServerConfig): Response | null {
+  if (pathname === "/.well-known/apple-app-site-association") {
+    const appId = config.mobileAssociations?.iosAppId;
+    if (!appId) return Response.json({ error: "iOS association is not configured" }, { status: 503 });
+    return Response.json({
+      applinks: {
+        apps: [],
+        details: [{ appIDs: [appId], components: [{ "/": "/open/*", comment: "Keeper mobile deep links" }] }],
+      },
+      webcredentials: { apps: [appId] },
+    }, { headers: { "cache-control": "public, max-age=3600" } });
+  }
+  if (pathname === "/.well-known/assetlinks.json") {
+    const association = config.mobileAssociations;
+    if (!association?.androidSha256CertFingerprints.length) {
+      return Response.json({ error: "Android association is not configured" }, { status: 503 });
+    }
+    return Response.json([{
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: {
+        namespace: "android_app",
+        package_name: association.androidPackageName,
+        sha256_cert_fingerprints: association.androidSha256CertFingerprints,
+      },
+    }], { headers: { "cache-control": "public, max-age=3600" } });
+  }
+  return null;
+}
+
 async function serveStaticTextFile(pathname: string): Promise<Response | null> {
   const contentType = staticTextFiles[pathname];
   if (!contentType) return null;
@@ -90,6 +119,9 @@ export async function handleInternalRoute(
   }
 
   const requestUrl = new URL(request.url);
+
+  const associationResponse = associatedLinksResponse(requestUrl.pathname, config);
+  if (associationResponse) return associationResponse;
 
   if (requestUrl.pathname === "/.well-known/oauth-protected-resource") {
     return Response.json(buildProtectedResourceMetadata(resolvePublicOrigin(request)));

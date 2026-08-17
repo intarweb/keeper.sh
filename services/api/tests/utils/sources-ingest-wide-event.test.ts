@@ -59,7 +59,12 @@ vi.mock("@keeper.sh/sync", () => ({
   }),
 }));
 
-vi.mock("@/context", () => ({ database: {}, premiumService: {}, redis: {} }));
+vi.mock("@/context", () => ({
+  database: {},
+  encryptionKey: globalThis.undefined,
+  premiumService: {},
+  redis: {},
+}));
 
 vi.mock("../../src/utils/source-ingestion-ranges", () => ({
   buildSourceIngestionPlan: () => Promise.resolve({}),

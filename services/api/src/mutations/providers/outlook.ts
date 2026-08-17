@@ -99,10 +99,11 @@ const createOutlookEvent = async (
 const findOutlookEventByUid = async (
   accessToken: string,
   sourceEventUid: string,
+  occurrenceStart?: Date | null,
 ): Promise<OutlookEvent | null> => {
   const url = new URL(`${MICROSOFT_GRAPH_API}/me/events`);
   url.searchParams.set("$filter", `iCalUId eq '${sourceEventUid}'`);
-  url.searchParams.set("$top", "1");
+  url.searchParams.set("$top", "100");
 
   const response = await fetch(url, {
     headers: buildHeaders(accessToken),
@@ -114,8 +115,42 @@ const findOutlookEventByUid = async (
   }
 
   const body = outlookEventListSchema.assert(await response.json());
-  const [item] = body.value ?? [];
-  return item ?? null;
+  const items = body.value ?? [];
+  if (occurrenceStart) {
+    return items.find((item) => {
+      const value = item.start?.dateTime;
+      if (!value) {
+        return false;
+      }
+      let normalized = value;
+      if (item.start?.timeZone === "UTC" && !value.endsWith("Z")) {
+        normalized = `${value}Z`;
+      }
+      return new Date(normalized).getTime() === occurrenceStart.getTime();
+    }) ?? null;
+  }
+  if (items.length === 1) {
+    return items[0] ?? null;
+  }
+  return null;
+};
+
+const findOutlookEventById = async (
+  accessToken: string,
+  sourceEventId: string,
+): Promise<OutlookEvent | null> => {
+  const url = new URL(
+    `${MICROSOFT_GRAPH_API}/me/events/${encodeURIComponent(sourceEventId)}`,
+  );
+  url.searchParams.set("$select", "id,iCalUId");
+  const response = await fetch(url, {
+    headers: buildHeaders(accessToken),
+    method: "GET",
+  });
+  if (!response.ok) {
+    return null;
+  }
+  return outlookEventSchema.assert(await response.json());
 };
 
 const updateOutlookEvent = async (
@@ -227,12 +262,22 @@ const rsvpOutlookEvent = async (
   status: RsvpStatus,
 ): Promise<EventActionResult> => {
   let { sourceEventId } = reference;
-  if (!sourceEventId) {
-    const existing = await findOutlookEventByUid(accessToken, reference.sourceEventUid);
-    sourceEventId = existing?.id ?? null;
-    if (!sourceEventId) {
+  if (sourceEventId) {
+    const selected = await findOutlookEventById(accessToken, sourceEventId);
+    if (selected?.iCalUId !== reference.sourceEventUid) {
       return { success: false, error: "Event not found on Outlook." };
     }
+    sourceEventId = selected.id ?? null;
+  } else {
+    const existing = await findOutlookEventByUid(
+      accessToken,
+      reference.sourceEventUid,
+      reference.occurrenceStart,
+    );
+    sourceEventId = existing?.id ?? null;
+  }
+  if (!sourceEventId) {
+    return { success: false, error: "Event not found on Outlook." };
   }
 
   const action = RSVP_ACTION_MAP[status];
@@ -274,6 +319,7 @@ const getPendingOutlookInvites = async (
   from: string,
   to: string,
 ): Promise<{
+  sourceEventId: string | null;
   sourceEventUid: string;
   title: string | null;
   description: string | null;
@@ -284,6 +330,7 @@ const getPendingOutlookInvites = async (
   organizer: string | null;
 }[]> => {
   const pendingEvents: {
+    sourceEventId: string | null;
     sourceEventUid: string;
     title: string | null;
     description: string | null;
@@ -320,6 +367,7 @@ const getPendingOutlookInvites = async (
       }
 
       pendingEvents.push({
+        sourceEventId: event.id ?? null,
         sourceEventUid: event.iCalUId,
         title: event.subject ?? null,
         description: event.bodyPreview ?? null,

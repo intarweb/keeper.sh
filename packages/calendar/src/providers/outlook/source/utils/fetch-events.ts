@@ -47,6 +47,8 @@ const INSTANCES_SELECT = [
   "end",
   "isAllDay",
   "isCancelled",
+  "isOrganizer",
+  "responseStatus",
   "showAs",
   "categories",
   "createdDateTime",

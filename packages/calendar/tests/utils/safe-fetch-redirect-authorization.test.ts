@@ -61,23 +61,23 @@ afterEach(() => {
 });
 
 describe("authorization across redirects", () => {
-  it("keeps the header when the same host upgrades plain HTTP to HTTPS", async () => {
+  it("drops the header when a scheme change creates a new origin", async () => {
     serveRedirectThen("https://caldav.example.test/cal/");
 
     await request("http://caldav.example.test/cal/");
 
     expect(attempts.at(1)).toEqual({
-      authorization: AUTHORIZATION,
+      authorization: "",
       url: "https://caldav.example.test/cal/",
     });
   });
 
-  it("keeps the header for a same-host upgrade even when the host has no registrable domain", async () => {
+  it("drops the header for a same-host IP upgrade", async () => {
     serveRedirectThen("https://192.168.1.50:5232/cal/");
 
     await request("http://192.168.1.50:5232/cal/");
 
-    expect(attempts.at(1)?.authorization).toBe(AUTHORIZATION);
+    expect(attempts.at(1)?.authorization).toBe("");
   });
 
   it("drops the header when HTTPS is downgraded to plain HTTP", async () => {
@@ -96,12 +96,12 @@ describe("authorization across redirects", () => {
     expect(attempts.at(1)?.authorization).toBe("");
   });
 
-  it("keeps the header across subdomains of the same registrable domain", async () => {
+  it("drops the header across subdomains of the same registrable domain", async () => {
     serveRedirectThen("https://dav.example.com/cal/");
 
     await request("https://caldav.example.com/cal/");
 
-    expect(attempts.at(1)?.authorization).toBe(AUTHORIZATION);
+    expect(attempts.at(1)?.authorization).toBe("");
   });
 });
 

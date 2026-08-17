@@ -1,5 +1,16 @@
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import type { FreeSlot, WorkingHours } from "@/utils/free-time";
+import type {
+  CalendarPauseResult,
+  CalendarSource,
+  Event as ApiEvent,
+  FreeTimeResult,
+  Mapping,
+  PendingInvite as ApiPendingInvite,
+  RsvpStatus,
+  SyncDestinationStatus,
+  SyncTriggerResult,
+  WorkingHours,
+} from "@keeper.sh/api-contracts";
 
 type KeeperDatabase = BunSQLDatabase;
 
@@ -14,22 +25,7 @@ interface KeeperEventFilters {
   isAllDay?: boolean;
 }
 
-interface KeeperSource {
-  id: string;
-  name: string;
-  calendarType: string;
-  capabilities: string[];
-  accountId: string;
-  provider: string;
-  displayName: string | null;
-  email: string | null;
-  accountIdentifier: string;
-  needsReauthentication: boolean;
-  includeInIcalFeed: boolean;
-  providerName: string;
-  providerIcon: string | null;
-  accountLabel: string;
-}
+type KeeperSource = CalendarSource;
 
 interface KeeperDestination {
   id: string;
@@ -38,28 +34,12 @@ interface KeeperDestination {
   needsReauthentication: boolean;
 }
 
-interface KeeperMapping {
-  id: string;
-  sourceCalendarId: string;
-  destinationCalendarId: string;
-  createdAt: string;
-  calendarType: string;
-}
+type KeeperMapping = Mapping;
 
-interface KeeperEvent {
-  id: string;
-  /** Persisted event_states UUID for synced events; null for user-created events. */
-  eventStateId: string | null;
-  startTime: string;
-  endTime: string;
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  calendarId: string;
-  calendarName: string;
-  calendarProvider: string;
-  calendarUrl: string | null;
-}
+type KeeperEvent = ApiEvent & {
+  availability: "busy" | "free";
+  isAllDay: boolean;
+};
 
 interface KeeperFreeTimeOptions {
   durationMinutes: number;
@@ -69,31 +49,13 @@ interface KeeperFreeTimeOptions {
   limit: number;
 }
 
-interface KeeperFreeTimeResult {
-  from: string;
-  to: string;
-  timezone: string;
-  durationMinutes: number;
-  slots: FreeSlot[];
-}
+type KeeperFreeTimeResult = FreeTimeResult;
 
-interface KeeperSyncTriggerResult {
-  triggered: boolean;
-  sourcesRefreshed: number;
-}
+type KeeperSyncTriggerResult = SyncTriggerResult;
 
-interface KeeperCalendarPauseResult {
-  calendarId: string;
-  paused: boolean;
-}
+type KeeperCalendarPauseResult = CalendarPauseResult;
 
-interface KeeperSyncStatus {
-  calendarId: string;
-  inSync: boolean;
-  lastSyncedAt: string | null;
-  localEventCount: number;
-  remoteEventCount: number;
-}
+type KeeperSyncStatus = SyncDestinationStatus;
 
 interface EventInput {
   calendarId: string;
@@ -118,14 +80,13 @@ interface EventUpdateInput {
   startTimeZone?: string;
 }
 
-type RsvpStatus = "accepted" | "declined" | "tentative";
-
 interface EventActionResult {
   success: boolean;
   error?: string;
 }
 
 interface ProviderEventReference {
+  occurrenceStart?: Date | null;
   sourceEventId: string | null;
   sourceEventUid: string;
 }
@@ -134,18 +95,7 @@ interface EventCreateResult extends EventActionResult {
   event?: KeeperEvent;
 }
 
-interface PendingInvite {
-  sourceEventUid: string;
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  startTime: string;
-  endTime: string;
-  isAllDay: boolean;
-  organizer: string | null;
-  calendarId: string;
-  provider: string;
-}
+type PendingInvite = ApiPendingInvite;
 
 interface ProviderCredentials {
   provider: string;
@@ -186,6 +136,14 @@ interface KeeperApi {
   updateEvent: (userId: string, eventId: string, updates: EventUpdateInput) => Promise<EventActionResult>;
   deleteEvent: (userId: string, eventId: string) => Promise<EventActionResult>;
   rsvpEvent: (userId: string, eventId: string, status: RsvpStatus) => Promise<EventActionResult>;
+  rsvpInvite: (
+    userId: string,
+    calendarId: string,
+    sourceEventUid: string,
+    sourceEventId: string | null,
+    status: RsvpStatus,
+    occurrenceStart: Date | null,
+  ) => Promise<EventActionResult>;
   getPendingInvites: (userId: string, calendarId: string, from: string, to: string) => Promise<PendingInvite[]>;
 }
 

@@ -5,6 +5,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { jwt as jwtPlugin } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
+import { expo } from "@better-auth/expo";
 import { passkey as passkeyPlugin } from "@better-auth/passkey";
 import { checkout, polar, portal } from "@polar-sh/better-auth";
 import { Polar } from "@polar-sh/sdk";
@@ -56,7 +57,7 @@ interface AuthConfig {
   resendApiKey?: string;
   passkeyRpId?: string;
   passkeyRpName?: string;
-  passkeyOrigin?: string;
+  passkeyOrigin?: string | string[];
   trustedOrigins?: string[];
   mcpResourceUrl?: string;
   mcpApiBaseUrl?: string;
@@ -118,6 +119,8 @@ const extractSignUpEmail = (value: unknown): string | null => {
   return value.email;
 };
 
+const createNativeAuthPlugin = (): BetterAuthPlugin => expo();
+
 const createAuth = (config: AuthConfig) => {
   const {
     database,
@@ -157,7 +160,9 @@ const createAuth = (config: AuthConfig) => {
     passkeyRpId,
   });
 
-  const plugins: BetterAuthPlugin[] = [];
+  // Enables Better Auth's native cookie transport and OAuth deep-link handling.
+  // The plugin is inert for existing browser clients.
+  const plugins: BetterAuthPlugin[] = [createNativeAuthPlugin()];
 
   if (!commercialMode) {
     plugins.push(usernameOnly());
@@ -178,9 +183,9 @@ const createAuth = (config: AuthConfig) => {
   if (polarClient) {
     const buildCheckoutSuccessUrl = (): string => {
       if (!baseUrl) {
-        return "/dashboard/billing?success=true";
+        return "/dashboard/upgrade?success=true";
       }
-      return new URL("/dashboard/billing?success=true", baseUrl).toString();
+      return new URL("/dashboard/upgrade?success=true", baseUrl).toString();
     };
 
     const checkoutSuccessUrl = buildCheckoutSuccessUrl();
@@ -434,10 +439,16 @@ type AuthResult = ReturnType<typeof createAuth>;
 
 export {
   createAuth,
+  createNativeAuthPlugin,
   hasOAuthProviderApi,
   isKeeperMcpEnabledAuth,
 };
 export { resolveAuthCapabilities } from "./capabilities";
+export {
+  assertMobileOrigin,
+  isAllowedMobileReturnUrl,
+  parseMobileTrustedOrigins,
+} from "./mobile-origins";
 export {
   KEEPER_API_DEFAULT_SCOPE,
   KEEPER_API_DESTINATION_SCOPE,

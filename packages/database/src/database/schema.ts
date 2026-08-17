@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -261,6 +262,143 @@ const userSubscriptionsTable = pgTable("user_subscriptions", {
     .references(() => user.id, { onDelete: "cascade" }),
 });
 
+const deviceInstallationsTable = pgTable(
+  "device_installations",
+  {
+    appVersion: text(),
+    createdAt: timestamp().notNull().defaultNow(),
+    deviceName: text(),
+    enabled: boolean().notNull().default(true),
+    id: uuid().notNull().primaryKey().defaultRandom(),
+    installationId: text().notNull(),
+    lastSeenAt: timestamp().notNull().defaultNow(),
+    platform: text().notNull(),
+    pushToken: text(),
+    updatedAt: timestamp()
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("device_installations_user_installation_idx")
+      .on(table.userId, table.installationId),
+    uniqueIndex("device_installations_push_token_idx")
+      .on(table.pushToken)
+      .where(isNotNull(table.pushToken)),
+    index("device_installations_user_enabled_idx").on(table.userId, table.enabled),
+  ],
+);
+
+const notificationPreferencesTable = pgTable("notification_preferences", {
+  invites: boolean().notNull().default(true),
+  reauthentication: boolean().notNull().default(true),
+  syncFailures: boolean().notNull().default(true),
+  updatedAt: timestamp()
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+  userId: text()
+    .notNull()
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+});
+
+const pushNotificationOutboxTable = pgTable(
+  "push_notification_outbox",
+  {
+    attempts: integer().notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+    deliveredAt: timestamp(),
+    id: uuid().notNull().primaryKey().defaultRandom(),
+    idempotencyKey: text(),
+    lastError: text(),
+    nextAttemptAt: timestamp().notNull().defaultNow(),
+    payload: jsonb().$type<Record<string, unknown>>().notNull(),
+    status: text().notNull().default("pending"),
+    type: text().notNull(),
+    updatedAt: timestamp()
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("push_notification_outbox_idempotency_idx")
+      .on(table.idempotencyKey)
+      .where(isNotNull(table.idempotencyKey)),
+    index("push_notification_outbox_dispatch_idx")
+      .on(table.status, table.nextAttemptAt),
+    index("push_notification_outbox_user_idx").on(table.userId),
+    check(
+      "push_notification_outbox_status_check",
+      sql`${table.status} IN ('pending', 'processing', 'delivered', 'dead')`,
+    ),
+    check(
+      "push_notification_outbox_type_check",
+      sql`${table.type} IN ('reauthentication_required', 'sync_failed', 'calendar_invite')`,
+    ),
+  ],
+);
+
+const pushNotificationDeliveriesTable = pgTable(
+  "push_notification_deliveries",
+  {
+    attempts: integer().notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+    deliveredAt: timestamp(),
+    id: uuid().notNull().primaryKey().defaultRandom(),
+    installationId: uuid()
+      .notNull()
+      .references(() => deviceInstallationsTable.id, { onDelete: "cascade" }),
+    lastError: text(),
+    nextAttemptAt: timestamp().notNull().defaultNow(),
+    notificationId: uuid()
+      .notNull()
+      .references(() => pushNotificationOutboxTable.id, { onDelete: "cascade" }),
+    receiptId: text(),
+    status: text().notNull().default("pending"),
+    updatedAt: timestamp()
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("push_notification_deliveries_notification_installation_idx")
+      .on(table.notificationId, table.installationId),
+    uniqueIndex("push_notification_deliveries_receipt_idx")
+      .on(table.receiptId)
+      .where(isNotNull(table.receiptId)),
+    index("push_notification_deliveries_dispatch_idx")
+      .on(table.status, table.nextAttemptAt),
+    check(
+      "push_notification_deliveries_status_check",
+      sql`${table.status} IN ('pending', 'processing', 'receipt_pending', 'delivered', 'dead')`,
+    ),
+  ],
+);
+
+const remoteIcsCredentialsTable = pgTable(
+  "remote_ics_credentials",
+  {
+    calendarId: uuid()
+      .notNull()
+      .primaryKey()
+      .references(() => calendarsTable.id, { onDelete: "cascade" }),
+    createdAt: timestamp().notNull().defaultNow(),
+    encryptedPassword: text().notNull(),
+    encryptedUsername: text().notNull(),
+    updatedAt: timestamp()
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+);
+
 const syncStatusTable = pgTable(
   "sync_status",
   {
@@ -407,11 +545,16 @@ export {
   calendarAccountsTable,
   calendarSnapshotsTable,
   calendarsTable,
+  deviceInstallationsTable,
   eventMappingsTable,
   eventStatesTable,
   feedbackTable,
   icalFeedSettingsTable,
   oauthCredentialsTable,
+  notificationPreferencesTable,
+  pushNotificationOutboxTable,
+  pushNotificationDeliveriesTable,
+  remoteIcsCredentialsTable,
   sourceDestinationMappingsTable,
   syncStatusTable,
   userSyncRequestsTable,
