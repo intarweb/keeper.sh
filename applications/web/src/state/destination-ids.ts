@@ -25,6 +25,12 @@ export interface WriteBackStatus {
    */
   deletesUnlocked?: boolean;
   reason: string | null;
+  /*
+   * Whether writes to meetings the user organises are allowed. Absent on a payload written
+   * before the permission existed, and read as withheld: a permission missing from a
+   * response must never render as one that was given.
+   */
+  sharedEventsGranted?: boolean;
   state: string;
 }
 

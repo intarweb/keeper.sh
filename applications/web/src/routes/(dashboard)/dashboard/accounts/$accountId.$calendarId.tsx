@@ -736,6 +736,12 @@ function WriteBackModeControl({
       {mode !== "off" && (
         <WriteBackFieldSummary sourceName={sourceName || "this calendar"} />
       )}
+      {mode !== "off" && writableSource && !locked && (
+        <SharedEventGrantControl
+          granted={status?.sharedEventsGranted === true}
+          onChange={resolveSharedEventGrant}
+        />
+      )}
       {!writableSource && (
         <Text size="xs">
           {resolveUnwritableSourceCopy(calendarDetail)}
@@ -775,6 +781,37 @@ const ANSWER_LABELS: Record<DeleteConfirmationAnswer, (sourceName: string) => st
     `I emptied it myself — delete the originals on ${sourceName}`,
   decline: () => "Put the copies back",
 };
+
+/*
+ * The permission stands beside the mode rather than appearing only once a meeting has been
+ * held. A control the user meets for the first time in a failure is a control they cannot
+ * decide about in advance, and one they can never take back.
+ */
+function SharedEventGrantControl({
+  granted,
+  onChange,
+}: {
+  granted: boolean;
+  onChange: (decision: SharedEventGrantAnswer) => void;
+}) {
+  return (
+    <label className="flex items-start gap-2">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={granted}
+        onChange={() => { onChange(granted ? "withdraw" : "grant"); }}
+      />
+      <span>
+        <Text size="xs">Include meetings I organise</Text>
+        <Text size="xs">
+          Moving one emails everyone invited and cancelling it calls the meeting off for
+          them. Events somebody else created are never included.
+        </Text>
+      </span>
+    </label>
+  );
+}
 
 function WriteBackStatusLine({
   destinationName,

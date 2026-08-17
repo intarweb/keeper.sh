@@ -695,7 +695,12 @@ const getWriteBackStatesForSource = async (
   userId: string,
   sourceCalendarId: string,
 ): Promise<
-  Record<string, { deletesUnlocked: boolean; reason: string | null; state: string }>
+  Record<string, {
+    deletesUnlocked: boolean;
+    reason: string | null;
+    sharedEventsGranted: boolean;
+    state: string;
+  }>
 > => {
   const { database } = await import("@/context");
 
@@ -710,6 +715,8 @@ const getWriteBackStatesForSource = async (
       disabled: calendarsTable.disabled,
       ingestLastSucceededAt: calendarsTable.ingestLastSucceededAt,
       lastHealthyReadAt: sourceDestinationMappingsTable.lastHealthyReadAt,
+      sharedEventWritesGrantedAt:
+        sourceDestinationMappingsTable.sharedEventWritesGrantedAt,
       writeBackMode: sourceDestinationMappingsTable.writeBackMode,
       writeBackState: sourceDestinationMappingsTable.writeBackState,
       writeBackStateReason: sourceDestinationMappingsTable.writeBackStateReason,
@@ -730,6 +737,7 @@ const getWriteBackStatesForSource = async (
       mapping.destinationCalendarId,
       {
         deletesUnlocked: resolveDeletesUnlocked(mapping, now),
+        sharedEventsGranted: mapping.sharedEventWritesGrantedAt !== null,
         ...resolveReportedWriteBackState(mapping, now),
       },
     ]),
