@@ -459,19 +459,18 @@ function DestinationsSection({ accountId, calendarId }: { accountId: string; cal
         )}
       </NavigationMenu>
       {atLimit && <UpgradeHint>Mapping limit reached.</UpgradeHint>}
-      {selectedDestinations.length > 0 && (
-        <NavigationMenu>
-          <NavigationMenuLinkItem
-            to={`/dashboard/accounts/${accountId}/${calendarId}/two-way`}
-          >
-            <NavigationMenuItemIcon>
-              <ArrowLeftRight size={15} />
-            </NavigationMenuItemIcon>
-            <NavigationMenuItemLabel>Two-Way Syncing</NavigationMenuItemLabel>
-            <NavigationMenuItemTrailing />
-          </NavigationMenuLinkItem>
-        </NavigationMenu>
-      )}
+      <NavigationMenu>
+        <NavigationMenuLinkItem
+          disabled={selectedDestinations.length === 0}
+          to={`/dashboard/accounts/${accountId}/${calendarId}/two-way`}
+        >
+          <NavigationMenuItemIcon>
+            <ArrowLeftRight size={15} />
+          </NavigationMenuItemIcon>
+          <NavigationMenuItemLabel>Two-Way Syncing</NavigationMenuItemLabel>
+          <NavigationMenuItemTrailing />
+        </NavigationMenuLinkItem>
+      </NavigationMenu>
     </>
   );
 }
