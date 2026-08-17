@@ -28,5 +28,5 @@ describe("one status does not mean one thing everywhere", () => {
 
     expect(listed.kind).toBe("cursorLost");
     expect(outcomeKindOf(deleted)).toBe("alreadyAbsent");
-  }, 30000);
+  }, 30_000);
 });

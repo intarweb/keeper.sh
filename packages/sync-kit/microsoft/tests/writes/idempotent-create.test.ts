@@ -26,7 +26,7 @@ describe("a replayed create is a no-op, because Graph mints its own identifiers"
     expect(outcomeKindOf(first)).toBe("created");
     expect(outcomeKindOf(second)).toBe("alreadyExists");
     expect(harness.fake.items()).toHaveLength(1);
-  }, 30000);
+  }, 30_000);
 
   test("MS-O30: a create answered 409 is resolved by reading, never by creating again", async () => {
     const harness = createHarness();
@@ -40,5 +40,5 @@ describe("a replayed create is a no-op, because Graph mints its own identifiers"
 
     expect(["alreadyExists", "created"]).toContain(outcomeKindOf(answered));
     expect(harness.fake.items().length).toBeLessThanOrEqual(1);
-  }, 30000);
+  }, 30_000);
 });

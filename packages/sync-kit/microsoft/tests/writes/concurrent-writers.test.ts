@@ -33,5 +33,5 @@ describe("two writers over one observed version cannot both win", () => {
       "conflict",
       "updated",
     ]);
-  }, 30000);
+  }, 30_000);
 });

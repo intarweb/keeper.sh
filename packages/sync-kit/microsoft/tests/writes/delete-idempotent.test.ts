@@ -30,5 +30,5 @@ describe("deleting what is already gone is success, not a loop", () => {
     expect(outcomeKindOf(first)).toBe("deleted");
     expect(outcomeKindOf(second)).toBe("alreadyAbsent");
     expect(harness.fake.items()).toEqual([]);
-  }, 30000);
+  }, 30_000);
 });

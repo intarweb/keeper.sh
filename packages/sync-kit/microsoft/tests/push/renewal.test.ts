@@ -47,7 +47,7 @@ describe("a vanished subscription and a throttled one are different answers", ()
 
     expect(failureKindOf(gone)).toBe("notFound");
     expect(failureKindOf(busy)).toBe("rateLimited");
-  }, 30000);
+  }, 30_000);
 
   test("MS-P11: a renewal is a PATCH of the expiry, never a re-creation", async () => {
     const harness = createHarness();
@@ -67,5 +67,5 @@ describe("a vanished subscription and a throttled one are different answers", ()
     const methods = harness.fake.requests().map((request) => request.method);
     expect(methods).toContain("PATCH");
     expect(methods).not.toContain("POST");
-  }, 30000);
+  }, 30_000);
 });

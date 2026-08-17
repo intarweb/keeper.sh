@@ -47,5 +47,5 @@ describe("a 409 on create is a duplicate, and it is distinguishable", () => {
     expect(first.ok).toBe(true);
     expect(failureKindOf(second)).toBe("conflict");
     expect(harness.fake.subscriptions()).toHaveLength(1);
-  }, 30000);
+  }, 30_000);
 });

@@ -19,5 +19,5 @@ describe("a flight only ever deletes the entry it owns", () => {
 
     expect(keysWhileSecondRuns).toEqual(["one-scope"]);
     expect(flights.inFlightKeys()).toEqual([]);
-  }, 30000);
+  }, 30_000);
 });

@@ -26,7 +26,7 @@ describe("an echo diffed across body formats is uncomparable, not divergence", (
       throw new Error(`a create answered "${created.kind}"`);
     }
     expect(created.echo.kind).toBe("notObserved");
-  }, 30000);
+  }, 30_000);
 
   test("MS-O24: a body returned as html is refused for comparison at the decoder", () => {
     expect(readBody({ contentType: "html", content: "<p>hello</p>" })).toEqual({

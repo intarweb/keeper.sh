@@ -33,7 +33,7 @@ describe("a stale etag is a conflict, and it writes nothing", () => {
     expect(outcomeKindOf(answered)).toBe("conflict");
     expect(harness.fake.items()).toEqual(before);
     assertConflictNotOverwrite(answered);
-  }, 30000);
+  }, 30_000);
 
   test("MS-O28: the conflict carries the version it actually observed", async () => {
     const harness = createHarness();
@@ -57,5 +57,5 @@ describe("a stale etag is a conflict, and it writes nothing", () => {
       throw new Error("a stale write did not answer a typed conflict");
     }
     expect(answered.value.observed.kind).toBe("matchesVersion");
-  }, 30000);
+  }, 30_000);
 });

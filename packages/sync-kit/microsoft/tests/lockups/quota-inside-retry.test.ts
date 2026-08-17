@@ -40,5 +40,5 @@ describe("a retrying request does not hold a mailbox hostage", () => {
     expect(attempts).toBe(3);
     expect(heldDuringSleep).toEqual([0, 0]);
     expect(permits.held("mailbox-one")).toBe(0);
-  }, 30000);
+  }, 30_000);
 });

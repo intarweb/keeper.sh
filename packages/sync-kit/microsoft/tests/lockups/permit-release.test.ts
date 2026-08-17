@@ -19,7 +19,7 @@ describe("a permit is structural, not a happy-path unlock", () => {
     expect(afterwards).toBe("the next caller still got its permit");
     expect(permits.held("mailbox-one")).toBe(0);
     expect(permits.waiting("mailbox-one")).toBe(0);
-  }, 30000);
+  }, 30_000);
 
   test("MS-L13: a permit is released when the caller is aborted mid-body", async () => {
     const permits = createMailboxSemaphore(1);
@@ -31,5 +31,5 @@ describe("a permit is structural, not a happy-path unlock", () => {
     await holding.catch(() => null);
 
     expect(permits.held("mailbox-one")).toBe(0);
-  }, 30000);
+  }, 30_000);
 });

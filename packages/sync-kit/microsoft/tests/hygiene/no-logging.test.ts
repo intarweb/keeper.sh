@@ -27,5 +27,5 @@ describe("the adapter emits nothing; diagnostics are returned as data", () => {
     expect(loggers).toEqual([]);
     expect(files.length).toBeGreaterThan(40);
     expect(listing.diagnostics.pagesFetched).toBeGreaterThan(0);
-  }, 30000);
+  }, 30_000);
 });

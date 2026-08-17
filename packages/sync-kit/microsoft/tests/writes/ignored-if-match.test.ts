@@ -34,5 +34,5 @@ describe("a precondition the server may ignore still cannot become a silent over
     expect(outcomeKindOf(answered)).toBe("conflict");
     expect(stored?.subject).toBe("what the user wrote a second ago");
     assertConflictNotOverwrite(answered);
-  }, 30000);
+  }, 30_000);
 });

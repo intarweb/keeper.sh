@@ -42,5 +42,5 @@ describe("the Teams join blob is Graph's region of the body, and it survives our
     expect(outcomeKindOf(updated)).toBe("updated");
     expect(stored?.body?.content).toContain(teamsBlob);
     expect(stored?.body?.content).toContain("a description we changed");
-  }, 30000);
+  }, 30_000);
 });

@@ -36,7 +36,7 @@ describe("an empty expansion and an errored expansion are different answers", ()
     expect(listing.diagnostics.unrepresentable.total).toBe(0);
     expect(answered.ok).toBe(false);
     expect(failureKindOf(answered)).toBe("transport");
-  }, 30000);
+  }, 30_000);
 
   test("MS-O19: an expansion that answers instances contributes them as events", async () => {
     const harness = createHarness();
@@ -59,5 +59,5 @@ describe("an empty expansion and an errored expansion are different answers", ()
     );
 
     expect(listing.events?.map((event) => event.id.value)).toEqual(["occurrence-one"]);
-  }, 30000);
+  }, 30_000);
 });

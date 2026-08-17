@@ -33,7 +33,7 @@ describe("a nextLink that never changes cannot loop forever", () => {
     expect(harness.fake.listCallCount()).toBe(microsoftLimits.maxPages);
     expect(listing.kind).toBe("partial");
     assertNoRemovalDerivable(listing);
-  }, 30000);
+  }, 30_000);
 
   test("MS-L10: the ceiling that stopped the walk is the configured one", async () => {
     const harness = createHarness();
@@ -64,5 +64,5 @@ describe("a nextLink that never changes cannot loop forever", () => {
     expect(pagesRequested).toBe(5);
     expect(three.kind).toBe("truncated");
     expect(five.kind).toBe("truncated");
-  }, 30000);
+  }, 30_000);
 });

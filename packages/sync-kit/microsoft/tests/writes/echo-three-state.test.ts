@@ -40,5 +40,5 @@ describe("we never looked is not the same answer as it matched", () => {
       throw new Error(`a create answered "${created.kind}"`);
     }
     expect(created.echo.kind).toBe("matched");
-  }, 30000);
+  }, 30_000);
 });

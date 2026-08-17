@@ -23,5 +23,5 @@ describe("two ingests over overlapping keys cannot deadlock", () => {
     expect(order).toHaveLength(2);
     expect(permits.held("mailbox-a")).toBe(0);
     expect(permits.held("mailbox-b")).toBe(0);
-  }, 30000);
+  }, 30_000);
 });

@@ -23,7 +23,7 @@ describe("the operation deadline is the only ceiling, and the transport advertis
     caller.abort();
 
     await expect(pending).rejects.toThrow("AbortError");
-  }, 30000);
+  }, 30_000);
 
   test("MS-L29: the client takes no request ceiling it would not enforce", () => {
     const chain = graphMiddlewareChain({

@@ -18,5 +18,5 @@ describe("a cancelled run is never charged as a provider failure", () => {
       throw new Error("an already-aborted listing answered a value");
     }
     expect(answered.failure).toEqual({ kind: "notAttempted", reason: "aborted" });
-  }, 30000);
+  }, 30_000);
 });

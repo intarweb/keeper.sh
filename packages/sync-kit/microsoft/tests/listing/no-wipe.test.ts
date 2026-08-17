@@ -18,7 +18,7 @@ describe("a failed fetch is not an empty calendar", () => {
     expect(answered.ok).toBe(false);
     expect(failureKindOf(answered)).toBe("transport");
     expect(Object.hasOwn(answered, "value")).toBe(false);
-  }, 30000);
+  }, 30_000);
 
   test("MS-O13: a transport that throws out of the gate also fails, and reports no listing", async () => {
     const harness = createHarness();

@@ -20,7 +20,7 @@ describe("a 410 arriving mid-walk throws away the pages already collected", () =
     expect(listing.kind).toBe("cursorLost");
     expect(listing.events).toBeUndefined();
     expect(listing.cursor).toBeUndefined();
-  }, 30000);
+  }, 30_000);
 
   test("MS-O2: the walk that hit the 410 still reached exactly three pages", async () => {
     const harness = createHarness();
@@ -34,5 +34,5 @@ describe("a 410 arriving mid-walk throws away the pages already collected", () =
     );
 
     expect(harness.fake.listCallCount()).toBe(3);
-  }, 30000);
+  }, 30_000);
 });

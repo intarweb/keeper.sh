@@ -39,5 +39,5 @@ describe("a waiter that gives up does not strand the queue behind it", () => {
     await expect(queuedSecond).resolves.toBe("the successor ran");
     expect(successorRan).toBe(true);
     expect(permits.waiting("mailbox-one")).toBe(0);
-  }, 30000);
+  }, 30_000);
 });

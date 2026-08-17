@@ -32,7 +32,7 @@ describe("one mailbox admits four requests and no more, and does not block anoth
     expect(startedWhileSaturated.filter((name) => name.startsWith("one-"))).toHaveLength(
       microsoftLimits.mailboxConcurrency,
     );
-  }, 30000);
+  }, 30_000);
 
   test("MS-L1: the ceiling is the configured one, not an incidental one", async () => {
     const two = createMailboxSemaphore(2);
@@ -47,5 +47,5 @@ describe("one mailbox admits four requests and no more, and does not block anoth
     await Promise.all(inFlight);
 
     expect(peakUnderTwo).toBe(2);
-  }, 30000);
+  }, 30_000);
 });

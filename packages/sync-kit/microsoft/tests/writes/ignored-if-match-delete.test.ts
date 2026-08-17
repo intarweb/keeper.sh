@@ -30,7 +30,7 @@ describe("a removal cannot destroy a revision the caller never observed", () => 
     expect(outcomeKindOf(answered)).toBe("conflict");
     expect(stored?.subject).toBe("what the user wrote a second ago");
     assertConflictNotOverwrite(answered);
-  }, 30000);
+  }, 30_000);
 
   test("MS-O45: a removal whose precondition still matches deletes the event", async () => {
     const harness = createHarness();
@@ -45,5 +45,5 @@ describe("a removal cannot destroy a revision the caller never observed", () => 
 
     expect(outcomeKindOf(answered)).toBe("deleted");
     expect(harness.fake.items().find((item) => item.id === "id-mirrored")).toBeUndefined();
-  }, 30000);
+  }, 30_000);
 });
