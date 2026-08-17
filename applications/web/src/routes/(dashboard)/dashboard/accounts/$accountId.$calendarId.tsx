@@ -87,6 +87,7 @@ import {
   ModalFooter,
   ModalTitle,
 } from "@/components/ui/primitives/modal";
+import { Checkbox } from "@/components/ui/primitives/checkbox";
 import { Button } from "@/components/ui/primitives/button";
 import {
   getSyncRangeLabel,
@@ -559,26 +560,98 @@ function DestinationCheckboxItem({
   );
 }
 
-const WRITE_BACK_OPTIONS: { description: string; label: string; mode: WriteBackMode }[] = [
-  {
-    description: "Changes flow from this calendar to the copy only.",
-    label: "One-way",
-    mode: "off",
-  },
-  {
-    description: "Editing the copy changes the original event here.",
-    label: "Two-way",
-    mode: "edits",
-  },
-  {
-    description:
-      "Editing the copy changes the original, and deleting the copy permanently deletes "
-      + "the original here and removes it from every other calendar it is copied to. "
-      + "Keeper.sh keeps a record of what it deleted under Deleted Events for 30 days.",
-    label: "Two-way, including deletions",
-    mode: "edits_and_deletes",
-  },
-];
+/*
+ * One escalating list rather than two controls. Every line is a single decision the user can
+ * read in full, and each is disabled until the one above it is given, because none of them
+ * means anything on its own: deleting originals is meaningless without write-back, and
+ * moving a meeting is meaningless without permission to touch meetings at all.
+ *
+ * The two questions underneath stay distinct — the first two lines are which verbs are
+ * allowed, the last three are who they may be aimed at — so "delete" and "somebody else's
+ * event" remain separate answers rather than one combined level.
+ */
+const REACH_ORDER = ["own_events", "my_meetings", "my_meetings_notifying", "any_event"];
+
+const reachAtLeast = (reach: string, level: string): boolean =>
+  REACH_ORDER.indexOf(reach) >= REACH_ORDER.indexOf(level);
+
+const reachFor = (level: string, checked: boolean): string => {
+  if (checked) {
+    return level;
+  }
+  return REACH_ORDER[REACH_ORDER.indexOf(level) - 1] ?? "own_events";
+};
+
+function WriteBackPermissions({
+  held,
+  locked,
+  mode,
+  onModeChange,
+  onReachChange,
+  reach,
+  sourceName,
+}: {
+  held: boolean;
+  locked: boolean;
+  mode: WriteBackMode;
+  onModeChange: (mode: WriteBackMode) => void;
+  onReachChange: (reach: string) => void;
+  reach: string;
+  sourceName: string;
+}) {
+  const twoWay = mode !== "off";
+  const meetings = reachAtLeast(reach, "my_meetings");
+  const moving = reachAtLeast(reach, "my_meetings_notifying");
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Checkbox
+        checked={twoWay}
+        disabled={locked}
+        onCheckedChange={(checked) => { onModeChange(checked ? "edits" : "off"); }}
+      >
+        {`Edits to a copy change the original on ${sourceName}`}
+      </Checkbox>
+      <Checkbox
+        checked={mode === "edits_and_deletes"}
+        disabled={locked || !twoWay}
+        onCheckedChange={(checked) => {
+          onModeChange(checked ? "edits_and_deletes" : "edits");
+        }}
+      >
+        Deleting a copy deletes the original too
+      </Checkbox>
+      <Checkbox
+        checked={meetings}
+        disabled={locked || !twoWay}
+        onCheckedChange={(checked) => { onReachChange(reachFor("my_meetings", checked)); }}
+      >
+        Include meetings I organise, for titles and details guests are not emailed about
+      </Checkbox>
+      <Checkbox
+        checked={moving}
+        disabled={locked || !meetings}
+        onCheckedChange={(checked) => {
+          onReachChange(reachFor("my_meetings_notifying", checked));
+        }}
+      >
+        Include moving and cancelling those meetings, which emails every guest
+      </Checkbox>
+      <Checkbox
+        checked={reachAtLeast(reach, "any_event")}
+        disabled={locked || !moving}
+        onCheckedChange={(checked) => { onReachChange(reachFor("any_event", checked)); }}
+      >
+        Include events somebody else created on calendars I can write to
+      </Checkbox>
+      {held && (
+        <Text size="xs">
+          A change to a meeting is waiting on one of these.
+        </Text>
+      )}
+    </div>
+  );
+}
 
 function WriteBackFieldSummary({ sourceName }: { sourceName: string }) {
   const excludeEventName = useAtomValue(excludeEventNameAtom);
@@ -715,32 +788,17 @@ function WriteBackModeControl({
 
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex flex-wrap gap-1">
-        {WRITE_BACK_OPTIONS.map((option) => (
-          <Button
-            key={option.mode}
-            type="button"
-            size="compact"
-            variant={resolveWriteBackOptionVariant(option.mode === mode)}
-            disabled={(locked || !writableSource) && option.mode !== "off"}
-            onClick={() => { applyMode(option.mode); }}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </div>
-      <Text size="xs">
-        {WRITE_BACK_OPTIONS.find((option) => option.mode === mode)?.description}
-      </Text>
+      <WriteBackPermissions
+        held={isHeldForPermission(status)}
+        locked={locked || !writableSource}
+        mode={mode}
+        onModeChange={applyMode}
+        onReachChange={commitReach}
+        reach={status?.writeBackReach ?? "own_events"}
+        sourceName={sourceName || "this calendar"}
+      />
       {mode !== "off" && (
         <WriteBackFieldSummary sourceName={sourceName || "this calendar"} />
-      )}
-      {mode !== "off" && writableSource && !locked && (
-        <WriteBackReachControl
-          held={isHeldForPermission(status)}
-          onChange={commitReach}
-          reach={status?.writeBackReach ?? "own_events"}
-        />
       )}
       {!writableSource && (
         <Text size="xs">
@@ -780,78 +838,6 @@ const ANSWER_LABELS: Record<DeleteConfirmationAnswer, (sourceName: string) => st
     `I emptied it myself — delete the originals on ${sourceName}`,
   decline: () => "Put the copies back",
 };
-
-/*
- * Ordered by blast radius, each level including the ones before it, and shown in full
- * rather than revealed by a failure: a permission the user first meets in an error is one
- * they could not decide about in advance.
- */
-const WRITE_BACK_REACH_OPTIONS = [
-  {
-    description: "Only events you created with nobody else invited.",
-    label: "My own events",
-    reach: "own_events",
-  },
-  {
-    description:
-      "Titles, descriptions and locations on meetings you organise. Guests see the new"
-      + " value; nobody is emailed.",
-    label: "Meetings I organise",
-    reach: "my_meetings",
-  },
-  {
-    description:
-      "Also moving and cancelling those meetings. Every guest is emailed, and no answer"
-      + " afterwards recalls that.",
-    label: "Moving and cancelling them",
-    reach: "my_meetings_notifying",
-  },
-  {
-    description:
-      "Also events somebody else created, on calendars you have write access to. Their"
-      + " data, changed on your say-so.",
-    label: "Events I did not create",
-    reach: "any_event",
-  },
-] as const;
-
-function WriteBackReachControl({
-  held,
-  onChange,
-  reach,
-}: {
-  held: boolean;
-  onChange: (reach: string) => void;
-  reach: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <Text size="xs">How far changes may reach</Text>
-      <div className="flex flex-wrap gap-1">
-        {WRITE_BACK_REACH_OPTIONS.map((option) => (
-          <Button
-            key={option.reach}
-            type="button"
-            size="compact"
-            variant={resolveWriteBackOptionVariant(option.reach === reach)}
-            onClick={() => { onChange(option.reach); }}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </div>
-      <Text size="xs">
-        {WRITE_BACK_REACH_OPTIONS.find((option) => option.reach === reach)?.description}
-      </Text>
-      {held && (
-        <Text size="xs">
-          A change to a meeting is waiting on this. Pick a level that covers it and Keeper.sh
-          will apply the change on the next sync.
-        </Text>
-      )}
-    </div>
-  );
-}
 
 function WriteBackStatusLine({
   destinationName,
@@ -950,13 +936,6 @@ function DeletionConsentModal({
     </Modal>
   );
 }
-
-const resolveWriteBackOptionVariant = (selected: boolean): ButtonProps["variant"] => {
-  if (selected) {
-    return "border";
-  }
-  return "ghost";
-};
 
 const resolveDeleteAnswerVariant = (
   answer: DeleteConfirmationAnswer,
