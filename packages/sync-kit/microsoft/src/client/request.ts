@@ -35,8 +35,7 @@ interface RequestSeamOptions {
 
 const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
   const { dependencies, permits } = options;
-  let spent = 0;
-  let allowed = 0;
+  const budget = { spent: 0, allowed: 0 };
 
   const failureOf = (error: unknown, operation: OperationName): MicrosoftFailure =>
     classifyGraphError(decodeGraphError(error), operation, {
@@ -49,7 +48,7 @@ const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
     signal: AbortSignal,
     attemptNumber: number,
   ): Promise<Attempt<Value>> => {
-    spent = Math.max(spent, attemptNumber);
+    budget.spent = Math.max(budget.spent, attemptNumber);
     try {
       const value = await permits.withPermits(call.mailboxes, signal, () =>
         dependencies.gate(call.operation, () => call.send(signal)),
@@ -72,7 +71,7 @@ const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
     if (context.signal.aborted) {
       return { kind: "notAttempted", reason: "aborted" };
     }
-    allowed = Math.max(allowed, context.retryBudget.maxAttempts);
+    budget.allowed = Math.max(budget.allowed, context.retryBudget.maxAttempts);
     const outcome = await withBackoff<Value>({
       clock: dependencies.clock,
       context,
@@ -101,8 +100,8 @@ const createRequestSeam = (options: RequestSeamOptions): RequestSeam => {
 
   return {
     send,
-    attemptsSpent: () => spent,
-    attemptsAllowed: () => allowed,
+    attemptsSpent: () => budget.spent,
+    attemptsAllowed: () => budget.allowed,
   };
 };
 

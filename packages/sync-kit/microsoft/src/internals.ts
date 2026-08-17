@@ -81,7 +81,7 @@ const createMicrosoftInternals = (dependencies: MicrosoftDependencies): Microsof
   const flights = createSingleFlight<Result<ChangeListing>>();
   const frontier = createCursorFrontier();
   const zones = createGraphZones();
-  let observed: readonly string[] = [];
+  const seen: { observed: readonly string[] } = { observed: [] };
 
   const listChanges = async (
     request: ListChangesRequest,
@@ -94,7 +94,7 @@ const createMicrosoftInternals = (dependencies: MicrosoftDependencies): Microsof
       frontier,
       zones,
     });
-    observed = calendarsBehind(answered);
+    seen.observed = calendarsBehind(answered);
     return answered;
   };
 
@@ -117,7 +117,7 @@ const createMicrosoftInternals = (dependencies: MicrosoftDependencies): Microsof
     permits,
     flights,
     inFlightKeys: () => flights.inFlightKeys(),
-    deletionCalendars: () => observed,
+    deletionCalendars: () => seen.observed,
   };
 };
 

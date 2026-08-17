@@ -74,12 +74,12 @@ const createMailboxSemaphore = (permitsPerMailbox: number): MailboxSemaphore => 
     signal: AbortSignal,
     body: () => Promise<Value>,
   ): Promise<Value> => {
-    let released = false;
+    const guard = { released: false };
     const releaseOnce = (): void => {
-      if (released) {
+      if (guard.released) {
         return;
       }
-      released = true;
+      guard.released = true;
       release(mailbox);
     };
     if (signal.aborted) {

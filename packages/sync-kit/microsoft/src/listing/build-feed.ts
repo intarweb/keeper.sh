@@ -83,7 +83,7 @@ const buildFeed = (inputs: FeedInputs): BuiltFeed => {
   const removals: Removal[] = [];
   const withheld: WithheldEvent[] = [];
   const selfAuthored: string[] = [];
-  let discarded = 0;
+  const dropped = { discarded: 0 };
 
   for (const item of inputs.items) {
     switch (item.kind) {
@@ -110,7 +110,7 @@ const buildFeed = (inputs: FeedInputs): BuiltFeed => {
         break;
       }
       case "discarded": {
-        discarded += 1;
+        dropped.discarded += 1;
         break;
       }
       default: {
@@ -119,7 +119,7 @@ const buildFeed = (inputs: FeedInputs): BuiltFeed => {
     }
   }
 
-  return { events, removals, withheld, selfAuthored, discarded };
+  return { events, removals, withheld, selfAuthored, discarded: dropped.discarded };
 };
 
 export { buildFeed };

@@ -84,7 +84,7 @@ const collapseRevisions = (arrived: readonly ArrivedItem[]): CollapsedRevisions 
   const winners = new Map<string, ArrivedItem>();
   const collided = new Set<string>();
   const passthrough: DecodedItem[] = [];
-  let discarded = 0;
+  const dropped = { discarded: 0 };
 
   for (const entry of arrived) {
     const identity = identityOf(entry);
@@ -98,7 +98,7 @@ const collapseRevisions = (arrived: readonly ArrivedItem[]): CollapsedRevisions 
       continue;
     }
     collided.add(identity);
-    discarded += 1;
+    dropped.discarded += 1;
     winners.set(identity, newerOf(held, entry));
   }
 
@@ -112,7 +112,7 @@ const collapseRevisions = (arrived: readonly ArrivedItem[]): CollapsedRevisions 
     return supersededReading(entry.item);
   });
 
-  return { kept: [...kept, ...passthrough], discarded };
+  return { kept: [...kept, ...passthrough], discarded: dropped.discarded };
 };
 
 export { collapseRevisions };

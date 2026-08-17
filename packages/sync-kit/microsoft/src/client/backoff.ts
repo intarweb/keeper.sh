@@ -25,6 +25,9 @@ interface BackoffOptions<Value> {
 
 type SleepOutcome = "slept" | "aborted" | "refused";
 
+const attemptsUpTo = (ceiling: number): readonly number[] =>
+  Array.from({ length: Math.max(0, ceiling) }, (unused, index) => index + 1);
+
 const backoffStepMs = 100;
 
 const exponentialMs = (attemptNumber: number): number => backoffStepMs * 2 ** (attemptNumber - 1);
@@ -74,7 +77,7 @@ const withBackoff = async <Value>(
   options: BackoffOptions<Value>,
 ): Promise<BackoffOutcome<Value>> => {
   const ceiling = options.context.retryBudget.maxAttempts;
-  for (let attemptNumber = 1; attemptNumber <= ceiling; attemptNumber += 1) {
+  for (const attemptNumber of attemptsUpTo(ceiling)) {
     if (options.signal.aborted) {
       return { kind: "aborted" };
     }

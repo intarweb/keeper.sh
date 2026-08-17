@@ -26,12 +26,12 @@ const createSingleFlight = <Value>(): SingleFlight<Value> => {
   const joinedTo = (key: string, flight: Flight<Value>, joiner: AbortSignal): Promise<Value> => {
     flight.joined += 1;
     const listening = new AbortController();
-    let departed = false;
+    const state = { departed: false };
     const depart = (): void => {
-      if (departed) {
+      if (state.departed) {
         return;
       }
-      departed = true;
+      state.departed = true;
       listening.abort();
       flight.joined -= 1;
       if (flight.joined > 0) {
