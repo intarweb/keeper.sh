@@ -176,13 +176,15 @@ describe("CalDAVClient.fetchCalendarObjects on healthy calendars", () => {
     expect(objects).toHaveLength(1);
   });
 
-  it("ignores calendar-query hrefs that are not calendar objects", async () => {
+  it("ignores the collection's own href and asks for every resource under it", async () => {
     const path = objectPath(0);
-    answerQueryWith([CALENDAR_PATH, `${CALENDAR_PATH}notes.txt`, path]);
+    const bareResource = `${CALENDAR_PATH}1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`;
+    answerQueryWith([CALENDAR_PATH, bareResource, path]);
+    answerMultigetWith((objectUrls) => rowsFor(objectUrls));
 
     await fetchObjects();
 
-    expect(requestedBatches()).toEqual([[path]]);
+    expect(requestedBatches()).toEqual([[bareResource, path]]);
   });
 
   it("supplies its own url filter so tsdav cannot drop a requested path", async () => {
@@ -192,8 +194,8 @@ describe("CalDAVClient.fetchCalendarObjects on healthy calendars", () => {
 
     const { urlFilter } = davMocks.fetchCalendarObjects.mock.calls[0]?.[0] ?? {};
     expect(urlFilter?.(`${SERVER_URL}${objectPath(0)}`)).toBe(true);
-    expect(urlFilter?.(`${SERVER_URL}${CALENDAR_PATH}notes.txt`)).toBe(false);
-    expect(urlFilter?.(`https://cal.ics.example.com${CALENDAR_PATH}notes.txt`)).toBe(false);
+    expect(urlFilter?.(`${SERVER_URL}${CALENDAR_PATH}unsuffixed-resource`)).toBe(true);
+    expect(urlFilter?.(`${SERVER_URL}${CALENDAR_PATH}`)).toBe(false);
   });
 
   it("matches a percent-encoded requested href against a decoded response href", async () => {
@@ -259,8 +261,8 @@ describe("CalDAVClient.fetchCalendarObjects listing diagnostics", () => {
     expect(listing).toMatchObject({ requestedCount: 3, returnedCount: 3, unrequestedCount: 1 });
   });
 
-  it("does not count listed hrefs that are not calendar objects", async () => {
-    answerQueryWith([CALENDAR_PATH, `${CALENDAR_PATH}notes.txt`, objectPath(0)]);
+  it("does not count the collection's own href among the objects it listed", async () => {
+    answerQueryWith([CALENDAR_PATH, objectPath(0)]);
 
     const [listing] = await captureListings();
 

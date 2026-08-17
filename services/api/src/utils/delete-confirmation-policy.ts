@@ -1,4 +1,6 @@
 const DELETE_PROBE_BLOCKED_REASON = "delete_probe_blocked";
+const DELETE_PROBE_UNREACHABLE_REASON = "delete_probe_unreachable";
+const DELETE_SOURCE_CHANGED_REASON = "delete_source_changed";
 const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
 
 const DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE =
@@ -11,15 +13,33 @@ const BLANK_READ_NOT_APPLICABLE_MESSAGE =
 const NO_DELETE_CONFIRMATION_PENDING_MESSAGE =
   "Keeper.sh is not waiting on an answer about deleted copies for this pair";
 
+const PROBE_UNREACHABLE_NOT_APPLICABLE_MESSAGE =
+  "Keeper.sh could not read the destination calendar to check whether the copies were"
+  + " really removed, so it has not seen them gone and the originals cannot be deleted on"
+  + " that footing";
+
+const SOURCE_CHANGED_NOT_APPLICABLE_MESSAGE =
+  "The originals changed on the source calendar before the deletion could be applied, so"
+  + " the deletion no longer describes them and they cannot be deleted on it";
+
 /*
  * Approving deletions is an answer to one question: whether copies Keeper.sh can no longer
- * see were really removed. A pair paused because the per-event probe keeps finding the
- * copies present is not asking that. Approving there deletes originals whose copies exist,
- * and the approval also exempts the pair from the bulk-delete breaker for half an hour, so
- * it is refused rather than recorded.
+ * see were really removed. None of these holds is asking it. The probe found the copies
+ * present; or it could not read the destination at all, so nothing was seen either way; or
+ * the original changed on the source before the deletion could be applied to it. Approving
+ * on any of them destroys real source events on evidence that was never gathered, and the
+ * approval also exempts the pair from the bulk-delete breaker for half an hour, so it is
+ * refused rather than recorded — and refused in the words of the hold it is refusing, since
+ * naming the copies as present sends the user to look at a calendar where nothing is wrong.
  */
+const UNVERIFIED_DELETE_MESSAGES: Record<string, string> = {
+  [DELETE_PROBE_BLOCKED_REASON]: DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
+  [DELETE_PROBE_UNREACHABLE_REASON]: PROBE_UNREACHABLE_NOT_APPLICABLE_MESSAGE,
+  [DELETE_SOURCE_CHANGED_REASON]: SOURCE_CHANGED_NOT_APPLICABLE_MESSAGE,
+};
+
 const isDeleteApprovalApplicable = (pauseReason: string | null): boolean =>
-  pauseReason !== DELETE_PROBE_BLOCKED_REASON;
+  !Object.hasOwn(UNVERIFIED_DELETE_MESSAGES, pauseReason ?? "");
 
 const COPIES_MISSING_REASON = "all_copies_missing";
 
@@ -75,7 +95,8 @@ const describeNotApplicable = (
   if (isBlockedByBlankRead(pending)) {
     return BLANK_READ_NOT_APPLICABLE_MESSAGE;
   }
-  return DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE;
+  return UNVERIFIED_DELETE_MESSAGES[pending.writeBackStateReason ?? ""]
+    ?? DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE;
 };
 
 type ConfirmationDisposition =
@@ -138,12 +159,16 @@ export {
   DELETE_CONFIRMATION_NOT_APPLICABLE_MESSAGE,
   DELETE_CONFIRMATION_STATE,
   DELETE_PROBE_BLOCKED_REASON,
+  DELETE_PROBE_UNREACHABLE_REASON,
+  DELETE_SOURCE_CHANGED_REASON,
   describeNotApplicable,
   DISCONNECTED_DESTINATION_MESSAGE,
   EMPTY_DESTINATION_DECISION,
   EMPTY_DESTINATION_NOT_APPLICABLE_MESSAGE,
   isDeleteApprovalApplicable,
   NO_DELETE_CONFIRMATION_PENDING_MESSAGE,
+  PROBE_UNREACHABLE_NOT_APPLICABLE_MESSAGE,
   resolveConfirmationDisposition,
+  SOURCE_CHANGED_NOT_APPLICABLE_MESSAGE,
 };
 export type { ConfirmationDisposition };

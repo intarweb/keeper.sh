@@ -169,7 +169,7 @@ const toCalendarObjectPaths = (responses: { href?: string }[], calendarUrl: stri
   ...new Set(
     responses
       .map(({ href }) => toCalendarObjectPath(href ?? "", calendarUrl))
-      .filter((path) => isCalendarObjectPath(path)),
+      .filter((path) => isCalendarObjectPath(path, new URL(calendarUrl).pathname)),
   ),
 ];
 
@@ -331,7 +331,10 @@ class CalDAVClient {
         const objects = await measureProviderRequest(() => client.fetchCalendarObjects({
           calendar: { url: params.calendarUrl },
           objectUrls,
-          urlFilter: (url) => isCalendarObjectPath(toCalendarObjectPath(url, params.calendarUrl)),
+          urlFilter: (url) => isCalendarObjectPath(
+            toCalendarObjectPath(url, params.calendarUrl),
+            new URL(params.calendarUrl).pathname,
+          ),
         }));
         batchResults.push(
           objects.filter((object): object is CalendarObject => typeof object.data === "string"),

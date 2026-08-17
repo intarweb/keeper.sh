@@ -28,6 +28,8 @@ const HELD_REASONS = [
   "all_copies_missing",
   "delete_breaker_tripped",
   "delete_probe_blocked",
+  "delete_probe_unreachable",
+  "delete_source_changed",
 ];
 
 const COPY_FATE = "go back to matching {source}";

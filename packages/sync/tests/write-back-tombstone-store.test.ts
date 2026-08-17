@@ -31,8 +31,27 @@ const createTarget = (mappingId = MAPPING_ID): WriteBackTarget => ({
 interface TombstoneRow {
   eventMappingId: string;
   id: string;
+  observedAt: Date;
   state: string;
 }
+
+const CLAIM_TTL_MS = 10 * 60_000;
+
+/*
+ * The live table refuses the upsert while the record still belongs to a pass that is
+ * running, which is what stops two overlapping passes from sharing one record and leaving
+ * it belonging to neither. A fake that always hands the record over cannot observe either
+ * half of that, so the rule the setWhere expresses is modelled here.
+ */
+const isClaimable = (row: TombstoneRow): boolean => {
+  if (row.state === "abandoned") {
+    return true;
+  }
+  if (row.state !== "pending") {
+    return false;
+  }
+  return Date.now() - row.observedAt.getTime() >= CLAIM_TTL_MS;
+};
 
 /*
  * The live table carries a unique index on the mapping, so an insert that does not
@@ -100,7 +119,12 @@ const createFakeDatabase = () => {
             );
           }
           counter += 1;
-          const row = { eventMappingId, id: `tombstone-${counter}`, state: "pending" };
+          const row = {
+            eventMappingId,
+            id: `tombstone-${counter}`,
+            observedAt: new Date(),
+            state: "pending",
+          };
           rows.set(eventMappingId, row);
           return [row];
         };
@@ -112,7 +136,14 @@ const createFakeDatabase = () => {
               if (!existing) {
                 return Promise.resolve(insertRow());
               }
-              const updated = { ...existing, state: String(config.set["state"]) };
+              if (!isClaimable(existing)) {
+                return Promise.resolve([]);
+              }
+              const updated = {
+                ...existing,
+                observedAt: new Date(),
+                state: String(config.set["state"]),
+              };
               rows.set(eventMappingId, updated);
               return Promise.resolve([updated]);
             },
@@ -137,15 +168,62 @@ const createStore = () => {
   return { rows: fake.rows, store };
 };
 
-describe("the record of a deletion survives the attempt that was interrupted", () => {
-  it("hands back a record for a mapping that already has one", async () => {
-    const { store } = createStore();
+const claim = async (
+  store: ReturnType<typeof createStore>["store"],
+  mappingId = MAPPING_ID,
+): Promise<{ id: string; observedAt: Date; priorAttempt: boolean }> => {
+  const record = await store.recordTombstone({
+    snapshot: SNAPSHOT,
+    target: createTarget(mappingId),
+  });
+  if ("heldByAnotherPass" in record) {
+    throw new Error("The record was expected to be claimable and was not");
+  }
+  return record;
+};
 
-    const first = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
-    const second = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+/*
+ * Moves a record's claim far enough into the past that no pass can still be running behind
+ * it — the crashed attempt whose retry has to be able to pick the record back up.
+ */
+const ageClaim = (
+  rows: ReturnType<typeof createStore>["rows"],
+  mappingId = MAPPING_ID,
+): void => {
+  const row = rows.get(mappingId);
+  if (!row) {
+    throw new Error(`No record was written for ${mappingId}`);
+  }
+  rows.set(mappingId, {
+    ...row,
+    observedAt: new Date(row.observedAt.getTime() - CLAIM_TTL_MS - 1),
+  });
+};
+
+describe("the record of a deletion survives the attempt that was interrupted", () => {
+  it("hands back a record for a mapping whose earlier attempt was interrupted", async () => {
+    const { rows, store } = createStore();
+
+    const first = await claim(store);
+    ageClaim(rows);
+    const second = await claim(store);
 
     expect(first.id).toBeTypeOf("string");
     expect(second.id).toBe(first.id);
+  });
+
+  /*
+   * While the earlier attempt could still be running, the record is not handed over at all:
+   * two passes sharing one record is what left a deletion recorded against an event neither
+   * of them ever touched.
+   */
+  it("refuses the record while an attempt could still be running on it", async () => {
+    const { store } = createStore();
+
+    await claim(store);
+    const second = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+
+    expect(second).toEqual({ heldByAnotherPass: true });
   });
 
   /*
@@ -154,10 +232,11 @@ describe("the record of a deletion survives the attempt that was interrupted", (
    * the timed-out attempt may already have destroyed.
    */
   it("tells the retry that an earlier attempt was left unresolved", async () => {
-    const { store } = createStore();
+    const { rows, store } = createStore();
 
-    const first = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
-    const second = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    const first = await claim(store);
+    ageClaim(rows);
+    const second = await claim(store);
 
     expect(first.priorAttempt).toBe(false);
     expect(second.priorAttempt).toBe(true);
@@ -166,12 +245,12 @@ describe("the record of a deletion survives the attempt that was interrupted", (
   it("lets the retry release a record an earlier attempt already abandoned", async () => {
     const { rows, store } = createStore();
 
-    const first = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    const first = await claim(store);
     await store.abandonTombstone({
       observedAt: first.observedAt,
       tombstoneId: rows.get(MAPPING_ID)?.id ?? "",
     });
-    const retry = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    const retry = await claim(store);
 
     expect(retry.priorAttempt).toBe(false);
   });
@@ -179,13 +258,14 @@ describe("the record of a deletion survives the attempt that was interrupted", (
   it("returns the record to pending so the retry can complete it", async () => {
     const { rows, store } = createStore();
 
-    await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    await claim(store);
     rows.set(MAPPING_ID, {
       eventMappingId: MAPPING_ID,
       id: rows.get(MAPPING_ID)?.id ?? "",
+      observedAt: new Date(),
       state: "abandoned",
     });
-    await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
+    await claim(store);
 
     expect(rows.get(MAPPING_ID)?.state).toBe("pending");
   });
@@ -193,11 +273,8 @@ describe("the record of a deletion survives the attempt that was interrupted", (
   it("keeps a separate record per mapping", async () => {
     const { store } = createStore();
 
-    const first = await store.recordTombstone({ snapshot: SNAPSHOT, target: createTarget() });
-    const second = await store.recordTombstone({
-      snapshot: SNAPSHOT,
-      target: createTarget("mapping-id-2"),
-    });
+    const first = await claim(store);
+    const second = await claim(store, "mapping-id-2");
 
     expect(second.id).not.toBe(first.id);
   });

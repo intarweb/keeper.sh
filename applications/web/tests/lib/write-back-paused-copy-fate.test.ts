@@ -10,7 +10,13 @@ import { WRITE_BACK_STATE_COPY } from "@/lib/write-back-copy";
  * runMappingPass). A status line that names only the copies that vanished leaves the user
  * believing the rest of the connection still works both ways.
  */
-const HELD_REASONS = ["all_copies_missing", "delete_breaker_tripped", "delete_probe_blocked"];
+const HELD_REASONS = [
+  "all_copies_missing",
+  "delete_breaker_tripped",
+  "delete_probe_blocked",
+  "delete_probe_unreachable",
+  "delete_source_changed",
+];
 
 describe("a pause waiting on a delete answer says two-way sync has stopped meanwhile", () => {
   it.each(HELD_REASONS)("says two-way sync is paused for %s", (reason) => {

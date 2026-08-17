@@ -15,6 +15,8 @@ const PERSISTED_REASONS = [
   "delete_breaker_tripped",
   "delete_daily_cap",
   "delete_probe_blocked",
+  "delete_probe_unreachable",
+  "delete_source_changed",
   "plan_downgraded",
   "runaway_write_back",
   "source_event_has_attendees",

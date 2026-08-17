@@ -162,7 +162,12 @@ describe("a destination that cannot answer the probe has not said the copy is go
 
     expect(harness.deleted).toEqual([]);
     expect(harness.quarantines).toEqual([]);
-    expect(harness.confirmations).toEqual(["delete_probe_blocked"]);
+    /*
+     * Asked, not quarantined — and asked in the words of what actually happened. Nobody
+     * managed to look at the destination, so the pause must not say the copies were seen
+     * there.
+     */
+    expect(harness.confirmations).toEqual(["delete_probe_unreachable"]);
   });
 
   /*
@@ -181,6 +186,11 @@ describe("a destination that cannot answer the probe has not said the copy is go
 
     expect(harness.deleted).toEqual([]);
     expect(harness.quarantines).toEqual([]);
-    expect(harness.confirmations).toEqual(["delete_probe_blocked"]);
+    /*
+     * Asked, not quarantined — and asked in the words of what actually happened. Nobody
+     * managed to look at the destination, so the pause must not say the copies were seen
+     * there.
+     */
+    expect(harness.confirmations).toEqual(["delete_probe_unreachable"]);
   });
 });

@@ -314,11 +314,19 @@ interface WriteBackStore {
    * the timed-out delete the provider may well have carried out. The record is one row
    * per mapping, so releasing it here would uncount a destruction that already happened
    * and hand the day's budget back for events that no longer exist.
+   *
+   * `heldByAnotherPass` says a pass running right now is holding the record. The record is
+   * the one thing that says what a deletion destroyed, and two passes sharing it leaves it
+   * belonging to neither: this pass does nothing and the one holding it carries the
+   * deletion through.
    */
   recordTombstone: (input: {
     snapshot: SourceEventSnapshot;
     target: WriteBackTarget;
-  }) => Promise<{ id: string; observedAt: Date; priorAttempt: boolean }>;
+  }) => Promise<
+    | { heldByAnotherPass: true }
+    | { id: string; observedAt: Date; priorAttempt: boolean }
+  >;
   resolveWriter: (sourceCalendarId: string) => Promise<CalendarSourceWriter | null>;
   withSourceLock: <TResult>(
     sourceCalendarId: string,
@@ -473,8 +481,24 @@ type Outcome = "abandoned" | "applied" | "quarantined" | "withheld";
  * trip a stop on the way out: the pair must pause, and the source event must still be
  * reported as changed to everything that mirrors it.
  */
-interface ClassificationOutcome {
+/*
+ * Why a deletion turned back, in the words the pause is stated in. The pause is the only
+ * account the user is ever given of a deletion that did not happen, and each of these
+ * sends them somewhere different: to the destination calendar to look at copies, to wait
+ * out an outage, or nowhere at all. Naming one of them for all three tells the user to go
+ * and inspect a calendar where nothing is wrong.
+ */
+type DeleteAbandonReason =
+  | "delete_probe_blocked"
+  | "delete_probe_unreachable"
+  | "delete_source_changed";
+
+interface DeleteResult {
+  abandonReason?: DeleteAbandonReason;
   outcome: Outcome;
+}
+
+interface ClassificationOutcome extends DeleteResult {
   pausesPair: boolean;
 }
 
@@ -663,32 +687,32 @@ const readPresence = async (
  * guarantee. Nothing on the source is destroyed until a targeted read of the copy
  * itself answers not-found: present, unreachable or unimplemented all refuse.
  */
-const isAbsenceConfirmed = async (
+const findAbsenceBlocker = async (
   input: WriteBackPassInput,
   target: WriteBackTarget,
-): Promise<boolean> => {
+): Promise<DeleteAbandonReason | null> => {
   const probe = input.store.probeDestinationEvent;
   if (!probe) {
     input.onDeleteBlocked?.({
       mappingId: target.mappingId,
       reason: "probe_unavailable",
     });
-    return false;
+    return "delete_probe_unreachable";
   }
 
   const presence = await readPresence(input, target, probe);
   if (presence === "absent") {
-    return true;
+    return null;
   }
   if (presence === null) {
     input.onDeleteBlocked?.({
       mappingId: target.mappingId,
       reason: "probe_unreachable",
     });
-    return false;
+    return "delete_probe_unreachable";
   }
   input.onDeleteBlocked?.({ mappingId: target.mappingId, reason: "still_present" });
-  return false;
+  return "delete_probe_blocked";
 };
 
 const applyDelete = async (
@@ -697,9 +721,10 @@ const applyDelete = async (
   writer: CalendarSourceWriter,
   classification: Extract<InboundClassification, { type: "delete" }>,
   now: Date,
-): Promise<Outcome> => {
-  if (!await isAbsenceConfirmed(input, target)) {
-    return "abandoned";
+): Promise<DeleteResult> => {
+  const blocker = await findAbsenceBlocker(input, target);
+  if (blocker) {
+    return { abandonReason: blocker, outcome: "abandoned" };
   }
 
   const recentDeletes = await input.store.countRecentDeletes(
@@ -712,7 +737,7 @@ const applyDelete = async (
       target.destinationCalendarId,
       "delete_daily_cap",
     );
-    return "quarantined";
+    return { outcome: "quarantined" };
   }
 
   /*
@@ -722,9 +747,12 @@ const applyDelete = async (
    */
   const preSnapshot = await input.store.readSourceEvent(target.eventStateId);
   if (!preSnapshot) {
-    return "abandoned";
+    return { abandonReason: "delete_source_changed", outcome: "abandoned" };
   }
   const tombstone = await input.store.recordTombstone({ snapshot: preSnapshot, target });
+  if ("heldByAnotherPass" in tombstone) {
+    return { outcome: "withheld" };
+  }
   const { id: tombstoneId, observedAt } = tombstone;
   const releaseTombstone = async (): Promise<void> => {
     if (tombstone.priorAttempt) {
@@ -736,12 +764,12 @@ const applyDelete = async (
   const attempt: SourceAttempt = { reached: false };
   const run = input.store.withSourceLock(
     target.sourceCalendarId,
-    async (locked): Promise<Outcome> => {
+    async (locked): Promise<DeleteResult> => {
       if (!await isPairStillAuthorized(locked, classification, target)) {
-        return "withheld";
+        return { outcome: "withheld" };
       }
       if (!await isStillTheStateWeClassified(locked, classification, target)) {
-        return "abandoned";
+        return { abandonReason: "delete_source_changed", outcome: "abandoned" };
       }
 
       attempt.reached = true;
@@ -756,7 +784,7 @@ const applyDelete = async (
         mappingId: target.mappingId,
         tombstoneId,
       });
-      return "applied";
+      return { outcome: "applied" };
     },
   );
 
@@ -773,16 +801,16 @@ const applyDelete = async (
    * second connection to give the first one back, and enough of them at once would hold
    * every connection the process has while each waits for one to appear.
    */
-  return run.then(async (outcome: Outcome): Promise<Outcome> => {
-    if (outcome !== "applied") {
+  return run.then(async (result: DeleteResult): Promise<DeleteResult> => {
+    if (result.outcome !== "applied") {
       await releaseTombstone();
     }
-    return outcome;
+    return result;
   }, async (error: unknown) => {
     const answer = asUnreachedSource(attempt, error);
     if (answer instanceof SourceWriteRefusedError) {
       await releaseTombstone();
-      return quarantineRefusal(input, target, answer);
+      return { outcome: await quarantineRefusal(input, target, answer) };
     }
     /*
      * Only an answer that says what happened releases the record — plus the case where
@@ -810,10 +838,8 @@ const applyClassification = async (
   now: Date,
 ): Promise<ClassificationOutcome> => {
   if (classification.type === "delete") {
-    return {
-      outcome: await applyDelete(input, target, writer, classification, now),
-      pausesPair: false,
-    };
+    const result = await applyDelete(input, target, writer, classification, now);
+    return { ...result, pausesPair: false };
   }
   return applyUpdate(input, target, writer, classification);
 };
@@ -833,6 +859,7 @@ const recordNonProgress = async (
   input: WriteBackPassInput,
   target: WriteBackTarget,
   classification: ActionableClassification,
+  abandonReason: DeleteAbandonReason | undefined,
 ): Promise<boolean> => {
   const spent = await input.store.recordFailure(target.mappingId, "abandoned");
   if (spent < TWO_WAY_EPOCH_QUARANTINE_LIMIT) {
@@ -852,10 +879,16 @@ const recordNonProgress = async (
     );
     return true;
   }
+  /*
+   * The pause is stated in the reason the deletion actually turned back on. Stating that
+   * the copies are still on the destination when nobody managed to look sends the user to
+   * inspect a calendar where nothing is wrong, and withholds the one answer — yes, they
+   * really are gone — on evidence that was never gathered.
+   */
   await input.store.requestDeleteConfirmation?.(
     target.sourceCalendarId,
     target.destinationCalendarId,
-    "delete_probe_blocked",
+    abandonReason ?? "delete_probe_blocked",
   );
   return true;
 };
@@ -914,7 +947,7 @@ const runWriteBackPass = async (
         );
       }
 
-      const { outcome, pausesPair } = await applyClassification(
+      const { abandonReason, outcome, pausesPair } = await applyClassification(
         input,
         target,
         writer,
@@ -941,7 +974,7 @@ const runWriteBackPass = async (
          * user has been told nothing was deleted and is being asked what happened, so the
          * rest of this pass must not answer the question by destroying the originals.
          */
-        const paused = await recordNonProgress(input, target, classification);
+        const paused = await recordNonProgress(input, target, classification, abandonReason);
         if (paused) {
           quarantinedPairKeys.add(createPairKey(target));
         }

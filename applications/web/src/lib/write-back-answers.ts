@@ -14,6 +14,18 @@ const DELETE_CONFIRMATION_STATE = "delete_confirmation_required";
 const PROBE_BLOCKED_REASON = "delete_probe_blocked";
 
 /*
+ * The other two pauses a held deletion can raise, and neither of them ever saw the copies
+ * gone: one is Keeper.sh failing to read the destination at all, the other is the original
+ * changing on the source before the deletion could be applied to it. "Delete the originals"
+ * would be an answer to evidence nobody gathered, so the same withholding applies.
+ */
+const UNVERIFIED_DELETE_REASONS = new Set([
+  PROBE_BLOCKED_REASON,
+  "delete_probe_unreachable",
+  "delete_source_changed",
+]);
+
+/*
  * A read that returned nothing at all has two causes and Keeper.sh cannot tell them apart:
  * the copies were deleted, or the connection, the calendar id or the provider is broken.
  * "Delete the originals" answers only the first and authorises irreversible deletions on a
@@ -36,7 +48,7 @@ const resolveDeleteConfirmationAnswers = (
   if (!status || status.state !== DELETE_CONFIRMATION_STATE) {
     return [];
   }
-  if (status.reason === PROBE_BLOCKED_REASON) {
+  if (UNVERIFIED_DELETE_REASONS.has(status.reason ?? "")) {
     return ["decline"];
   }
   if (status.reason === COPIES_MISSING_REASON && !status.deletesUnlocked) {

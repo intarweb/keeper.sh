@@ -76,7 +76,31 @@ const markApplied = async (): Promise<void> => {
   );
 };
 
+const CLAIM_TTL_MS = 10 * 60_000;
+const PAST_THE_CLAIM_MS = CLAIM_TTL_MS + 60_000;
+
+const ageClaim = async (byMs: number): Promise<void> => {
+  await client.query(
+    `update event_write_back_tombstones
+     set "observedAt" = "observedAt" - ($2 || ' milliseconds')::interval
+     where "eventMappingId" = $1`,
+    [MAPPING_ID, String(byMs)],
+  );
+};
+
 const recordTombstone = () => store.recordTombstone({ snapshot: SNAPSHOT, target });
+
+const claimTombstone = async (): Promise<{
+  id: string;
+  observedAt: Date;
+  priorAttempt: boolean;
+}> => {
+  const record = await recordTombstone();
+  if ("heldByAnotherPass" in record) {
+    throw new Error("The record was expected to be claimable and was not");
+  }
+  return record;
+};
 
 describe("a completed deletion is never un-recorded by a losing pass", () => {
   beforeAll(async () => {
@@ -88,7 +112,7 @@ describe("a completed deletion is never un-recorded by a losing pass", () => {
   });
 
   it("keeps the applied record when a losing pass releases the shared row", async () => {
-    const { id, observedAt } = await recordTombstone();
+    const { id, observedAt } = await claimTombstone();
     await markApplied();
 
     await store.abandonTombstone({ observedAt, tombstoneId: id });
@@ -97,7 +121,7 @@ describe("a completed deletion is never un-recorded by a losing pass", () => {
   });
 
   it("still counts a completed deletion toward the daily cap after a release", async () => {
-    const { id, observedAt } = await recordTombstone();
+    const { id, observedAt } = await claimTombstone();
     await markApplied();
     await store.abandonTombstone({ observedAt, tombstoneId: id });
 
@@ -113,25 +137,47 @@ describe("a completed deletion is never un-recorded by a losing pass", () => {
     await recordTombstone();
     await markApplied();
 
-    const second = await recordTombstone();
+    const second = await claimTombstone();
 
     expect(second.priorAttempt).toBe(true);
     expect(await readState()).toBe("applied");
   });
 
   it("still lets a genuinely abandoned record be retried", async () => {
-    const { id, observedAt } = await recordTombstone();
+    const { id, observedAt } = await claimTombstone();
     await store.abandonTombstone({ observedAt, tombstoneId: id });
 
-    const retry = await recordTombstone();
+    const retry = await claimTombstone();
 
     expect(retry.priorAttempt).toBe(false);
     expect(await readState()).toBe("pending");
   });
 
-  it("refuses a release from the pass whose record another has since replaced", async () => {
-    const first = await recordTombstone();
-    await recordTombstone();
+  /*
+   * The record is the one thing that says what a deletion destroyed, so a pass that is
+   * still running keeps it. A second pass over the same mapping is told so rather than
+   * taking it over, which is what leaves the first free to release its own record when it
+   * turns back without destroying anything.
+   */
+  it("does not hand a live record to a second pass over the same mapping", async () => {
+    const first = await claimTombstone();
+
+    const second = await recordTombstone();
+
+    expect(second).toEqual({ heldByAnotherPass: true });
+
+    await store.abandonTombstone({
+      observedAt: first.observedAt,
+      tombstoneId: first.id,
+    });
+
+    expect(await readState()).toBe("abandoned");
+  });
+
+  it("refuses a release from the pass whose record another has since taken over", async () => {
+    const first = await claimTombstone();
+    await ageClaim(PAST_THE_CLAIM_MS);
+    await claimTombstone();
 
     await store.abandonTombstone({
       observedAt: first.observedAt,
@@ -142,9 +188,10 @@ describe("a completed deletion is never un-recorded by a losing pass", () => {
   });
 
   it("holds a record left pending by an interrupted attempt", async () => {
-    await recordTombstone();
+    await claimTombstone();
+    await ageClaim(PAST_THE_CLAIM_MS);
 
-    const retry = await recordTombstone();
+    const retry = await claimTombstone();
 
     expect(retry.priorAttempt).toBe(true);
     expect(await readState()).toBe("pending");

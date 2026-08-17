@@ -36,7 +36,7 @@ import {
   oauthCredentialsTable,
   sourceDestinationMappingsTable,
 } from "@keeper.sh/database/schema";
-import { and, count, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { resolveWritableWriteBackMode } from "@keeper.sh/data-schemas";
@@ -52,6 +52,22 @@ import type {
 } from "./write-back-pass";
 
 const TOMBSTONE_RETENTION_MS = 30 * 86_400_000;
+
+/*
+ * How long a record stays claimed by the attempt that wrote it. Two passes over the same
+ * mapping share one row, and the second one taking it over is what left a deletion
+ * recorded against an event neither pass ever touched: the first pass could no longer
+ * release the row it had written, and the second refused to, reading the first's untouched
+ * record as a destruction that might already have happened.
+ *
+ * So a live claim is not taken over at all — the second pass withholds and the deletion is
+ * carried by the pass that holds the record. Only a claim old enough that no attempt can
+ * still be running behind it is taken over, and that takeover stays as careful as it was:
+ * the record is never released, because the attempt that abandoned it may have destroyed
+ * the event before it died. The window is generously long for that reason. Its only cost
+ * is that a deletion interrupted by a crash waits this long for its retry.
+ */
+const TOMBSTONE_CLAIM_TTL_MS = 10 * 60_000;
 const ABANDONED_TOMBSTONE_STATE = "abandoned";
 const APPLIED_TOMBSTONE_STATE = "applied";
 const PENDING_TOMBSTONE_STATE = "pending";
@@ -826,6 +842,7 @@ const createDatabaseWriteBackStore = (
   recordTombstone: async ({ snapshot, target }) => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + TOMBSTONE_RETENTION_MS);
+    const claimableBefore = new Date(now.getTime() - TOMBSTONE_CLAIM_TTL_MS);
     const [existing] = await config.database
       .select({ state: eventWriteBackTombstonesTable.state })
       .from(eventWriteBackTombstonesTable)
@@ -847,7 +864,16 @@ const createDatabaseWriteBackStore = (
       })
       .onConflictDoUpdate({
         set: { appliedAt: now, expiresAt, observedAt: now, snapshot, state: PENDING_TOMBSTONE_STATE },
-        setWhere: ne(eventWriteBackTombstonesTable.state, APPLIED_TOMBSTONE_STATE),
+        setWhere: or(
+          eq(eventWriteBackTombstonesTable.state, ABANDONED_TOMBSTONE_STATE),
+          and(
+            eq(eventWriteBackTombstonesTable.state, PENDING_TOMBSTONE_STATE),
+            or(
+              isNull(eventWriteBackTombstonesTable.observedAt),
+              lt(eventWriteBackTombstonesTable.observedAt, claimableBefore),
+            ),
+          ),
+        ),
         target: eventWriteBackTombstonesTable.eventMappingId,
       })
       .returning({ id: eventWriteBackTombstonesTable.id });
@@ -857,20 +883,26 @@ const createDatabaseWriteBackStore = (
     }
 
     /*
-     * The upsert declined the row, so a deletion this mapping already carried out is on
-     * record. Its id is handed back so the caller can complete against it, marked as an
-     * attempt nobody may release.
+     * The upsert declined the row. Either the deletion already happened, or another pass
+     * over this mapping is holding the record right now.
      */
-    const [applied] = await config.database
-      .select({ id: eventWriteBackTombstonesTable.id })
+    const [held] = await config.database
+      .select({ id: eventWriteBackTombstonesTable.id, state: eventWriteBackTombstonesTable.state })
       .from(eventWriteBackTombstonesTable)
       .where(eq(eventWriteBackTombstonesTable.eventMappingId, target.mappingId));
-    if (!applied) {
+    if (!held) {
       throw new Error(
         `Refusing to delete ${target.sourceEventUid} without a committed tombstone`,
       );
     }
-    return { id: applied.id, observedAt: now, priorAttempt: true };
+    if (held.state !== APPLIED_TOMBSTONE_STATE) {
+      return { heldByAnotherPass: true };
+    }
+    /*
+     * A deletion this mapping already carried out is on record. Its id is handed back so
+     * the caller can complete against it, marked as an attempt nobody may release.
+     */
+    return { id: held.id, observedAt: now, priorAttempt: true };
   },
   /*
    * The pending state is left exactly where it is. The pair is waiting on an answer about

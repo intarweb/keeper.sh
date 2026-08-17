@@ -114,6 +114,28 @@ const WRITE_BACK_STATE_COPY: Record<string, string> = {
     + " on {destination}. Nothing was deleted and Keeper.sh is waiting for you to say what"
     + " happened."
     + HELD_WHILE_WAITING,
+  /*
+   * The copies went missing and every attempt to check {destination} for them failed, so
+   * Keeper.sh has not seen the copies and has not seen them gone either. Saying it can
+   * still see them — which this pause used to say — sends the user to look at a calendar
+   * where nothing is wrong, and offers the wrong reading of what went wrong with it.
+   */
+  delete_probe_unreachable:
+    "Keeper.sh was asked to delete originals on {source}, but it could not read"
+    + " {destination} to check whether the copies were really removed, so it has not seen"
+    + " them there and has not seen them gone either. Nothing was deleted. Check that"
+    + " {destination} is still connected, then say what happened."
+    + HELD_WHILE_WAITING,
+  /*
+   * The deletion described an original that has since changed on {source}, so it no longer
+   * describes anything Keeper.sh can act on. Nothing on either calendar is wrong, and the
+   * destination is not where the user should be looking.
+   */
+  delete_source_changed:
+    "Keeper.sh was asked to delete originals on {source}, but they changed on {source}"
+    + " before it could act, so the deletion no longer matched what it had been asked to"
+    + " delete. Nothing was deleted and nothing on {destination} is wrong."
+    + HELD_WHILE_WAITING,
   delete_daily_cap:
     "Two-way sync to {destination} is paused: more originals on {source} were being"
     + " deleted in a day than Keeper.sh will apply unattended. The copies go back to"
