@@ -472,12 +472,20 @@ function DestinationsSection({ calendarId }: { calendarId: string }) {
         )}
       </NavigationMenu>
       {atLimit && <UpgradeHint>Mapping limit reached.</UpgradeHint>}
+      {selectedDestinations.length > 0 && (
+        <DashboardSection
+          title="Two-Way Syncing"
+          description="Choose what a change made to a copy is allowed to do to the original."
+        />
+      )}
       {selectedDestinations.map((calendar) => (
         <WriteBackModeControl
           key={calendar.id}
           calendarId={calendarId}
+          calendarType={calendar.calendarType}
           destinationId={calendar.id}
           destinationName={calendar.name}
+          provider={calendar.provider}
         />
       ))}
     </>
@@ -660,12 +668,16 @@ function WriteBackPermissions({
 
 function WriteBackModeControl({
   calendarId,
+  calendarType,
   destinationId,
   destinationName,
+  provider,
 }: {
   calendarId: string;
+  calendarType: string;
   destinationId: string;
   destinationName: string;
+  provider: string;
 }) {
   const store = useStore();
   const { mutate } = useSWRConfig();
@@ -761,8 +773,9 @@ function WriteBackModeControl({
   return (
     <>
       <DashboardSection
+        level={3}
+        icon={<ProviderIcon provider={provider} calendarType={calendarType} size={14} />}
         title={destinationName}
-        description={`Copies of this calendar's events live on ${destinationName}. Choose what a change to one of those copies is allowed to do to the original.`}
       />
       <WriteBackPermissions
         locked={locked || !writableSource}
