@@ -113,15 +113,27 @@ class SourceUnreachedError extends Error {
  * silent loop: at the one-minute cadence a Pro mapping runs, this is about half an hour of
  * sustained rejection. The limit is the classifier's own, because a mapping the classifier
  * has stopped handing over is never retried again however long this budget still has to run.
+ *
+ * The two answers are counted on two columns as well as judged by two limits. Sharing one
+ * column is what let four throttled passes and a single 404 spend a budget meant for five
+ * permanent defects: the short limit was compared against a number the long-budget answers
+ * had been filling in.
  */
-const resolveQuarantineLimit = (error: unknown): number => {
+type FailureOutcome = "permanent" | "rejected";
+
+const resolveFailureOutcome = (error: unknown): FailureOutcome => {
   if (error instanceof SourceWriteRejectedError && error.retryable) {
-    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
+    return "rejected";
   }
   if (error instanceof SourceUnreachedError) {
-    return TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT;
+    return "rejected";
   }
-  return TWO_WAY_EPOCH_QUARANTINE_LIMIT;
+  return "permanent";
+};
+
+const QUARANTINE_LIMITS: Record<FailureOutcome, number> = {
+  permanent: TWO_WAY_EPOCH_QUARANTINE_LIMIT,
+  rejected: TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
 };
 
 /*
@@ -274,15 +286,18 @@ interface WriteBackStore {
    * A write-back the provider keeps rejecting would otherwise be retried under the source
    * ingest lock once a minute forever, so a failure spends the same budget a success does.
    *
-   * The outcome says which budget the answer is measured against. A rejection is the
-   * provider declining to act and is retried far longer than an abandon, which is this
-   * pass declining to act; counting them on one number is what turns the first abandon
-   * after an outage into a runaway. The store returns the count for the outcome it was
-   * given, and a store that counts only one of them is judged by that one.
+   * The outcome says which budget the answer is measured against, and each budget is its
+   * own count. A retryable rejection is the provider declining to act for now and is
+   * retried far longer than a permanent one, which is the provider declining for good, or
+   * than an abandon, which is this pass declining to act. Counting any two of them on one
+   * number is what turns a throttle into a runaway, a throttle into a permanent defect, or
+   * — where no limit watches the mixture — an event frozen with the pair still reporting
+   * itself healthy. The store returns the count for the outcome it was given, and a store
+   * that counts only one of them is judged by that one.
    */
   recordFailure: (
     mappingId: string,
-    outcome?: "abandoned" | "rejected",
+    outcome?: "abandoned" | "permanent" | "rejected",
   ) => Promise<number>;
   /*
    * A deletion the copy keeps refusing to confirm is a question, not a failure. Asking it
@@ -825,11 +840,10 @@ const recordNonProgress = async (
   }
   if (classification.type !== "delete") {
     /*
-     * The epoch this abandon just spent is the mapping's last, and a spent epoch is sticky:
-     * the classifier refuses every further write-back for that mapping and suppresses the
-     * one-way repair with it, recording the destination's edited values as the new
-     * baseline. Left unsaid that is one event frozen in both directions for good, so the
-     * pair reverts to one-way and says so, exactly as a runaway write-back does.
+     * The abandon budget is out, and the classification that spent it is reproduced whole
+     * on every pass: retrying it is the same request repeated forever with nothing to show.
+     * The pair reverts to one-way and says so, exactly as a runaway write-back does, rather
+     * than leaving one event to fail quietly under a pair that reports itself healthy.
      */
     await input.store.quarantineMapping(
       target.sourceCalendarId,
@@ -941,8 +955,9 @@ const runWriteBackPass = async (
        * would otherwise repeat untouched on every pass. Only the pair a target identifies
        * can be reverted to one-way.
        */
-      const spent = await input.store.recordFailure(classification.mappingId, "rejected");
-      if (failedTarget && spent >= resolveQuarantineLimit(error)) {
+      const answer = resolveFailureOutcome(error);
+      const spent = await input.store.recordFailure(classification.mappingId, answer);
+      if (failedTarget && spent >= QUARANTINE_LIMITS[answer]) {
         await input.store.quarantineMapping(
           failedTarget.sourceCalendarId,
           failedTarget.destinationCalendarId,

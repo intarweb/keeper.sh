@@ -26,19 +26,22 @@ const SOURCE_EVENT_UID = "source-event-uid-1";
 const START_TIME = new Date("2027-05-11T14:00:00.000Z");
 const END_TIME = new Date("2027-05-11T15:00:00.000Z");
 const PUSHED_HASH = "the-hash-of-what-we-last-pushed";
-const NOW = new Date("2027-05-01T09:00:00.000Z");
-const OUTAGE_PASSES = 4;
+const THROTTLED_PASSES = 4;
+const PERMANENT_PASSES = 4;
 const FIRST = 1;
+const NONE = 0;
 
 const DDL = `
 create table event_mappings (
   "id" uuid primary key,
   "writeBackAbandonCount" integer not null default 0,
+  "writeBackDailyCount" integer not null default 0,
+  "writeBackDailyWindowStart" timestamptz,
   "writeBackAppliedCount" integer not null default 0,
-  "writeBackPermanentCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
-  "writeBackLastAppliedAt" timestamptz
+  "writeBackLastAppliedAt" timestamptz,
+  "writeBackPermanentCount" integer not null default 0
 );
 `;
 
@@ -86,50 +89,69 @@ const createWriteBack = (): InboundClassification => ({
 });
 
 /*
- * The two things this store does for real, both against the row the outage left behind:
- * the epoch a landed write is assigned by the production assignment, and the limit that
- * epoch is judged by by the production rule — read before the assignment overwrites the
- * stamps it depends on, exactly as the real commit does.
+ * The production lock is transaction scoped, so a write the provider then rejects rolls the
+ * budget reservation back with everything else the transaction touched. Modelling that is
+ * the whole point: without it the landed-write assignment would be counted for a write that
+ * never landed and the run would not be the one production performs.
  */
-const commitUpdate = async (): Promise<{
+type Transaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
+
+const commitUpdateOn = (transaction: Transaction) => async (): Promise<{
   writeBackAppliedCount: number;
   writeBackDailyCount: number;
 }> => {
-  const [row] = await database
+  const [row] = await transaction
     .update(eventMappingsTable)
     .set(buildEpochAssignment())
     .where(eq(eventMappingsTable.id, MAPPING_ID))
     .returning({ writeBackAppliedCount: eventMappingsTable.writeBackAppliedCount });
   return {
-    writeBackAppliedCount: row?.writeBackAppliedCount ?? 0,
+    writeBackAppliedCount: row?.writeBackAppliedCount ?? NONE,
     writeBackDailyCount: FIRST,
   };
 };
 
-const createHarness = () => {
+type WriterAnswer =
+  | { error: string; retryable: boolean; success: false }
+  | { success: true };
+
+/*
+ * A provider throttle answers "not right now" — the same answer a 503 gives, and the one
+ * the applier already retries thirty times. A 404 on the lookup answers "never" and is
+ * allowed five. They are different budgets on purpose.
+ */
+const THROTTLED: WriterAnswer = {
+  error: "Rate limit exceeded.",
+  retryable: true,
+  success: false,
+};
+
+const PERMANENT: WriterAnswer = {
+  error: "Event not found on Google.",
+  retryable: false,
+  success: false,
+};
+
+const createHarness = (answer: WriterAnswer) => {
   const quarantines: string[] = [];
-  const writerCalls: string[] = [];
 
   const writer: CalendarSourceWriter = {
     deleteEvent: () => Promise.resolve({ success: true }),
-    updateEvent: () => {
-      writerCalls.push("update");
-      return Promise.resolve({ success: true });
-    },
+    updateEvent: () => Promise.resolve(answer),
   };
 
-  const locked: LockedWriteBackStore = {
+  const lockedOn = (transaction: Transaction): LockedWriteBackStore => ({
     commitDelete: () => Promise.resolve(),
-    commitUpdate,
+    commitUpdate: commitUpdateOn(transaction),
     readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
     readPairWriteBack: () =>
-      Promise.resolve({ writeBackMode: "edits_and_deletes", writeBackState: "ok" }),
+      Promise.resolve({ writeBackMode: "edits", writeBackState: "ok" }),
     readSourceEvent: () => Promise.resolve(createSourceEvent()),
-  };
+  });
 
   const passStore: WriteBackStore = {
     abandonTombstone: () => Promise.resolve(),
-    countRecentDeletes: () => Promise.resolve(0),
+    countRecentDeletes: () => Promise.resolve(NONE),
     loadTarget: () => Promise.resolve(createTarget()),
     notifySiblings: () => Promise.resolve(),
     quarantineMapping: (_source, _destination, reason) => {
@@ -139,9 +161,10 @@ const createHarness = () => {
     readSourceEvent: () => Promise.resolve(createSourceEvent()),
     recordFailure: (mappingId, outcome) => store.recordFailure(mappingId, outcome),
     recordTombstone: () =>
-      Promise.resolve({ id: "tombstone-1", observedAt: NOW, priorAttempt: false }),
+      Promise.resolve({ id: "tombstone-1", observedAt: new Date(), priorAttempt: false }),
     resolveWriter: () => Promise.resolve(writer),
-    withSourceLock: (_sourceCalendarId, run) => run(locked),
+    withSourceLock: (_sourceCalendarId, run) =>
+      database.transaction((transaction) => run(lockedOn(transaction))),
   };
 
   return {
@@ -150,44 +173,80 @@ const createHarness = () => {
       runWriteBackPass({
         calendarId: DESTINATION_CALENDAR_ID,
         classifications: [createWriteBack()],
-        now: () => NOW,
         store: passStore,
       }),
-    writerCalls,
+  };
+};
+
+const runPasses = async (answer: WriterAnswer, count: number): Promise<string[]> => {
+  const seen: string[] = [];
+  for (let pass = NONE; pass < count; pass += FIRST) {
+    const harness = createHarness(answer);
+    await harness.run();
+    seen.push(...harness.quarantines);
+  }
+  return seen;
+};
+
+const readBudgets = async (): Promise<{ epoch: number; permanent: number }> => {
+  const [row] = await database
+    .select({
+      writeBackEpoch: eventMappingsTable.writeBackEpoch,
+      writeBackPermanentCount: eventMappingsTable.writeBackPermanentCount,
+    })
+    .from(eventMappingsTable)
+    .where(eq(eventMappingsTable.id, MAPPING_ID))
+    .limit(FIRST);
+  return {
+    epoch: row?.writeBackEpoch ?? NONE,
+    permanent: row?.writeBackPermanentCount ?? NONE,
   };
 };
 
 beforeEach(async () => {
   await client.exec(`drop table if exists event_mappings cascade;`);
   await client.exec(DDL);
-  await client.query(
-    `insert into event_mappings
-       ("id", "writeBackEpoch", "writeBackEpochWindowStart", "writeBackLastAppliedAt")
-     values ($1, 1, now() - interval '100 seconds', now() - interval '100 seconds')`,
-    [MAPPING_ID],
-  );
+  await client.query(`insert into event_mappings ("id") values ($1)`, [MAPPING_ID]);
 });
 
-/*
- * The epoch column counts two different things, and the classifier already knows it: a spend
- * the provider rejected reached no calendar, so a mapping whose last landed write is older
- * than the window the rejections opened is judged by the failure budget of thirty rather
- * than by the five a landed write is allowed. The applier judges the same column by the bare
- * five, so the write that finally lands once a throttle lifts is read as the fifth in a
- * runaway and reverts the pair to one-way — for a write the user asked for, on a mapping
- * that wrote back exactly twice.
- */
-describe("a write that lands after a provider outage is not a runaway", () => {
-  it("leaves the pair two-way when the epoch was spent on rejections", async () => {
-    for (let pass = 0; pass < OUTAGE_PASSES; pass += FIRST) {
-      await store.recordFailure(MAPPING_ID, "rejected");
-    }
-    const harness = createHarness();
+describe("write-back budgets after a throttle", () => {
+  it("does not spend the permanent-failure budget on a provider throttle", async () => {
+    const throttled = await runPasses(THROTTLED, THROTTLED_PASSES);
+    expect(throttled).toEqual([]);
 
-    const result = await harness.run();
+    const permanent = await runPasses(PERMANENT, FIRST);
+    expect(permanent).toEqual([]);
+  });
 
-    expect(harness.writerCalls).toEqual(["update"]);
-    expect(result.applied).toBe(FIRST);
-    expect(harness.quarantines).toEqual([]);
+  it("still reverts the pair once the permanent failures are its own", async () => {
+    const early = await runPasses(PERMANENT, PERMANENT_PASSES);
+    expect(early).toEqual([]);
+
+    const last = await runPasses(PERMANENT, FIRST);
+    expect(last).toEqual(["write_back_failing"]);
+  });
+
+  it("counts a throttle apart from the column the permanent limit reads", async () => {
+    await runPasses(THROTTLED, THROTTLED_PASSES);
+
+    expect(await readBudgets()).toEqual({
+      epoch: THROTTLED_PASSES,
+      permanent: NONE,
+    });
+  });
+
+  /*
+   * The retry budget is the one the classifier reads to stop handing a mapping work, so it
+   * must be the applier that spends its last unit — never a throttle leaving the count one
+   * short and a permanent answer carrying it over with nothing said.
+   */
+  it("leaves the retry budget where a permanent failure found it", async () => {
+    await runPasses(THROTTLED, THROTTLED_PASSES);
+    await runPasses(PERMANENT, FIRST);
+
+    expect(await readBudgets()).toEqual({
+      epoch: THROTTLED_PASSES,
+      permanent: FIRST,
+    });
   });
 });

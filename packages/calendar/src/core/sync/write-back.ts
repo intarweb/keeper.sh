@@ -319,6 +319,13 @@ const resolveWindowedCount = (
  * new baseline and keeps the pair out of the one-way repair. So the landed writes carry
  * their own column and the rejections keep theirs, and neither limit can ever be asked
  * about the other's count.
+ *
+ * Both counts below are ones the applier stops the pair on at the same number, which is
+ * what keeps this refusal from ever being the only thing that happened. Every other
+ * failure — a permanent rejection, a classification nobody could act on — is counted on a
+ * column of its own that nothing here reads: those escalate through the applier, which
+ * pauses the pair and gives the user a reason, rather than through a refusal only the
+ * mapping's own row would remember.
  */
 const resolveEffectiveAppliedCount = (mapping: EventMapping, now: Date): number =>
   resolveWindowedCount(

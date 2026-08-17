@@ -408,6 +408,22 @@ const eventMappingsTable = pgTable(
     writeBackAppliedCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackDailyCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackDailyWindowStart: timestamp({ withTimezone: true }),
+    /*
+     * How many write-backs in a row the provider answered in a way no retry can change — a
+     * payload it will not accept, an event it says is not there, credentials it will not
+     * take. A throttle is the opposite answer and is retried for far longer, so the two
+     * cannot share a column: counted together, four throttled passes and one 404 spend a
+     * budget meant for five permanent defects and revert the pair to one-way over a
+     * provider that was merely busy.
+     */
+    writeBackPermanentCount: integer().notNull().default(DEFAULT_EVENT_COUNT),
+    /*
+     * How many write-backs in a row the provider refused in a way that may yet succeed — a
+     * rate limit, a 5xx, a source that could not be reached at all. Nothing else is counted
+     * here: every column above carries its own outcome and is judged by its own limit, so
+     * the count the classifier reads to stop handing this mapping work is always one the
+     * applier stops the pair on at the same number.
+     */
     writeBackEpoch: integer().notNull().default(DEFAULT_EVENT_COUNT),
     writeBackEpochWindowStart: timestamp({ withTimezone: true }),
     /*

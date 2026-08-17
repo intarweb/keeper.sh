@@ -1,0 +1,1 @@
+ALTER TABLE "event_mappings" ADD COLUMN IF NOT EXISTS "writeBackPermanentCount" integer DEFAULT 0 NOT NULL;

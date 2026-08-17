@@ -19,19 +19,25 @@ create table event_mappings (
   "id" uuid primary key,
   "writeBackAbandonCount" integer not null default 0,
   "writeBackAppliedCount" integer not null default 0,
+  "writeBackPermanentCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
   "writeBackLastAppliedAt" timestamptz
 );
 `;
 
+/*
+ * The count the runaway limit is judged against is the one that carries landed writes, and
+ * only landed writes: every other budget on the row belongs to a failure this assignment
+ * clears.
+ */
 const commit = async (): Promise<number> => {
   const [row] = await database
     .update(eventMappingsTable)
     .set(buildEpochAssignment())
     .where(eq(eventMappingsTable.id, MAPPING_ID))
-    .returning({ writeBackEpoch: eventMappingsTable.writeBackEpoch });
-  return row?.writeBackEpoch ?? 0;
+    .returning({ writeBackAppliedCount: eventMappingsTable.writeBackAppliedCount });
+  return row?.writeBackAppliedCount ?? 0;
 };
 
 /*

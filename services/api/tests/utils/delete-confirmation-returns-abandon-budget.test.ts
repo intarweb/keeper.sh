@@ -81,6 +81,7 @@ create table event_mappings (
   "writeBackAppliedCount" integer not null default 0,
   "writeBackDailyCount" integer not null default 0,
   "writeBackDailyWindowStart" timestamp,
+  "writeBackPermanentCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamp,
   "writeBackLastAppliedAt" timestamp

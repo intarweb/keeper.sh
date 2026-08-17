@@ -9,10 +9,10 @@ import {
   createSyncEventContentHash,
   normalizeText,
   resolveIsAllDayEvent,
+  TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
 } from "@keeper.sh/calendar";
 import type {
   CalendarSourceWriter,
-  InboundClassification,
   MaterializedSyncableEvent,
   RemoteEvent,
 } from "@keeper.sh/calendar";
@@ -23,6 +23,7 @@ import { runWriteBackPass } from "../src/write-back-pass";
 import type {
   LockedWriteBackStore,
   SourceEventSnapshot,
+  WriteBackPassResult,
   WriteBackStore,
   WriteBackTarget,
 } from "../src/write-back-pass";
@@ -30,7 +31,7 @@ import type {
 const client = new PGlite();
 const database = drizzle(client);
 
-const MAPPING_ID = "22222222-2222-4222-8222-222222222222";
+const MAPPING_ID = "33333333-3333-4333-8333-333333333333";
 const SOURCE_CALENDAR_ID = "source-calendar-id";
 const DESTINATION_CALENDAR_ID = "destination-calendar-id";
 const EVENT_STATE_ID = "event-state-id-1";
@@ -40,9 +41,11 @@ const END_TIME = new Date("2027-05-11T15:00:00.000Z");
 const MOVED_START_TIME = new Date("2027-05-11T17:00:00.000Z");
 const MOVED_END_TIME = new Date("2027-05-11T18:00:00.000Z");
 const PUSHED_HASH = "the-hash-of-what-we-last-pushed";
-const THROTTLED_PASSES = 4;
+const HASH_AFTER_THE_SOURCE_MOVED = "the-hash-of-an-event-that-has-since-changed";
+const LAST_THROTTLED_PASS = TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT - 1;
 const FIRST = 1;
 const NONE = 0;
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
 const TEST_WINDOW = {
   timeMax: new Date("2100-01-01T00:00:00.000Z"),
@@ -56,10 +59,10 @@ create table event_mappings (
   "writeBackDailyCount" integer not null default 0,
   "writeBackDailyWindowStart" timestamptz,
   "writeBackAppliedCount" integer not null default 0,
-  "writeBackPermanentCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
-  "writeBackLastAppliedAt" timestamptz
+  "writeBackLastAppliedAt" timestamptz,
+  "writeBackPermanentCount" integer not null default 0
 );
 `;
 
@@ -86,12 +89,12 @@ const createTarget = (): WriteBackTarget => ({
   sourceEventUid: SOURCE_EVENT_UID,
 });
 
-const createWriteBack = (): InboundClassification => ({
+const createWriteBack = () => ({
   expectedSource: { endTime: END_TIME, isAllDay: false, startTime: START_TIME },
   expectedSyncEventHash: PUSHED_HASH,
   mappingId: MAPPING_ID,
   observed: {
-    availability: "busy",
+    availability: "busy" as const,
     contentHash: "observed-content-hash",
     description: "Bring the notes",
     endTime: END_TIME,
@@ -102,16 +105,22 @@ const createWriteBack = (): InboundClassification => ({
   },
   projectedSyncEventHash: "projected-hash",
   sourceEventUid: SOURCE_EVENT_UID,
-  type: "write-back",
+  type: "write-back" as const,
   updates: { summary: "Edited on the copy" },
 });
 
-/* The production epoch assignment, on the real row. */
-const commitUpdate = async (): Promise<{
+type Transaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
+
+/*
+ * The production epoch assignment, on the real row and inside the pass's own transaction:
+ * a write the provider then rejects rolls its budget reservation back exactly as
+ * production's transaction-scoped source lock does.
+ */
+const commitUpdateOn = (transaction: Transaction) => async (): Promise<{
   writeBackAppliedCount: number;
   writeBackDailyCount: number;
 }> => {
-  const [row] = await database
+  const [row] = await transaction
     .update(eventMappingsTable)
     .set(buildEpochAssignment())
     .where(eq(eventMappingsTable.id, MAPPING_ID))
@@ -122,26 +131,42 @@ const commitUpdate = async (): Promise<{
   };
 };
 
-const createHarness = () => {
+/*
+ * A throttled pass is the provider answering "not right now"; a moved source is the pass
+ * answering "I cannot act on the classification I was given", which is what a long outage
+ * makes likely — the ingest that was queued behind it lands first and the stored event is
+ * no longer the one the classifier compared.
+ */
+const THROTTLED = {
+  error: "Rate limit exceeded.",
+  retryable: true,
+  success: false as const,
+};
+
+const createHarness = (options: { sourceMoved: boolean }) => {
   const quarantines: string[] = [];
-  const writerCalls: string[] = [];
+  const confirmations: string[] = [];
 
   const writer: CalendarSourceWriter = {
     deleteEvent: () => Promise.resolve({ success: true }),
-    updateEvent: () => {
-      writerCalls.push("update");
-      return Promise.resolve({ success: true });
-    },
+    updateEvent: () => Promise.resolve(THROTTLED),
   };
 
-  const locked: LockedWriteBackStore = {
+  const storedHash = (): string => {
+    if (options.sourceMoved) {
+      return HASH_AFTER_THE_SOURCE_MOVED;
+    }
+    return PUSHED_HASH;
+  };
+
+  const lockedOn = (transaction: Transaction): LockedWriteBackStore => ({
     commitDelete: () => Promise.resolve(),
-    commitUpdate,
-    readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: PUSHED_HASH }),
+    commitUpdate: commitUpdateOn(transaction),
+    readMappingSyncEventHash: () => Promise.resolve({ syncEventHash: storedHash() }),
     readPairWriteBack: () =>
       Promise.resolve({ writeBackMode: "edits", writeBackState: "ok" }),
     readSourceEvent: () => Promise.resolve(createSourceEvent()),
-  };
+  });
 
   const passStore: WriteBackStore = {
     abandonTombstone: () => Promise.resolve(),
@@ -156,19 +181,24 @@ const createHarness = () => {
     recordFailure: (mappingId, outcome) => store.recordFailure(mappingId, outcome),
     recordTombstone: () =>
       Promise.resolve({ id: "tombstone-1", observedAt: new Date(), priorAttempt: false }),
+    requestDeleteConfirmation: (_source, _destination, reason) => {
+      confirmations.push(reason);
+      return Promise.resolve();
+    },
     resolveWriter: () => Promise.resolve(writer),
-    withSourceLock: (_sourceCalendarId, run) => run(locked),
+    withSourceLock: (_sourceCalendarId, run) =>
+      database.transaction((transaction) => run(lockedOn(transaction))),
   };
 
   return {
+    confirmations,
     quarantines,
-    run: () =>
+    run: (): Promise<WriteBackPassResult> =>
       runWriteBackPass({
         calendarId: DESTINATION_CALENDAR_ID,
         classifications: [createWriteBack()],
         store: passStore,
       }),
-    writerCalls,
   };
 };
 
@@ -194,10 +224,7 @@ interface MappingBudget {
   writeBackLastAppliedAt: Date | null;
 }
 
-const createMapping = (
-  event: MaterializedSyncableEvent,
-  budget: MappingBudget,
-) => ({
+const createMapping = (event: MaterializedSyncableEvent, budget: MappingBudget) => ({
   calendarId: DESTINATION_CALENDAR_ID,
   deleteIdentifier: "destination-delete-id-1",
   destinationAvailability: "busy" as const,
@@ -273,9 +300,15 @@ const classifyNextEdit = (budget: MappingBudget, now: Date) => {
   });
 };
 
-const readBudget = async (): Promise<MappingBudget> => {
+interface FailureBudgets {
+  abandons: number;
+  budget: MappingBudget;
+}
+
+const readBudgets = async (): Promise<FailureBudgets> => {
   const [row] = await database
     .select({
+      writeBackAbandonCount: eventMappingsTable.writeBackAbandonCount,
       writeBackAppliedCount: eventMappingsTable.writeBackAppliedCount,
       writeBackEpoch: eventMappingsTable.writeBackEpoch,
       writeBackEpochWindowStart: eventMappingsTable.writeBackEpochWindowStart,
@@ -285,11 +318,24 @@ const readBudget = async (): Promise<MappingBudget> => {
     .where(eq(eventMappingsTable.id, MAPPING_ID))
     .limit(FIRST);
   return {
-    writeBackAppliedCount: row?.writeBackAppliedCount ?? NONE,
-    writeBackEpoch: row?.writeBackEpoch ?? NONE,
-    writeBackEpochWindowStart: row?.writeBackEpochWindowStart ?? null,
-    writeBackLastAppliedAt: row?.writeBackLastAppliedAt ?? null,
+    abandons: row?.writeBackAbandonCount ?? NONE,
+    budget: {
+      writeBackAppliedCount: row?.writeBackAppliedCount ?? NONE,
+      writeBackEpoch: row?.writeBackEpoch ?? NONE,
+      writeBackEpochWindowStart: row?.writeBackEpochWindowStart ?? null,
+      writeBackLastAppliedAt: row?.writeBackLastAppliedAt ?? null,
+    },
   };
+};
+
+const runThrottledPasses = async (count: number): Promise<string[]> => {
+  const seen: string[] = [];
+  for (let pass = NONE; pass < count; pass += FIRST) {
+    const harness = createHarness({ sourceMoved: false });
+    await harness.run();
+    seen.push(...harness.quarantines);
+  }
+  return seen;
 };
 
 beforeEach(async () => {
@@ -299,76 +345,75 @@ beforeEach(async () => {
 });
 
 /*
- * One edit written back, a burst of provider throttling, one more edit written back once
- * the throttle lifts. Both edits reached the source; nothing ran away and nobody was told
- * anything stopped. The mapping must still be able to carry the edit the user makes next.
+ * The provider throttles this mapping for as long as the retry budget allows, and then the
+ * pass finds the source has moved under the classification and abandons. Each of those is
+ * survivable on its own. What must not happen is the abandon spending the last of a budget
+ * nothing is watching on that path: the classifier reads the same number to decide it will
+ * never hand this mapping work again, adopts the destination's edited copy as the new
+ * baseline and holds the mapping out of the one-way repair — one event frozen in both
+ * directions for good, with the pair still reporting itself healthy.
  */
-const runThrottleRecovery = async (): Promise<string[]> => {
-  const first = createHarness();
-  await first.run();
-  for (let pass = NONE; pass < THROTTLED_PASSES; pass += FIRST) {
-    await store.recordFailure(MAPPING_ID, "rejected");
-  }
-  const recovery = createHarness();
-  await recovery.run();
+describe("an abandoned pass arriving at the end of a provider outage", () => {
+  it("does not freeze the mapping with the pair still reporting ok", async () => {
+    expect(await runThrottledPasses(LAST_THROTTLED_PASS)).toEqual([]);
 
-  expect(recovery.writerCalls).toEqual(["update"]);
-  return [...first.quarantines, ...recovery.quarantines];
-};
-
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-
-const adoptedDestinationStartTime = (
-  classification: InboundClassification,
-): Date | null => {
-  if (!("mappingUpdate" in classification)) {
-    return null;
-  }
-  return classification.mappingUpdate?.destinationStartTime ?? null;
-};
-
-describe("an edit, a throttle, and the edit that lands after it", () => {
-  it("does not freeze the mapping for good once the throttle has lifted", async () => {
-    const quarantines = await runThrottleRecovery();
-
-    expect(quarantines).toEqual([]);
-
-    const budget = await readBudget();
-    const later = new Date(Date.now() + TWO_HOURS_MS);
-
-    expect(classifyNextEdit(budget, later).classifications)
-      .toMatchObject([{ type: "write-back" }]);
-  });
-
-  /*
-   * The edit either reaches the source or is handed back to the one-way repair. What must
-   * never happen is the third thing: the copy's values adopted as the new baseline while
-   * the mapping is also held out of the repair, which leaves the two calendars permanently
-   * disagreeing with nothing anywhere left to notice.
-   */
-  it("does not silently adopt the swallowed edit as the new baseline", async () => {
-    await runThrottleRecovery();
-    const budget = await readBudget();
-
-    const result = classifyNextEdit(budget, new Date(Date.now() + TWO_HOURS_MS));
+    const harness = createHarness({ sourceMoved: true });
+    const result = await harness.run();
 
     expect({
-      carriesTheEdit: result.classifications.map(({ type }) => type),
-      swallowsTheEdit: result.classifications.some((classification) =>
+      abandoned: result.abandoned,
+      confirmations: harness.confirmations,
+      quarantines: harness.quarantines,
+    }).toEqual({ abandoned: FIRST, confirmations: [], quarantines: [] });
+
+    const { abandons, budget } = await readBudgets();
+
+    expect({ abandons, epoch: budget.writeBackEpoch })
+      .toEqual({ abandons: FIRST, epoch: LAST_THROTTLED_PASS });
+
+    const later = new Date(Date.now() + TWO_HOURS_MS);
+    const classified = classifyNextEdit(budget, later);
+
+    /*
+     * A mapping carrying a write-back is held out of the one-way repair on purpose, so
+     * suppression alone is not the harm. The harm is suppression with the copy adopted as
+     * the new baseline and no write-back left to carry it: the edit swallowed, both
+     * calendars left disagreeing, and nothing anywhere to notice.
+     */
+    expect({
+      carriesTheEdit: classified.classifications.map(({ type }) => type),
+      swallowsTheEdit: classified.classifications.some((classification) =>
         classification.type !== "write-back"
-        && adoptedDestinationStartTime(classification) instanceof Date
-        && result.suppressedMappingIds.includes(MAPPING_ID)),
+        && classified.suppressedMappingIds.includes(MAPPING_ID)),
     }).toEqual({ carriesTheEdit: ["write-back"], swallowsTheEdit: false });
   });
 
-  it("still carries the second edit when no throttle came between them", async () => {
-    await createHarness().run();
-    await createHarness().run();
-    const budget = await readBudget();
+  /*
+   * The control: the budget still ends, and when it does the pair is reverted to one-way
+   * with a reason the user can read rather than left to fail quietly.
+   */
+  it("still reverts the pair when the outage spends the budget itself", async () => {
+    expect(await runThrottledPasses(LAST_THROTTLED_PASS)).toEqual([]);
 
-    expect(
-      classifyNextEdit(budget, new Date(Date.now() + TWO_HOURS_MS))
-        .classifications.map(({ type }) => type),
-    ).toEqual(["write-back"]);
+    expect(await runThrottledPasses(FIRST)).toEqual(["write_back_failing"]);
+  });
+
+  /*
+   * Why the two cases above have to hold: the number the applier reverts the pair on is the
+   * same number the classifier reads to stop handing this mapping work. Anything else that
+   * fills that column reaches this refusal without the revert, and the refusal on its own
+   * is invisible — which is why nothing but the retry budget's own failures may spend it.
+   */
+  it("stops handing the mapping work at the very count the pair is reverted on", () => {
+    const spent = classifyNextEdit({
+      writeBackAppliedCount: NONE,
+      writeBackEpoch: TWO_WAY_FAILURE_EPOCH_QUARANTINE_LIMIT,
+      writeBackEpochWindowStart: new Date(),
+      writeBackLastAppliedAt: new Date(),
+    }, new Date(Date.now() + TWO_HOURS_MS));
+
+    expect(spent.classifications).toMatchObject([
+      { reason: "write_back_quarantined", type: "rejected" },
+    ]);
   });
 });

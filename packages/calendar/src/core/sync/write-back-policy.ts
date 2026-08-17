@@ -67,6 +67,7 @@ const WRITE_BACK_WITNESS_RESET = {
   writeBackEpoch: NO_WRITE_BACKS,
   writeBackEpochWindowStart: null,
   writeBackLastAppliedAt: null,
+  writeBackPermanentCount: NO_WRITE_BACKS,
 } as const;
 
 interface WriteBackUpdates {

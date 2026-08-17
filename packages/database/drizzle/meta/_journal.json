@@ -659,6 +659,13 @@
       "when": 1786925516228,
       "tag": "0093_two_way_landed_write_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1786930554067,
+      "tag": "0094_two_way_permanent_failure_budget",
+      "breakpoints": true
     }
   ]
 }

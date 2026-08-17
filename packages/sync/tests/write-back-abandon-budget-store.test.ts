@@ -17,6 +17,7 @@ create table event_mappings (
   "id" uuid primary key,
   "writeBackAbandonCount" integer not null default 0,
   "writeBackAppliedCount" integer not null default 0,
+  "writeBackPermanentCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
   "writeBackLastAppliedAt" timestamptz
@@ -36,9 +37,16 @@ const backdateWindow = async (minutes: number): Promise<void> => {
   );
 };
 
-const readColumns = async (): Promise<{ abandons: number; epoch: number }> => {
-  const result = await client.query<{ abandons: number; epoch: number }>(
-    `select "writeBackAbandonCount" as abandons, "writeBackEpoch" as epoch
+interface FailureColumns {
+  abandons: number;
+  epoch: number;
+  permanent: number;
+}
+
+const readColumns = async (): Promise<FailureColumns> => {
+  const result = await client.query<FailureColumns>(
+    `select "writeBackAbandonCount" as abandons, "writeBackEpoch" as epoch,
+            "writeBackPermanentCount" as permanent
        from event_mappings where "id" = $1`,
     [MAPPING_ID],
   );
@@ -70,11 +78,30 @@ describe("the abandon budget is not spent by writes a provider rejected", () => 
     expect(await store.recordFailure(MAPPING_ID, "abandoned")).toBe(FIRST);
   });
 
-  it("still spends the runaway epoch on an abandoned pass", async () => {
+  /*
+   * The retry budget is the count the classifier reads to stop handing a mapping work, and
+   * the applier reverts the pair the moment a rejection spends its last unit. An abandon
+   * spending it too can carry that count over the line on a path nothing measures, leaving
+   * the mapping refused for good under a pair still reporting itself healthy.
+   */
+  it("does not spend the retry budget on an abandoned pass", async () => {
     await store.recordFailure(MAPPING_ID, "abandoned");
     await store.recordFailure(MAPPING_ID, "abandoned");
 
-    expect(await readColumns()).toEqual({ abandons: 2, epoch: 2 });
+    expect(await readColumns()).toEqual({ abandons: 2, epoch: 0, permanent: 0 });
+  });
+
+  /*
+   * A provider answering "never" is allowed five attempts and one answering "not right now"
+   * thirty. Counted on one column, four throttles and a single 404 spend the shorter budget
+   * and revert the pair over a provider that was merely busy.
+   */
+  it("counts a permanent answer apart from a retryable one", async () => {
+    await store.recordFailure(MAPPING_ID, "rejected");
+    await store.recordFailure(MAPPING_ID, "rejected");
+    await store.recordFailure(MAPPING_ID, "permanent");
+
+    expect(await readColumns()).toEqual({ abandons: 0, epoch: 2, permanent: FIRST });
   });
 
   it("starts the abandon budget over once the window has gone quiet for an hour", async () => {
@@ -88,6 +115,6 @@ describe("the abandon budget is not spent by writes a provider rejected", () => 
     await store.recordFailure(MAPPING_ID, "abandoned");
     await store.recordFailure(MAPPING_ID, "rejected");
 
-    expect(await readColumns()).toEqual({ abandons: FIRST, epoch: 2 });
+    expect(await readColumns()).toEqual({ abandons: FIRST, epoch: FIRST, permanent: 0 });
   });
 });

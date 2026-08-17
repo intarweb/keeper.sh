@@ -20,6 +20,7 @@ create table event_mappings (
   "id" uuid primary key,
   "writeBackAbandonCount" integer not null default 0,
   "writeBackAppliedCount" integer not null default 0,
+  "writeBackPermanentCount" integer not null default 0,
   "writeBackEpoch" integer not null default 0,
   "writeBackEpochWindowStart" timestamptz,
   "writeBackLastAppliedAt" timestamptz
