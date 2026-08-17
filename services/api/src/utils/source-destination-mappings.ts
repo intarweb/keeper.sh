@@ -995,6 +995,20 @@ const setWriteBackMode = async (
   );
 
   await database.transaction(async (transactionClient) => {
+    /*
+     * Read before the write: RETURNING answers with the row as it now is, which would make
+     * the comparison below always compare the new mode against itself.
+     */
+    const [existing] = await transactionClient
+      .select({ writeBackMode: sourceDestinationMappingsTable.writeBackMode })
+      .from(sourceDestinationMappingsTable)
+      .where(and(
+        eq(sourceDestinationMappingsTable.sourceCalendarId, sourceCalendarId),
+        eq(sourceDestinationMappingsTable.destinationCalendarId, destinationCalendarId),
+      ))
+      .limit(SINGLE_ROW);
+    const previousMode = existing?.writeBackMode ?? WRITE_BACK_MODE_OFF;
+
     const updated = await transactionClient
       .update(sourceDestinationMappingsTable)
       .set({
@@ -1015,15 +1029,23 @@ const setWriteBackMode = async (
     }
 
     /*
-     * The recorded observation belongs to the policy it was taken under. Clearing it
-     * with the transition means the first pass after a change adopts what the
-     * destination reports instead of acting on a witness from a different regime.
+     * The recorded observation belongs to the policy it was taken under, so a transition
+     * into or out of write-back drops it: there was no regime to observe under before, and
+     * nothing observed while off is worth acting on after.
+     *
+     * Moving between two write-back modes does not. The observation was taken under
+     * write-back and stays valid under write-back, and clearing it would put the pair back
+     * in the first-observation window — where an edit made before the next pass is adopted
+     * rather than written back. Turning on deletions is exactly when somebody is about to
+     * try two-way sync, which made that the likeliest moment to lose their first edit.
      */
-    await clearDestinationWitness(
-      transactionClient,
-      sourceCalendarId,
-      destinationCalendarId,
-    );
+    if (previousMode === WRITE_BACK_MODE_OFF || writeBackMode === WRITE_BACK_MODE_OFF) {
+      await clearDestinationWitness(
+        transactionClient,
+        sourceCalendarId,
+        destinationCalendarId,
+      );
+    }
     await requestUserSync(transactionClient, userId);
   });
   scheduleMappingReplacementSync(userId);
