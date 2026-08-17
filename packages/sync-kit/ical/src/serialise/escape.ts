@@ -22,21 +22,21 @@ const unescaped = (character: string): string => {
 };
 
 const unescapeTextValue = (value: string): string => {
-  let result = "";
-  let escaped = false;
+  const parts: string[] = [];
+  const scan = { escaped: false };
   for (const character of value) {
-    if (escaped) {
-      result = `${result}${unescaped(character)}`;
-      escaped = false;
+    if (scan.escaped) {
+      parts.push(unescaped(character));
+      scan.escaped = false;
       continue;
     }
     if (backslash.test(character)) {
-      escaped = true;
+      scan.escaped = true;
       continue;
     }
-    result = `${result}${character}`;
+    parts.push(character);
   }
-  return result;
+  return parts.join("");
 };
 
 const needsQuoting = (value: string): boolean =>

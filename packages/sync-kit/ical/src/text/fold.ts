@@ -23,20 +23,18 @@ const codePointOctets = (codePoint: string): number => {
 
 const foldContentLine = (line: string): readonly string[] => {
   const folded: string[] = [];
-  let current = "";
-  let used = 0;
+  const run = { current: "", used: 0 };
   for (const codePoint of line) {
     const width = codePointOctets(codePoint);
-    if (used + width > maximumOctets) {
-      folded.push(current);
-      current = continuationPrefix;
-      used = 1;
+    if (run.used + width > maximumOctets) {
+      folded.push(run.current);
+      run.current = continuationPrefix;
+      run.used = 1;
     }
-    current = `${current}${codePoint}`;
-    used += width;
+    run.current = `${run.current}${codePoint}`;
+    run.used += width;
   }
-  folded.push(current);
-  return folded;
+  return [...folded, run.current];
 };
 
 const isContinuation = (line: string): boolean => line.startsWith(" ") || line.startsWith("\t");

@@ -4,16 +4,19 @@ interface PropertyLine {
   readonly value: string;
 }
 
+/*
+ * Indices are UTF-16 units because the caller slices the line with them; iterating code points
+ * would shift every offset past an astral character.
+ */
 const valueSeparatorIndex = (line: string): number => {
-  let quoted = false;
-  for (let index = 0; index < line.length; index++) {
-    const character = line[index];
+  const scan = { quoted: false };
+  for (const [position, character] of [...line].entries()) {
     if (character === '"') {
-      quoted = !quoted;
+      scan.quoted = !scan.quoted;
       continue;
     }
-    if (character === ":" && !quoted) {
-      return index;
+    if (character === ":" && !scan.quoted) {
+      return position;
     }
   }
   return -1;

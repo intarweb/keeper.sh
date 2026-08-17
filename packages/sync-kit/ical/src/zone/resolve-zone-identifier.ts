@@ -26,13 +26,10 @@ const resolvedAs = (value: string, via: ZoneResolutionRung): ZoneResolution => (
 
 const embeddedIanaSegment = (identifier: string): string | null => {
   const segments = identifier.split("/").filter((segment) => segment.length > 0);
-  for (let width = Math.min(3, segments.length); width >= 2; width--) {
-    const candidate = segments.slice(segments.length - width).join("/");
-    if (isKnownToPlatform(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
+  const candidates = [3, 2]
+    .filter((width) => width <= segments.length)
+    .map((width) => segments.slice(segments.length - width).join("/"));
+  return candidates.find((candidate) => isKnownToPlatform(candidate)) ?? null;
 };
 
 const fixedOffsetZone = (offsetMinutes: number): string | null => {

@@ -27,18 +27,18 @@ type PatchOutcome =
   | { readonly kind: "refused"; readonly reason: UnreadableReason };
 
 const coerceProperty = (property: PropertyLine, patches: readonly IcsPatch[]): PropertyLine => {
-  let carried = property;
+  const carried = { line: property };
   for (const patch of patches) {
-    if (!patch.properties.includes(carried.name)) {
+    if (!patch.properties.includes(carried.line.name)) {
       continue;
     }
-    const coerced = patch.coerce(carried.params, carried.value);
+    const coerced = patch.coerce(carried.line.params, carried.line.value);
     if (!coerced) {
       continue;
     }
-    carried = { name: carried.name, params: coerced.params, value: coerced.value };
+    carried.line = { name: carried.line.name, params: coerced.params, value: coerced.value };
   }
-  return carried;
+  return carried.line;
 };
 
 const emittedLinesFor = (property: PropertyLine): readonly string[] =>
