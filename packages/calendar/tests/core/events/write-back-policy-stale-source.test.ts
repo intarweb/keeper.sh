@@ -41,6 +41,7 @@ create table source_destination_mappings (
   "id" uuid primary key default gen_random_uuid(),
   "deleteConfirmationApprovedAt" timestamptz,
   "destinationCalendarId" uuid not null,
+  "sharedEventWritesGrantedAt" timestamptz,
   "sourceCalendarId" uuid not null,
   "writeBackMode" text not null default 'off',
   "writeBackState" text not null default 'ok'

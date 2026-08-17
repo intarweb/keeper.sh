@@ -480,6 +480,16 @@ const sourceDestinationMappingsTable = pgTable(
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),
     id: uuid().notNull().primaryKey().defaultRandom(),
+    /*
+     * The standing permission to write to a meeting the user organises: moving one mails
+     * everyone on it and cancelling one calls it off for them, and neither notice can be
+     * recalled. Held as the instant it was given rather than a flag, so the disclosure can
+     * say when — and, unlike deleteConfirmationApprovedAt, it does not expire: it answers
+     * what Keeper.sh may ever do, not whether one particular disappearance was real.
+     *
+     * It never widens an event somebody else authored. That answer is not the user's to give.
+     */
+    sharedEventWritesGrantedAt: timestamp({ withTimezone: true }),
     sourceCalendarId: uuid()
       .notNull()
       .references(() => calendarsTable.id, { onDelete: "cascade" }),

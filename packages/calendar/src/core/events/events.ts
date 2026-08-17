@@ -170,6 +170,8 @@ const getWriteBackPoliciesForDestination = async (
       excludeEventLocation: calendarsTable.excludeEventLocation,
       excludeEventName: calendarsTable.excludeEventName,
       ingestLastSucceededAt: calendarsTable.ingestLastSucceededAt,
+      sharedEventWritesGrantedAt:
+        sourceDestinationMappingsTable.sharedEventWritesGrantedAt,
       sourceCalendarId: sourceDestinationMappingsTable.sourceCalendarId,
       writeBackMode: sourceDestinationMappingsTable.writeBackMode,
       writeBackState: sourceDestinationMappingsTable.writeBackState,
@@ -218,6 +220,7 @@ const getWriteBackPoliciesForDestination = async (
       excludeEventDescription: row.excludeEventDescription,
       excludeEventLocation: row.excludeEventLocation,
       excludeEventName: row.excludeEventName,
+      sharedEventsGranted: row.sharedEventWritesGrantedAt instanceof Date,
       sourceCalendarId: row.sourceCalendarId,
       ...state,
       ...(staleSource && { deleteApproved: false, paused: true }),

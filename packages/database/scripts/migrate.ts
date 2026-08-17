@@ -182,6 +182,25 @@ const installEventMappingCompatibilityTrigger = async (): Promise<void> => {
   }
 };
 
+/*
+ * A guest list used to quarantine the whole pair, so one invited meeting stopped every other
+ * event on that calendar from writing back. It is a permission the user can now give, and a
+ * permission they have not given yet is no reason to distrust the pair: the state is cleared
+ * so the pair resumes on the mode it still holds, and the meeting alone is held until the
+ * grant arrives. Nothing is granted here — that answer is only the user's to give.
+ *
+ * Deliberately outside the readiness gate below: a database that already reports ready would
+ * skip it, and the pairs stuck today are exactly the ones on such a database.
+ */
+const releasePairsHeldByTheGuestListRefusal = async (): Promise<void> => {
+  await connection.query(`
+    UPDATE "source_destination_mappings"
+    SET "writeBackState" = 'ok', "writeBackStateReason" = NULL
+    WHERE "writeBackState" = 'quarantined'
+      AND "writeBackStateReason" = 'source_event_has_attendees'
+  `);
+};
+
 const normalizeCalendarCoverage = async (): Promise<void> => {
   await connection.query(`
     UPDATE "calendars"
@@ -491,6 +510,8 @@ try {
   await migrate(database, {
     migrationsFolder: `${import.meta.dirname}/../drizzle`,
   });
+
+  await releasePairsHeldByTheGuestListRefusal();
 
   if (!(await isPostMigrationRuntimeReady())) {
     await installEventMappingCompatibilityTrigger();
