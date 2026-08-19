@@ -7,6 +7,7 @@ import {
 } from "@keeper.sh/calendar/ics";
 import {
   buildEventStateInsertRow,
+  createFlushGenerationTracker,
   ingestSource,
   insertEventStatesWithConflictResolution,
   selectIngestWideEventFields,
@@ -39,6 +40,7 @@ import { createSyncLock } from "@keeper.sh/sync";
 const USER_ACCOUNT_LOCK_NAMESPACE = 9002;
 const SOURCE_INGEST_LOCK_KEY_PREFIX = "source-ingest:";
 const sourceIngestLock = createSyncLock(redis);
+const apiFlushGenerations = createFlushGenerationTracker();
 const destinationRangesReader = createDestinationRangesReader(database);
 
 const ICAL_CALENDAR_TYPE = "ical";
@@ -145,6 +147,7 @@ const ingestIcsSource = async (source: Source): Promise<void> => {
               enabled: source.treatFullDayTimedEventsAsAllDay,
             }),
         }),
+      flushGenerations: apiFlushGenerations,
       isCurrent: lockResult.handle.isCurrent,
       onIngestEvent: recordIngestWideEvent,
       withPersistenceTransaction: createIngestionPersistenceTransaction(source.id),

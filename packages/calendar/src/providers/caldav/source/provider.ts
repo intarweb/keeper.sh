@@ -10,7 +10,7 @@ import {
   buildEventStateInsertRow,
   insertEventStatesWithConflictResolution,
 } from "../../../core/source/write-event-states";
-import { buildCalDAVSourceEvents } from "./window";
+import { buildCalDAVSourceEvents, isCalDAVEventInSyncWindow } from "./window";
 import type { SourceEvent } from "../../../core/types";
 import { REAUTHENTICATION_SOURCE_CREDENTIALS } from "@keeper.sh/constants";
 import { calendarAccountsTable, calendarsTable, eventStatesTable } from "@keeper.sh/database/schema";
@@ -34,6 +34,7 @@ import {
   DEFAULT_HISTORIC_SYNC_RANGE,
   getConfigurableSyncWindow,
 } from "../../../core/sync/sync-range";
+import type { SyncWindow } from "../../../core/sync/sync-range";
 import type {
   CalDAVProviderOptions,
   CalDAVSourceAccount,
@@ -62,7 +63,10 @@ const createCalDAVSourceProvider = (
   const { database } = config;
   const sourceService = createCalDAVSourceService(config);
 
-  const fetchEventsFromCalDAV = async (account: CalDAVSourceAccount): Promise<SourceEvent[]> => {
+  const fetchEventsFromCalDAV = async (
+    account: CalDAVSourceAccount,
+    syncWindow: SyncWindow,
+  ): Promise<SourceEvent[]> => {
     const password = sourceService.getDecryptedPassword(account.encryptedPassword);
     const client = new CalDAVClient({
       authMethod: resolveAuthMethod(account.authMethod),
@@ -72,11 +76,6 @@ const createCalDAVSourceProvider = (
       },
       serverUrl: account.serverUrl,
     });
-
-    const syncWindow = getConfigurableSyncWindow(
-      DEFAULT_HISTORIC_SYNC_RANGE,
-      DEFAULT_FUTURE_SYNC_RANGE,
-    );
 
     const calendarUrl = await client.resolveCalendarUrl(account.calendarUrl);
 
@@ -110,6 +109,7 @@ const createCalDAVSourceProvider = (
   const processEvents = async (
     calendarId: string,
     events: SourceEvent[],
+    syncWindow: SyncWindow,
     persistenceDatabase: BunSQLClient = database,
   ): Promise<CalDAVSourceSyncResult> => {
     const storedEvents = await persistenceDatabase
@@ -136,9 +136,20 @@ const createCalDAVSourceProvider = (
     const existingEvents = parseResult.events;
 
     const eventsToAdd = buildSourceEventsToAdd(existingEvents, events, { isDeltaSync: false });
+    /*
+     * The fetch only covered syncWindow, while the cron ingest for the same
+     * calendar fetches under destination-widened required ranges. A stored
+     * event outside this fetch's window is invisible to this snapshot, not
+     * removed upstream — deleting it here would make every writer alternation
+     * delete-then-re-add all events between the two windows. Scope removals to
+     * stored events the fetch could actually have seen.
+     */
+    const removalCandidates = existingEvents.filter(
+      (existingEvent) => isCalDAVEventInSyncWindow(existingEvent, syncWindow),
+    );
     const eventStateIdsToRemove = [...new Set([
       ...buildInvalidStoredEventIdsToRemove(parseResult.failures, events),
-      ...buildSourceEventStateIdsToRemove(existingEvents, events),
+      ...buildSourceEventStateIdsToRemove(removalCandidates, events),
     ])];
 
     if (
@@ -204,10 +215,14 @@ const createCalDAVSourceProvider = (
     account: CalDAVSourceAccount,
   ): Promise<CalDAVSourceSyncResult> => {
     try {
+      const syncWindow = getConfigurableSyncWindow(
+        DEFAULT_HISTORIC_SYNC_RANGE,
+        DEFAULT_FUTURE_SYNC_RANGE,
+      );
       return await withSourceIngestLock(database, account.calendarId, async (lockedDatabase) => {
         await refreshOriginalName(account, lockedDatabase);
-        const events = await fetchEventsFromCalDAV(account);
-        return processEvents(account.calendarId, events, lockedDatabase);
+        const events = await fetchEventsFromCalDAV(account, syncWindow);
+        return processEvents(account.calendarId, events, syncWindow, lockedDatabase);
       });
     } catch (error) {
       if (isCalDAVAuthenticationError(error)) {

@@ -16,6 +16,7 @@ import {
   type StoredSourceEventState,
 } from "../source/stored-event-state";
 import { recordSegment } from "../telemetry/segments";
+import type { FlushGenerationTracker } from "./flush-generations";
 
 type IngestWideEventFields = Record<string, boolean | number | string>;
 
@@ -102,6 +103,8 @@ interface BaseIngestSourceOptions {
   calendarId: string;
   fetchEvents: () => Promise<FetchEventsResult>;
   isCurrent?: () => Promise<boolean>;
+  /** Omitting it leaves a parked flush guarded only by the lease probe. */
+  flushGenerations?: FlushGenerationTracker;
   onIngestEvent?: (event: IngestWideEventFields) => void;
 }
 
@@ -134,6 +137,24 @@ interface IngestionResult {
   eventsAdded: number;
   eventsRemoved: number;
 }
+
+const UNTRACKED_FLUSH_GENERATIONS: FlushGenerationTracker = {
+  read: () => 0,
+  bump: () => null,
+};
+
+const resolveStalePersistOutcome = (
+  currency: CurrencyProbeResult,
+  supersededByLeaselessWriter: boolean,
+): string | null => {
+  if (currency !== "current") {
+    return currency;
+  }
+  if (supersededByLeaselessWriter) {
+    return "superseded";
+  }
+  return null;
+};
 
 const EMPTY_RESULT: IngestionResult = { eventsAdded: 0, eventsRemoved: 0 };
 
@@ -189,7 +210,13 @@ const probeCurrency = async (
 };
 
 const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResult> => {
-  const { calendarId, fetchEvents, isCurrent, onIngestEvent } = options;
+  const {
+    calendarId,
+    fetchEvents,
+    flushGenerations = UNTRACKED_FLUSH_GENERATIONS,
+    isCurrent,
+    onIngestEvent,
+  } = options;
 
   const wideEvent: IngestWideEventFields = {
     "calendar.id": calendarId,
@@ -216,6 +243,8 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
 
   try {
     const withPersistenceTransaction = resolvePersistenceTransaction(options);
+    /* Any commit from here on is based on a snapshot at least as fresh as this run's. */
+    const observedFlushGeneration = flushGenerations.read(calendarId);
     const fetchResult = await fetchEvents();
     wideEvent["source_events.count"] = fetchResult.events.length;
     if (fetchResult.discardedEventCounts) {
@@ -273,10 +302,13 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
     const persistTimePreflight = async (): Promise<IngestionResult | null> => {
       persistProbePending = false;
       const currency = await probeCurrency(wideEvent, isCurrent);
-      if (currency === "current") {
+      const supersededByLeaselessWriter =
+        flushGenerations.read(calendarId) !== observedFlushGeneration;
+      const staleOutcome = resolveStalePersistOutcome(currency, supersededByLeaselessWriter);
+      if (!staleOutcome) {
         return null;
       }
-      wideEvent["outcome"] = currency;
+      wideEvent["outcome"] = staleOutcome;
       wideEvent["flushed"] = false;
       return EMPTY_RESULT;
     };
@@ -416,9 +448,18 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
       };
     };
 
-    return await withPersistenceTransaction(
+    const result = await withPersistenceTransaction(
       Object.assign(persistenceWork, { preflight: persistTimePreflight }),
     );
+    /*
+     * Durability arrives with the driver's COMMIT after the callback returns, so bumping
+     * inside it would let a rollback advance the generation and phantom-supersede the next
+     * flush for this calendar.
+     */
+    if (flushed) {
+      flushGenerations.bump(calendarId);
+    }
+    return result;
   } catch (error) {
     wideEvent["outcome"] = "error";
     wideEvent["flushed"] = flushed;

@@ -230,6 +230,103 @@ const pairReidentifiedMaterializedOccurrences = (
   return reassignments;
 };
 
+/*
+ * A one-off event rescheduled upstream can reach reconciliation as a fresh
+ * event_states row: the flush that carried the move replaced the stored row,
+ * so the old mapping no longer resolves a local event while the moved copy
+ * looks brand new. Left apart, the pair executes as destination delete plus
+ * create — attendee-visible churn (cancellation plus fresh invite). When a
+ * source calendar holds exactly one such orphaned mapping and exactly one
+ * unmapped local event, pair them so the destination sees a single replace
+ * that reuses the existing mapping. Pairing stays conservative: it requires
+ * the 1:1 shape, a live remote copy to replace, and a mapping whose owning
+ * event state no longer backs any local event (a live series keeps its
+ * mappings out of this fallback).
+ */
+const groupUnmappedEventsByCalendar = (
+  localEvents: MaterializedSyncableEvent[],
+  allMappings: EventMapping[],
+  alreadyPairedEventIds: ReadonlySet<string>,
+): Map<string, MaterializedSyncableEvent[]> => {
+  const mappedEventIds = new Set(allMappings.map((mapping) => getMappingSyncEventId(mapping)));
+  const unmappedEventsByCalendar = new Map<string, MaterializedSyncableEvent[]>();
+  for (const event of localEvents) {
+    if (mappedEventIds.has(event.id) || alreadyPairedEventIds.has(event.id)) {
+      continue;
+    }
+    const events = unmappedEventsByCalendar.get(event.calendarId) ?? [];
+    events.push(event);
+    unmappedEventsByCalendar.set(event.calendarId, events);
+  }
+  return unmappedEventsByCalendar;
+};
+
+const groupOrphanedMappingsByCalendar = (
+  localEvents: MaterializedSyncableEvent[],
+  candidateMappings: EventMapping[],
+  alreadyPairedMappingIds: ReadonlySet<string>,
+  remoteEventsByMappingId: ReadonlyMap<string, RemoteEvent>,
+): Map<string, EventMapping[]> => {
+  const localEventIds = new Set(localEvents.map((event) => event.id));
+  const localEventStateIds = new Set<string>();
+  for (const event of localEvents) {
+    if (event.eventStateId) {
+      localEventStateIds.add(event.eventStateId);
+    }
+  }
+  const orphanedMappingsByCalendar = new Map<string, EventMapping[]>();
+  for (const mapping of candidateMappings) {
+    if (
+      mapping.sourceCalendarId === null
+      || alreadyPairedMappingIds.has(mapping.id)
+      || localEventIds.has(getMappingSyncEventId(mapping))
+      || !remoteEventsByMappingId.has(mapping.id)
+      || mapping.eventStateId !== null && localEventStateIds.has(mapping.eventStateId)
+    ) {
+      continue;
+    }
+    const mappings = orphanedMappingsByCalendar.get(mapping.sourceCalendarId) ?? [];
+    mappings.push(mapping);
+    orphanedMappingsByCalendar.set(mapping.sourceCalendarId, mappings);
+  }
+  return orphanedMappingsByCalendar;
+};
+
+const pairLoneRescheduledEvents = (
+  localEvents: MaterializedSyncableEvent[],
+  candidateMappings: EventMapping[],
+  allMappings: EventMapping[],
+  alreadyPairedEventIds: ReadonlySet<string>,
+  alreadyPairedMappingIds: ReadonlySet<string>,
+  remoteEventsByMappingId: ReadonlyMap<string, RemoteEvent>,
+): OccurrenceReassignment[] => {
+  const unmappedEventsByCalendar = groupUnmappedEventsByCalendar(
+    localEvents,
+    allMappings,
+    alreadyPairedEventIds,
+  );
+  const orphanedMappingsByCalendar = groupOrphanedMappingsByCalendar(
+    localEvents,
+    candidateMappings,
+    alreadyPairedMappingIds,
+    remoteEventsByMappingId,
+  );
+
+  const reassignments: OccurrenceReassignment[] = [];
+  for (const [calendarId, events] of unmappedEventsByCalendar) {
+    const mappings = orphanedMappingsByCalendar.get(calendarId);
+    if (!mappings || mappings.length !== 1 || events.length !== 1) {
+      continue;
+    }
+    const [event] = events;
+    const [mapping] = mappings;
+    if (event && mapping) {
+      reassignments.push({ event, mapping });
+    }
+  }
+  return reassignments;
+};
+
 const isSameSerializedSecond = (first: Date, second: Date): boolean =>
   Math.trunc(first.getTime() / 1000) === Math.trunc(second.getTime() / 1000);
 
@@ -657,11 +754,21 @@ const computeSyncOperations = (
       remoteReassignments.push(reassignment);
     }
   }
+  const loneReassignments = pairLoneRescheduledEvents(
+    authoritativeLocalEvents,
+    activeMappings,
+    existingMappings,
+    new Set(occurrenceReassignments.map(({ event }) => event.id)),
+    new Set(occurrenceReassignments.map(({ mapping }) => mapping.id)),
+    remoteEventsByMappingId,
+  );
+  remoteReassignments.push(...loneReassignments);
+  const allReassignments = [...occurrenceReassignments, ...loneReassignments];
   const reassignedMappingIds = new Set(
-    occurrenceReassignments.map(({ mapping }) => mapping.id),
+    allReassignments.map(({ mapping }) => mapping.id),
   );
   const reassignedEventIds = new Set(
-    occurrenceReassignments.map(({ event }) => event.id),
+    allReassignments.map(({ event }) => event.id),
   );
   const standardMappings = activeMappings.filter(
     (mapping) => !reassignedMappingIds.has(mapping.id),

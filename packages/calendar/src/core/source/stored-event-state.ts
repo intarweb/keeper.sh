@@ -24,6 +24,14 @@ interface StoredSourceEventState {
   title?: string | null;
 }
 
+/*
+ * Rows read back through loosely-typed database clients arrive as plain
+ * records. The recovering parser exists precisely to absorb malformed stored
+ * rows, so it accepts the raw record shape too and reports rows that do not
+ * parse as failures instead of rejecting the call at the type level.
+ */
+type StoredSourceEventStateRow = Record<string, unknown> | StoredSourceEventState;
+
 interface ExistingSourceEventState extends Omit<
   StoredSourceEventState,
   "exceptionDates" | "recurrenceRule"
@@ -73,12 +81,13 @@ const parseStoredSourceEventStates = (
 ): ExistingSourceEventState[] => events.map((event) => parseStoredSourceEventState(event));
 
 const parseStoredSourceEventStatesRecoveringInvalid = (
-  storedEvents: StoredSourceEventState[],
+  storedEvents: StoredSourceEventStateRow[],
 ): StoredSourceEventParseResult => {
   const events: ExistingSourceEventState[] = [];
   const failures: StoredSourceEventParseFailure[] = [];
 
-  for (const storedEvent of storedEvents) {
+  for (const storedRow of storedEvents) {
+    const storedEvent = storedRow as StoredSourceEventState;
     try {
       events.push(parseStoredSourceEventState(storedEvent));
     } catch (error) {

@@ -1,5 +1,5 @@
 import { eventStatesTable } from "@keeper.sh/database/schema";
-import { isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { IcsExceptionDates, IcsRecurrenceRule } from "ts-ics";
 import type { SourceEvent } from "../types";
@@ -144,6 +144,187 @@ const insertEventStateRows = async (
   }
 };
 
+interface EventStateRescheduleClient {
+  select: (fields: {
+    id: typeof eventStatesTable.id;
+    sourceEventUid: typeof eventStatesTable.sourceEventUid;
+  }) => {
+    from: (table: typeof eventStatesTable) => {
+      where: (condition: SQL) => Promise<{ id: string; sourceEventUid: string | null }[]>;
+    };
+  };
+  update: (table: typeof eventStatesTable) => {
+    set: (values: Record<string, Date | boolean | string | null>) => {
+      where: (condition: SQL) => Promise<unknown>;
+    };
+  };
+}
+
+/*
+ * Every column the legacy conflict update rewrites, with absent values coerced
+ * to null so a field cleared upstream (a removed location, say) cannot survive
+ * the in-place reschedule.
+ */
+const buildRescheduleUpdateValues = (
+  row: EventStateInsertRow,
+): Record<string, Date | boolean | string | null> => ({
+  availability: row.availability ?? null,
+  description: row.description ?? null,
+  endTime: row.endTime,
+  exceptionDates: row.exceptionDates ?? null,
+  isAllDay: row.isAllDay ?? null,
+  location: row.location ?? null,
+  recurrenceId: row.recurrenceId ?? null,
+  recurrenceRule: row.recurrenceRule ?? null,
+  sourceEventId: row.sourceEventId ?? null,
+  sourceEventType: row.sourceEventType ?? null,
+  sourceEventUid: row.sourceEventUid ?? null,
+  startTime: row.startTime,
+  startTimeZone: row.startTimeZone ?? null,
+  title: row.title ?? null,
+});
+
+/*
+ * A rescheduled one-off legacy event — or a rescheduled recurring series
+ * master (RRULE, no RECURRENCE-ID) — changes its storage identity (the
+ * non-recurring unique index includes start and end), so its insert cannot hit
+ * the stored row via ON CONFLICT — it would create a second row for the same
+ * event. When the batch carries exactly one row for a UID and exactly one
+ * stored legacy row without a provider id or RECURRENCE-ID holds that UID,
+ * rewrite that row in place (preserving its id, and with it the event mapping
+ * that references it) and withhold the insert. Anything ambiguous — duplicate
+ * UIDs in the batch or in storage, override rows — falls through to the plain
+ * insert path unchanged.
+ * Clients without select/update capability (narrow test doubles) skip the
+ * probe; both production writers pass full transaction clients.
+ */
+interface ReschedulePartition {
+  candidateRowsByCalendar: Map<string, EventStateInsertRow[]>;
+  remainingRows: EventStateInsertRow[];
+}
+
+const partitionRescheduleCandidates = (rows: EventStateInsertRow[]): ReschedulePartition => {
+  const batchUidCounts = new Map<string, number>();
+  for (const row of rows) {
+    if (typeof row.sourceEventUid !== "string") {
+      continue;
+    }
+    batchUidCounts.set(row.sourceEventUid, (batchUidCounts.get(row.sourceEventUid) ?? 0) + 1);
+  }
+
+  const candidateRowsByCalendar = new Map<string, EventStateInsertRow[]>();
+  const remainingRows: EventStateInsertRow[] = [];
+  for (const row of rows) {
+    if (
+      typeof row.sourceEventUid === "string"
+      && batchUidCounts.get(row.sourceEventUid) === 1
+    ) {
+      const candidates = candidateRowsByCalendar.get(row.calendarId) ?? [];
+      candidates.push(row);
+      candidateRowsByCalendar.set(row.calendarId, candidates);
+    } else {
+      remainingRows.push(row);
+    }
+  }
+  return { candidateRowsByCalendar, remainingRows };
+};
+
+const readStoredLegacyRowIdsByUid = async (
+  client: EventStateRescheduleClient,
+  calendarId: string,
+  candidateUids: string[],
+  onStatement?: () => void,
+): Promise<Map<string, string[]>> => {
+  const storedRowIdsByUid = new Map<string, string[]>();
+  for (let offset = 0; offset < candidateUids.length; offset += INSERT_CHUNK_SIZE) {
+    onStatement?.();
+    const storedRows = await client.select({
+      id: eventStatesTable.id,
+      sourceEventUid: eventStatesTable.sourceEventUid,
+    })
+      .from(eventStatesTable)
+      .where(and(
+        eq(eventStatesTable.calendarId, calendarId),
+        inArray(
+          eventStatesTable.sourceEventUid,
+          candidateUids.slice(offset, offset + INSERT_CHUNK_SIZE),
+        ),
+        isNull(eventStatesTable.sourceEventId),
+        isNull(eventStatesTable.recurrenceId),
+      ) as SQL);
+    for (const storedRow of storedRows) {
+      if (storedRow.sourceEventUid === null) {
+        continue;
+      }
+      const ids = storedRowIdsByUid.get(storedRow.sourceEventUid) ?? [];
+      ids.push(storedRow.id);
+      storedRowIdsByUid.set(storedRow.sourceEventUid, ids);
+    }
+  }
+  return storedRowIdsByUid;
+};
+
+const resolveOnlyStoredRowId = (
+  row: EventStateInsertRow,
+  storedRowIdsByUid: Map<string, string[]>,
+): string | null => {
+  if (typeof row.sourceEventUid !== "string") {
+    return null;
+  }
+  const storedRowIds = storedRowIdsByUid.get(row.sourceEventUid) ?? [];
+  const [onlyStoredRowId] = storedRowIds;
+  if (storedRowIds.length === 1 && onlyStoredRowId) {
+    return onlyStoredRowId;
+  }
+  return null;
+};
+
+const applyLegacyNonRecurringReschedules = async (
+  database: EventStateInsertClient,
+  rows: EventStateInsertRow[],
+  onStatement?: () => void,
+): Promise<EventStateInsertRow[]> => {
+  const client = database as EventStateInsertClient & Partial<EventStateRescheduleClient>;
+  if (typeof client.select !== "function" || typeof client.update !== "function") {
+    return rows;
+  }
+  const rescheduleClient = client as EventStateInsertClient & EventStateRescheduleClient;
+
+  const { candidateRowsByCalendar, remainingRows } = partitionRescheduleCandidates(rows);
+  if (candidateRowsByCalendar.size === EMPTY_ROW_COUNT) {
+    return rows;
+  }
+
+  for (const [calendarId, candidateRows] of candidateRowsByCalendar) {
+    const candidateUids: string[] = [];
+    for (const row of candidateRows) {
+      if (typeof row.sourceEventUid === "string") {
+        candidateUids.push(row.sourceEventUid);
+      }
+    }
+    const storedRowIdsByUid = await readStoredLegacyRowIdsByUid(
+      rescheduleClient,
+      calendarId,
+      candidateUids,
+      onStatement,
+    );
+
+    for (const row of candidateRows) {
+      const updatedRowId = resolveOnlyStoredRowId(row, storedRowIdsByUid);
+      if (updatedRowId === null) {
+        remainingRows.push(row);
+        continue;
+      }
+      onStatement?.();
+      await rescheduleClient.update(eventStatesTable)
+        .set(buildRescheduleUpdateValues(row))
+        .where(eq(eventStatesTable.id, updatedRowId) as SQL);
+    }
+  }
+
+  return remainingRows;
+};
+
 const insertEventStatesWithConflictResolution = async (
   database: EventStateInsertClient,
   rows: EventStateInsertRow[],
@@ -163,6 +344,12 @@ const insertEventStatesWithConflictResolution = async (
     }
   }
 
+  const legacyNonRecurringRowsToInsert = await applyLegacyNonRecurringReschedules(
+    database,
+    legacyNonRecurringRows,
+    onStatement,
+  );
+
   await insertEventStateRows(database, providerRows, {
     set: PROVIDER_EVENT_STATE_CONFLICT_SET,
     target: PROVIDER_EVENT_STATE_CONFLICT_TARGET,
@@ -173,7 +360,7 @@ const insertEventStatesWithConflictResolution = async (
     target: LEGACY_RECURRING_EVENT_STATE_CONFLICT_TARGET,
     targetWhere: sql`${eventStatesTable.sourceEventId} is null and ${eventStatesTable.recurrenceId} is not null`,
   }, onStatement);
-  await insertEventStateRows(database, legacyNonRecurringRows, {
+  await insertEventStateRows(database, legacyNonRecurringRowsToInsert, {
     set: EVENT_STATE_CONFLICT_SET,
     target: LEGACY_NON_RECURRING_EVENT_STATE_CONFLICT_TARGET,
     targetWhere: sql`${eventStatesTable.sourceEventId} is null and ${eventStatesTable.recurrenceId} is null`,

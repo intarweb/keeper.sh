@@ -83,8 +83,15 @@ describe("source event diff", () => {
 
     const eventsToAdd = buildSourceEventsToAdd(existingEvents, incomingEvents);
 
-    expect(eventsToAdd).toHaveLength(1);
+    /*
+     * The whole same-UID cohort lands in the batch: the stored copy's row is
+     * an idempotent upsert, and the widened batch keeps the write path's
+     * batch-level UID count in step with the feed so it cannot mistake the
+     * genuinely new instance for a reschedule of the stored one.
+     */
+    expect(eventsToAdd).toHaveLength(2);
     expect(eventsToAdd[0]?.startTime.toISOString()).toBe("2026-03-04T23:00:00.000Z");
+    expect(eventsToAdd[1]?.startTime.toISOString()).toBe("2026-03-11T23:00:00.000Z");
   });
 
   it("keeps provider occurrences distinct when their UID and interval are identical", () => {
@@ -491,7 +498,7 @@ describe("source event diff", () => {
     expect(buildSourceEventsToAdd([], incomingEvents)).toEqual(incomingEvents);
   });
 
-  it("keeps delete-and-create semantics when a legacy recurring master moves", () => {
+  it("keeps the stored row when a legacy recurring master moves unambiguously", () => {
     const existingEvents = [createExistingEvent({
       recurrenceRule: { frequency: "WEEKLY" },
       sourceEventUid: "legacy-master",
@@ -504,9 +511,7 @@ describe("source event diff", () => {
     });
 
     expect(buildSourceEventsToAdd(existingEvents, [movedMaster])).toEqual([movedMaster]);
-    expect(buildSourceEventStateIdsToRemove(existingEvents, [movedMaster])).toEqual([
-      "existing-id-1",
-    ]);
+    expect(buildSourceEventStateIdsToRemove(existingEvents, [movedMaster])).toEqual([]);
   });
 
   it("updates a moved override without removing its stable recurrence instance", () => {

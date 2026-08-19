@@ -362,6 +362,8 @@ export { createRedisGenerationCheck } from "./core/sync-engine/generation";
 export type { GenerationStore } from "./core/sync-engine/generation";
 export { createDatabaseFlush } from "./core/sync-engine/flush";
 export { ingestSource } from "./core/sync-engine/ingest";
+export { createFlushGenerationTracker } from "./core/sync-engine/flush-generations";
+export type { FlushGenerationTracker } from "./core/sync-engine/flush-generations";
 export {
   JOB_OWNED_WIDE_EVENT_KEYS,
   selectIngestWideEventFields,

@@ -129,6 +129,29 @@ class InMemoryEventStateStore {
       this.rows.delete(id);
     }
     for (const event of changes.inserts) {
+      /*
+       * Mirror insertEventStatesWithConflictResolution: a one-off legacy event
+       * whose UID matches exactly one stored one-off row is rewritten in place
+       * (same row id) instead of landing as a fresh row.
+       */
+      const matchingIds: string[] = [];
+      if (!event.sourceEventId && !event.recurrenceId && !event.recurrenceRule) {
+        for (const [rowId, row] of this.rows) {
+          if (
+            row.sourceEventId === null
+            && row.recurrenceId === null
+            && row.recurrenceRule === null
+            && row.sourceEventUid === event.uid
+          ) {
+            matchingIds.push(rowId);
+          }
+        }
+      }
+      const [matchedId] = matchingIds;
+      if (matchingIds.length === 1 && matchedId) {
+        this.rows.set(matchedId, toStoredRow(matchedId, event));
+        continue;
+      }
       const id = `event-state-${this.nextId++}`;
       this.rows.set(id, toStoredRow(id, event));
     }

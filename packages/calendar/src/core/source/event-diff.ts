@@ -164,6 +164,55 @@ const buildExistingEventIdentitySet = (
   return identities;
 };
 
+const isRescheduleCandidateEvent = (event: SourceEvent): boolean =>
+  !event.sourceEventId && !event.recurrenceId;
+
+/*
+ * The write path decides in-place reschedules from the insert batch alone
+ * (write-event-states.ts): a batch holding exactly one row for a UID, against
+ * exactly one stored legacy row with that UID, rewrites the stored row. A feed
+ * legitimately carrying two one-off events on one UID would satisfy that shape
+ * whenever only the new copy lands in the batch — the unchanged copy is
+ * already stored, so the batch count is one and the genuinely new event would
+ * destroy the stored one, alternating forever. Widening the batch to the whole
+ * same-UID cohort keeps the batch-level count equal to the feed-level count
+ * the removal diff used, so ambiguous UIDs fall through to the plain upsert
+ * (a no-op for the unchanged copy, an insert for the new one).
+ */
+const widenToDuplicateUidCohorts = (
+  normalizedIncomingEvents: SourceEvent[],
+  newEvents: SourceEvent[],
+): SourceEvent[] => {
+  const legacyUidCounts = new Map<string, number>();
+  for (const incomingEvent of normalizedIncomingEvents) {
+    if (!isRescheduleCandidateEvent(incomingEvent)) {
+      continue;
+    }
+    legacyUidCounts.set(incomingEvent.uid, (legacyUidCounts.get(incomingEvent.uid) ?? 0) + 1);
+  }
+
+  const duplicatedUidsWithNewMembers = new Set<string>();
+  for (const newEvent of newEvents) {
+    if (
+      isRescheduleCandidateEvent(newEvent)
+      && (legacyUidCounts.get(newEvent.uid) ?? 0) > 1
+    ) {
+      duplicatedUidsWithNewMembers.add(newEvent.uid);
+    }
+  }
+  if (duplicatedUidsWithNewMembers.size === 0) {
+    return newEvents;
+  }
+
+  const newEventSet = new Set(newEvents);
+  return normalizedIncomingEvents.filter((incomingEvent) =>
+    newEventSet.has(incomingEvent)
+    || (
+      isRescheduleCandidateEvent(incomingEvent)
+      && duplicatedUidsWithNewMembers.has(incomingEvent.uid)
+    ));
+};
+
 const buildSourceEventsToAdd = (
   existingEvents: ExistingSourceEventState[],
   incomingEvents: SourceEvent[],
@@ -174,7 +223,7 @@ const buildSourceEventsToAdd = (
     normalizeMissingMetadata: options.isDeltaSync ?? false,
   });
 
-  return normalizedIncomingEvents.filter(
+  const newEvents = normalizedIncomingEvents.filter(
     (incomingEvent) =>
       !existingIdentities.has(
         buildSourceEventIdentityKey(
@@ -200,6 +249,12 @@ const buildSourceEventsToAdd = (
         ),
       ),
   );
+
+  if (options.isDeltaSync) {
+    return newEvents;
+  }
+
+  return widenToDuplicateUidCohorts(normalizedIncomingEvents, newEvents);
 };
 
 const buildSourceEventStateIdsToRemove = (
@@ -268,6 +323,62 @@ const buildSourceEventStateIdsToRemove = (
     normalizedIncomingEvents.map((incomingEvent) =>
       buildSourceEventInstanceKey(incomingEvent)),
   );
+  /*
+   * Instance keys of incoming events that are themselves uid-keyed (no
+   * provider id). A stored legacy row whose slot is also claimed by a
+   * provider-keyed incoming event must NOT be force-removed when a uid-keyed
+   * incoming twin still occupies the same slot: the add side treats that twin
+   * as already stored, so removing the row here would make repeated ingest
+   * over an identical feed alternate remove/add forever instead of reaching a
+   * fixed point.
+   */
+  const legacyIncomingStorageIdentitySet = new Set(
+    normalizedIncomingEvents.flatMap((incomingEvent) => {
+      if (incomingEvent.sourceEventId) {
+        return [];
+      }
+      return [buildSourceEventInstanceKey(incomingEvent)];
+    }),
+  );
+  const storedRescheduleCandidateUidCounts = new Map<string, number>();
+  for (const existingEvent of existingEvents) {
+    if (
+      existingEvent.sourceEventId
+      || existingEvent.recurrenceId
+      || existingEvent.sourceEventUid === null
+    ) {
+      continue;
+    }
+    storedRescheduleCandidateUidCounts.set(
+      existingEvent.sourceEventUid,
+      (storedRescheduleCandidateUidCounts.get(existingEvent.sourceEventUid) ?? 0) + 1,
+    );
+  }
+  const incomingRescheduleCandidateUidCounts = new Map<string, number>();
+  for (const incomingEvent of normalizedIncomingEvents) {
+    if (incomingEvent.sourceEventId || incomingEvent.recurrenceId) {
+      continue;
+    }
+    incomingRescheduleCandidateUidCounts.set(
+      incomingEvent.uid,
+      (incomingRescheduleCandidateUidCounts.get(incomingEvent.uid) ?? 0) + 1,
+    );
+  }
+  /*
+   * A plain one-off event — or a recurring series master (RRULE, no
+   * RECURRENCE-ID) — whose UID pairs exactly one stored row with exactly one
+   * incoming event is the same event rescheduled, not one event removed and
+   * another created. Removing the stored row would sever its destination
+   * mapping (delete+recreate churn at the destination, for a master the whole
+   * series); keeping it lets the insert land as an in-place update of the
+   * same row. Overrides carry a RECURRENCE-ID and stay excluded.
+   */
+  const isUnambiguousReschedule = (existingEvent: ExistingSourceEventState): boolean =>
+    !existingEvent.sourceEventId
+    && !existingEvent.recurrenceId
+    && existingEvent.sourceEventUid !== null
+    && storedRescheduleCandidateUidCounts.get(existingEvent.sourceEventUid) === 1
+    && incomingRescheduleCandidateUidCounts.get(existingEvent.sourceEventUid) === 1;
 
   return existingEvents
     .filter((existingEvent) => {
@@ -281,11 +392,18 @@ const buildSourceEventStateIdsToRemove = (
 
       const existingStorageIdentityKey = resolveExistingSourceEventInstanceKey(existingEvent);
 
-      if (providerBackedStorageIdentitySet.has(existingStorageIdentityKey)) {
+      if (
+        providerBackedStorageIdentitySet.has(existingStorageIdentityKey)
+        && !legacyIncomingStorageIdentitySet.has(existingStorageIdentityKey)
+      ) {
         return true;
       }
 
-      return !incomingStorageIdentitySet.has(existingStorageIdentityKey);
+      if (incomingStorageIdentitySet.has(existingStorageIdentityKey)) {
+        return false;
+      }
+
+      return !isUnambiguousReschedule(existingEvent);
     })
     .map((existingEvent) => existingEvent.id);
 };

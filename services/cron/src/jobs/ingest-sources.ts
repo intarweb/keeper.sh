@@ -8,6 +8,7 @@ import {
   createMicrosoftTokenRefresher,
   createCoordinatedRefresher,
   createGoogleUserRateLimiter,
+  createFlushGenerationTracker,
   createSerialFlushWorker,
   createHostRateLimiter,
   createOutlookAccountSemaphore,
@@ -392,6 +393,9 @@ const ingestFlushWriter = createSerialFlushWorker(
 );
 
 flushDrainRegistry.register(() => ingestFlushWriter.close());
+
+/* One per process: every ingest lane shares it, so each sees the others' commits. */
+const ingestFlushGenerations = createFlushGenerationTracker();
 
 type IngestFlushReservation = FlushReservation<() => Promise<IngestionResult>, IngestionResult>;
 
@@ -1218,6 +1222,7 @@ const ingestOAuthSources = async (calendarIds?: string[]): Promise<IngestionBatc
                   const ingestionResult = await ingestSource({
                     calendarId: source.calendarId,
                     fetchEvents: () => fetcher.fetchEvents(),
+                    flushGenerations: ingestFlushGenerations,
                     isCurrent,
                     withPersistenceTransaction: createIngestionPersistenceTransaction(
                       source.calendarId,
@@ -1427,6 +1432,7 @@ const ingestCalDAVSources = async (): Promise<IngestionBatchResult> => {
                       );
                       return fetchResult;
                     },
+                    flushGenerations: ingestFlushGenerations,
                     isCurrent,
                     withPersistenceTransaction: createIngestionPersistenceTransaction(
                       source.calendarId,
@@ -1600,6 +1606,7 @@ const ingestIcsSources = async (): Promise<IngestionBatchResult> => {
                           }),
                       });
                     },
+                    flushGenerations: ingestFlushGenerations,
                     isCurrent,
                     withPersistenceTransaction: createIngestionPersistenceTransaction(
                       source.calendarId,
