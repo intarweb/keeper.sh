@@ -28,8 +28,19 @@ interface SimulationResult {
   flushWaitMedianMs: number;
 }
 
+const flagPassOverrun = (makespanMs: number): string => {
+  if (makespanMs > PASS_INTERVAL_MS) {
+    return "OVER PASS INTERVAL";
+  }
+  return "";
+};
+
+const report = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
 const percentile = (values: number[], fraction: number): number => {
-  const ordered = [...values].sort((first, second) => first - second);
+  const ordered = values.toSorted((first, second) => first - second);
   return ordered[Math.min(Math.floor(ordered.length * fraction), ordered.length - 1)] ?? 0;
 };
 
@@ -108,9 +119,9 @@ describe("ingest under fleet load", () => {
       `p90=${String(Math.round(result.p90LatencyMs)).padStart(7)}ms`,
       `gate_wait=${String(Math.round(result.gateWaitMedianMs)).padStart(6)}ms`,
       `flush_wait=${String(Math.round(result.flushWaitMedianMs)).padStart(7)}ms`,
-      result.makespanMs > PASS_INTERVAL_MS ? "OVER PASS INTERVAL" : "",
+      flagPassOverrun(result.makespanMs),
     ].join("  "));
-    console.log(`\n${table.join("\n")}\n`);
+    report(`\n${table.join("\n")}`);
 
     /*
      * The serial writer is one connection by design, so it is the ceiling once the fleet is
@@ -127,7 +138,7 @@ describe("ingest under fleet load", () => {
     }
 
     const sourcesPerPass = Math.floor(PASS_INTERVAL_MS / FLUSH_MS);
-    console.log(
+    report(
       `serial writer ceiling: ~${String(sourcesPerPass)} sources per ${String(PASS_INTERVAL_MS)}ms pass `
       + `at ${String(FLUSH_MS)}ms per flush\n`,
     );
