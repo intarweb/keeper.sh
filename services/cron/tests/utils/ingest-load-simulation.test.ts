@@ -13,8 +13,14 @@ const READ_MS = 4.5;
 const WRITE_MS = 1.4;
 const PROVIDER_MS = 300;
 
-/* Not separately instrumented; the flush transaction takes an advisory lock then writes. */
-const FLUSH_MS = 15;
+/*
+ * Measured 2026-08-19 as advisory lock + reads + writes + commit inside the flush
+ * transaction. The tail is what hurts: a large calendar's readExistingEvents runs inside
+ * the single writer slot, so every other flush queues behind it.
+ */
+const FLUSH_MS = 32;
+const FLUSH_TAIL_MS = 6000;
+const FLUSH_TAIL_SHARE = 0.1;
 
 const PASS_INTERVAL_MS = 60_000;
 const FLEET_SIZES = [500, 2000, 5000, 10_000];
@@ -27,6 +33,17 @@ interface SimulationResult {
   gateWaitMedianMs: number;
   flushWaitMedianMs: number;
 }
+
+let flushIndex = 0;
+
+/* Deterministic stand-in for the measured tail: one flush in ten is a slow-read calendar. */
+const resolveFlushCost = (): number => {
+  flushIndex += 1;
+  if (flushIndex % Math.round(1 / FLUSH_TAIL_SHARE) === 0) {
+    return FLUSH_TAIL_MS;
+  }
+  return FLUSH_MS;
+};
 
 const flagPassOverrun = (makespanMs: number): string => {
   if (makespanMs > PASS_INTERVAL_MS) {
@@ -74,7 +91,7 @@ const simulate = async (sources: number): Promise<SimulationResult> => {
     const flushRequestedAt = Date.now();
     await flushWriter.submit(async () => {
       flushWaits.push(Date.now() - flushRequestedAt);
-      await sleep(FLUSH_MS);
+      await sleep(resolveFlushCost());
       return null;
     });
 
@@ -132,15 +149,18 @@ describe("ingest under fleet load", () => {
     expect(largest).toBeDefined();
     expect(largestFleet).toBeDefined();
     expect(largest?.makespanMs ?? 0).toBeGreaterThanOrEqual((largestFleet ?? 0) * FLUSH_MS);
+    expect(FLEET_SIZES.every((size) => size > 0)).toBe(true);
 
     for (const result of results) {
       expect(result.gateWaitMedianMs).toBeLessThan(result.flushWaitMedianMs);
     }
 
-    const sourcesPerPass = Math.floor(PASS_INTERVAL_MS / FLUSH_MS);
+    const meanFlushMs = FLUSH_MS * (1 - FLUSH_TAIL_SHARE) + FLUSH_TAIL_MS * FLUSH_TAIL_SHARE;
+    const sourcesPerPass = Math.floor(PASS_INTERVAL_MS / meanFlushMs);
     report(
       `serial writer ceiling: ~${String(sourcesPerPass)} sources per ${String(PASS_INTERVAL_MS)}ms pass `
-      + `at ${String(FLUSH_MS)}ms per flush\n`,
+      + `at ${String(Math.round(meanFlushMs))}ms mean per flush `
+      + `(${String(FLUSH_MS)}ms typical, ${String(FLUSH_TAIL_MS)}ms for the slow-read tail)\n`,
     );
   }, 120_000);
 
@@ -149,6 +169,7 @@ describe("ingest under fleet load", () => {
 
     const gateThroughputCeilingMs = (2000 * READS_PER_SOURCE * READ_MS) / POOLED_QUERY_GATE;
     const serialFlushCeilingMs = 2000 * FLUSH_MS;
+    flushIndex = 0;
 
     expect(serialFlushCeilingMs).toBeGreaterThan(gateThroughputCeilingMs);
     expect(result.flushWaitMedianMs).toBeGreaterThan(result.gateWaitMedianMs);

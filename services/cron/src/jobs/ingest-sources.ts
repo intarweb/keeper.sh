@@ -383,6 +383,7 @@ const emitPersistenceLedger = (ledger: PersistenceLedger, requestedAt: number): 
     widelog.count("db.write_count", ledger.writeCount);
     recordSegment("work.db_write_ms", ledger.writeMs);
   }
+  recordSegment("work.flush_ms", performance.now() - ledger.grantedAt);
   if (ledger.callbackReturnedAt > 0) {
     recordSegment("work.db_commit_ms", performance.now() - ledger.callbackReturnedAt);
   }
