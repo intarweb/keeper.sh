@@ -3,6 +3,8 @@ import { ingestSource } from "../../../src/core/sync-engine/ingest";
 import type { IngestionChanges } from "../../../src/core/sync-engine/ingest";
 import type { StoredSourceEventState } from "../../../src/core/source/stored-event-state";
 import type { SourceEvent } from "../../../src/core/types";
+import { createFlushGenerationTracker } from "../../../src/core/sync-engine/flush-generations";
+import type { FlushGenerationTracker } from "../../../src/core/sync-engine/flush-generations";
 
 /*
  * Two writers, one calendar. The cron ingest holds the Redis source-ingest
@@ -69,10 +71,12 @@ const applyChanges = (store: Store, changes: IngestionChanges): void => {
 const runImmediateWriter = (
   store: Store,
   events: SourceEvent[],
+  flushGenerations: FlushGenerationTracker,
 ): Promise<{ eventsAdded: number; eventsRemoved: number }> =>
   ingestSource({
     calendarId: CALENDAR_ID,
     fetchEvents: () => Promise.resolve({ events }),
+    flushGenerations,
     readExistingEvents: () => Promise.resolve([...store.rows]),
     flush: (changes) => {
       applyChanges(store, changes);
@@ -86,6 +90,8 @@ describe("concurrent writers on one calendar", () => {
     const eventY = makeEvent("event-y", 13);
 
     const store: Store = { rows: [toStored(eventX)] };
+    /* Both writers live in one process, so they share the tracker cron constructs. */
+    const flushGenerations = createFlushGenerationTracker();
 
     /*
      * Cron run C fetches while upstream is [X]. Its persistence transaction is
@@ -98,6 +104,7 @@ describe("concurrent writers on one calendar", () => {
     const cronRun = ingestSource({
       calendarId: CALENDAR_ID,
       fetchEvents: () => Promise.resolve({ events: [eventX] }),
+      flushGenerations,
       withPersistenceTransaction: async (work) => {
         await gate;
         return work({
@@ -115,7 +122,7 @@ describe("concurrent writers on one calendar", () => {
      * only) fetches the fresher snapshot [X, Y] and commits it while C's flush
      * is still parked.
      */
-    const freshResult = await runImmediateWriter(store, [eventX, eventY]);
+    const freshResult = await runImmediateWriter(store, [eventX, eventY], flushGenerations);
     expect(freshResult.eventsAdded).toBe(1);
     expect(store.rows.map((row) => row.sourceEventUid).toSorted())
       .toEqual(["event-x", "event-y"]);
@@ -131,7 +138,7 @@ describe("concurrent writers on one calendar", () => {
      * ingest re-adds it — an upstream-stable calendar produced a remove/add
      * pair on the destination.
      */
-    const repeat = await runImmediateWriter(store, [eventX, eventY]);
+    const repeat = await runImmediateWriter(store, [eventX, eventY], flushGenerations);
     expect(repeat.eventsAdded).toBe(0);
     expect(repeat.eventsRemoved).toBe(0);
   });
