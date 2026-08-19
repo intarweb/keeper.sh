@@ -24,7 +24,6 @@ type IngestSegmentKey =
   | "work.db_read_ms"
   | "work.db_write_ms"
   | "work.db_commit_ms"
-  | "work.flush_ms"
   | "work.diff_ms";
 
 const ACCOUNTED_SEGMENT_KEY = "accounted_ms";
