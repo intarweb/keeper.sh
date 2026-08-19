@@ -24,12 +24,7 @@ interface StoredSourceEventState {
   title?: string | null;
 }
 
-/*
- * Rows read back through loosely-typed database clients arrive as plain
- * records. The recovering parser exists precisely to absorb malformed stored
- * rows, so it accepts the raw record shape too and reports rows that do not
- * parse as failures instead of rejecting the call at the type level.
- */
+/* Deliberately loose: malformed rows must reach the parser and be reported as failures. */
 type StoredSourceEventStateRow = Record<string, unknown> | StoredSourceEventState;
 
 interface ExistingSourceEventState extends Omit<

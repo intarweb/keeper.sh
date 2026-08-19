@@ -137,19 +137,16 @@ const createCalDAVSourceProvider = (
 
     const eventsToAdd = buildSourceEventsToAdd(existingEvents, events, { isDeltaSync: false });
     /*
-     * The fetch only covered syncWindow, while the cron ingest for the same
-     * calendar fetches under destination-widened required ranges. A stored
-     * event outside this fetch's window is invisible to this snapshot, not
-     * removed upstream — deleting it here would make every writer alternation
-     * delete-then-re-add all events between the two windows. Scope removals to
-     * stored events the fetch could actually have seen.
+     * The cron ingest fetches this same calendar under destination-widened ranges, so a
+     * stored event outside this narrower window is unseen rather than removed upstream;
+     * treating it as removed makes the two writers delete-then-re-add it forever.
      */
-    const removalCandidates = existingEvents.filter(
+    const storedEventsVisibleToThisFetch = existingEvents.filter(
       (existingEvent) => isCalDAVEventInSyncWindow(existingEvent, syncWindow),
     );
     const eventStateIdsToRemove = [...new Set([
       ...buildInvalidStoredEventIdsToRemove(parseResult.failures, events),
-      ...buildSourceEventStateIdsToRemove(removalCandidates, events),
+      ...buildSourceEventStateIdsToRemove(storedEventsVisibleToThisFetch, events),
     ])];
 
     if (

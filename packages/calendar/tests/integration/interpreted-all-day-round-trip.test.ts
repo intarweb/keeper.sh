@@ -56,11 +56,7 @@ interface RemoteTimes {
   startTime: Date;
 }
 
-/*
- * Each codec is the destination's real write path followed by its real read path.
- * A provider echoing back what Keeper wrote is exactly what reconciliation compares
- * against, so a serializer that cannot read its own output shows up here as drift.
- */
+/* Each codec is the destination's real write path followed by its real read path. */
 type DestinationCodec = (event: MaterializedSyncableEvent, uid: string) => RemoteTimes;
 
 const roundTripThroughOutlook: DestinationCodec = (event) => {
@@ -129,11 +125,7 @@ class InMemoryEventStateStore {
       this.rows.delete(id);
     }
     for (const event of changes.inserts) {
-      /*
-       * Mirror insertEventStatesWithConflictResolution: a one-off legacy event
-       * whose UID matches exactly one stored one-off row is rewritten in place
-       * (same row id) instead of landing as a fresh row.
-       */
+      /* Mirrors insertEventStatesWithConflictResolution's in-place legacy rewrite. */
       const matchingIds: string[] = [];
       if (!event.sourceEventId && !event.recurrenceId && !event.recurrenceRule) {
         for (const [rowId, row] of this.rows) {

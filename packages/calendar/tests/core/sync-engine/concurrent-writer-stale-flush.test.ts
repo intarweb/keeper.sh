@@ -7,20 +7,9 @@ import { createFlushGenerationTracker } from "../../../src/core/sync-engine/flus
 import type { FlushGenerationTracker } from "../../../src/core/sync-engine/flush-generations";
 
 /*
- * Two writers, one calendar. The cron ingest holds the Redis source-ingest
- * lock, but the CalDAV source provider persist path
- * (packages/calendar/src/providers/caldav/source/provider.ts syncSingleSource)
- * serializes ONLY on the Postgres advisory lock. Cron's flush thunk can sit
- * parked in the serial flush queue (behind up to 50 flushes) after its fetch
- * completed; the caldav-path writer can acquire the advisory lock, commit a
- * FRESHER snapshot, and release, all while cron's fetched payload waits. When
- * cron's flush finally acquires the advisory lock (within the 5s wait bound),
- * it diffs its STALE fetch against the fresh store and persists the stale
- * fetch as authoritative: events the fresher writer added are deleted, events
- * it removed are resurrected. The next pass undoes that again — sync thrash.
- *
- * Both writers here run the real ingest diff engine; the interleaving models
- * exactly the ordering the advisory lock permits.
+ * The two writers of one calendar share only the Postgres advisory lock, so a cron
+ * flush can sit parked while a fresher snapshot commits. Its stale payload must not
+ * then land as authoritative and undo the fresher writer's work.
  */
 
 const CALENDAR_ID = "calendar-concurrent-writers";
@@ -64,10 +53,6 @@ const applyChanges = (store: Store, changes: IngestionChanges): void => {
   store.rows = [...store.rows, ...changes.inserts.map(toStored)];
 };
 
-/*
- * A writer whose flush commits immediately, the way the caldav provider path
- * and an unparked cron flush do: read under the lock, diff, commit.
- */
 const runImmediateWriter = (
   store: Store,
   events: SourceEvent[],
@@ -90,15 +75,8 @@ describe("concurrent writers on one calendar", () => {
     const eventY = makeEvent("event-y", 13);
 
     const store: Store = { rows: [toStored(eventX)] };
-    /* Both writers live in one process, so they share the tracker cron constructs. */
     const flushGenerations = createFlushGenerationTracker();
 
-    /*
-     * Cron run C fetches while upstream is [X]. Its persistence transaction is
-     * parked (serial flush queue + advisory lock), exactly as
-     * createIngestionPersistenceTransaction parks the whole thunk including
-     * readExistingEvents until the flush worker runs it.
-     */
     const { promise: gate, resolve: releaseGate } = Promise.withResolvers<null>();
 
     const cronRun = ingestSource({
@@ -117,27 +95,15 @@ describe("concurrent writers on one calendar", () => {
       },
     });
 
-    /*
-     * Upstream gains Y. The caldav-path writer S (no Redis lock, advisory lock
-     * only) fetches the fresher snapshot [X, Y] and commits it while C's flush
-     * is still parked.
-     */
     const freshResult = await runImmediateWriter(store, [eventX, eventY], flushGenerations);
     expect(freshResult.eventsAdded).toBe(1);
     expect(store.rows.map((row) => row.sourceEventUid).toSorted())
       .toEqual(["event-x", "event-y"]);
 
-    /* The advisory lock frees; C's parked flush now runs with its stale fetch. */
     releaseGate(null);
     await cronRun;
 
-    /*
-     * Convergence invariant: upstream is [X, Y] and the freshest snapshot of
-     * [X, Y] was already committed, so re-ingesting the SAME upstream state
-     * must be a no-op. It is not: C's stale flush deleted Y, so the repeat
-     * ingest re-adds it — an upstream-stable calendar produced a remove/add
-     * pair on the destination.
-     */
+    /* Upstream is unchanged since the freshest commit, so re-ingesting must be a no-op. */
     const repeat = await runImmediateWriter(store, [eventX, eventY], flushGenerations);
     expect(repeat.eventsAdded).toBe(0);
     expect(repeat.eventsRemoved).toBe(0);

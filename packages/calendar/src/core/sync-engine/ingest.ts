@@ -103,7 +103,6 @@ interface BaseIngestSourceOptions {
   calendarId: string;
   fetchEvents: () => Promise<FetchEventsResult>;
   isCurrent?: () => Promise<boolean>;
-  /** Omitting it leaves a parked flush guarded only by the lease probe. */
   flushGenerations?: FlushGenerationTracker;
   onIngestEvent?: (event: IngestWideEventFields) => void;
 }
@@ -243,7 +242,7 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
 
   try {
     const withPersistenceTransaction = resolvePersistenceTransaction(options);
-    /* Any commit from here on is based on a snapshot at least as fresh as this run's. */
+    /* Read before the fetch, so any bump seen later belongs to a fresher snapshot. */
     const observedFlushGeneration = flushGenerations.read(calendarId);
     const fetchResult = await fetchEvents();
     wideEvent["source_events.count"] = fetchResult.events.length;
@@ -452,9 +451,8 @@ const ingestSource = async (options: IngestSourceOptions): Promise<IngestionResu
       Object.assign(persistenceWork, { preflight: persistTimePreflight }),
     );
     /*
-     * Durability arrives with the driver's COMMIT after the callback returns, so bumping
-     * inside it would let a rollback advance the generation and phantom-supersede the next
-     * flush for this calendar.
+     * Bumped after the driver's COMMIT: doing it inside the callback would let a
+     * rollback advance the generation and phantom-supersede the next flush.
      */
     if (flushed) {
       flushGenerations.bump(calendarId);

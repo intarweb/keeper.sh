@@ -230,19 +230,6 @@ const pairReidentifiedMaterializedOccurrences = (
   return reassignments;
 };
 
-/*
- * A one-off event rescheduled upstream can reach reconciliation as a fresh
- * event_states row: the flush that carried the move replaced the stored row,
- * so the old mapping no longer resolves a local event while the moved copy
- * looks brand new. Left apart, the pair executes as destination delete plus
- * create — attendee-visible churn (cancellation plus fresh invite). When a
- * source calendar holds exactly one such orphaned mapping and exactly one
- * unmapped local event, pair them so the destination sees a single replace
- * that reuses the existing mapping. Pairing stays conservative: it requires
- * the 1:1 shape, a live remote copy to replace, and a mapping whose owning
- * event state no longer backs any local event (a live series keeps its
- * mappings out of this fallback).
- */
 const groupUnmappedEventsByCalendar = (
   localEvents: MaterializedSyncableEvent[],
   allMappings: EventMapping[],
@@ -274,14 +261,19 @@ const groupOrphanedMappingsByCalendar = (
       localEventStateIds.add(event.eventStateId);
     }
   }
+  const hasLiveRemoteCopy = (mapping: EventMapping): boolean =>
+    remoteEventsByMappingId.has(mapping.id);
+  const stillBacksALocalEvent = (mapping: EventMapping): boolean =>
+    localEventIds.has(getMappingSyncEventId(mapping))
+    || (mapping.eventStateId !== null && localEventStateIds.has(mapping.eventStateId));
+
   const orphanedMappingsByCalendar = new Map<string, EventMapping[]>();
   for (const mapping of candidateMappings) {
     if (
       mapping.sourceCalendarId === null
       || alreadyPairedMappingIds.has(mapping.id)
-      || localEventIds.has(getMappingSyncEventId(mapping))
-      || !remoteEventsByMappingId.has(mapping.id)
-      || mapping.eventStateId !== null && localEventStateIds.has(mapping.eventStateId)
+      || stillBacksALocalEvent(mapping)
+      || !hasLiveRemoteCopy(mapping)
     ) {
       continue;
     }
@@ -292,6 +284,11 @@ const groupOrphanedMappingsByCalendar = (
   return orphanedMappingsByCalendar;
 };
 
+/*
+ * A reschedule that replaced its stored row arrives as an orphaned mapping beside a
+ * brand-new local event; left unpaired the destination executes delete plus create,
+ * which attendees see as a cancellation followed by a fresh invite.
+ */
 const pairLoneRescheduledEvents = (
   localEvents: MaterializedSyncableEvent[],
   candidateMappings: EventMapping[],

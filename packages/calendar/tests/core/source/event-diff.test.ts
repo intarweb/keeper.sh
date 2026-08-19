@@ -83,12 +83,8 @@ describe("source event diff", () => {
 
     const eventsToAdd = buildSourceEventsToAdd(existingEvents, incomingEvents);
 
-    /*
-     * The whole same-UID cohort lands in the batch: the stored copy's row is
-     * an idempotent upsert, and the widened batch keeps the write path's
-     * batch-level UID count in step with the feed so it cannot mistake the
-     * genuinely new instance for a reschedule of the stored one.
-     */
+    /* The whole same-UID cohort lands in the batch, so the write path cannot
+     * mistake the genuinely new instance for a reschedule of the stored one. */
     expect(eventsToAdd).toHaveLength(2);
     expect(eventsToAdd[0]?.startTime.toISOString()).toBe("2026-03-04T23:00:00.000Z");
     expect(eventsToAdd[1]?.startTime.toISOString()).toBe("2026-03-11T23:00:00.000Z");

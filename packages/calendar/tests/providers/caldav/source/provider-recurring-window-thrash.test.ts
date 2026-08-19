@@ -2,15 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 
 /*
- * The provider persist path scopes snapshot removals to stored events its
- * default-window fetch could have seen (isCalDAVEventInSyncWindow). That
- * predicate short-circuits to true for ANY stored row carrying a recurrence
- * rule, so a recurring series whose occurrences all lie outside the default
- * window — but inside the destination-widened window the cron ingested under —
- * is still treated as a removal candidate. The server's time-range REPORT
- * (RFC 4791: recurrence-expanded overlap) excludes the series from the
- * provider fetch, so the snapshot diff deletes the stored master, and the next
- * cron pass re-adds it: perpetual add/remove thrash for the whole series.
+ * A series whose occurrences all fall outside the provider's default window is
+ * excluded from its time-range REPORT (RFC 4791), so it must not become a removal
+ * candidate — otherwise the cron pass re-adds it and the two writers thrash forever.
  */
 
 const DAY_MS = 86_400_000;
@@ -31,7 +25,6 @@ const formatIcsUtc = (date: Date): string => [
   "Z",
 ].join("");
 
-/* A weekly series that started six months ago and ended five months ago. */
 const SERIES_START = new Date(Date.now() - SIX_MONTHS_MS);
 const SERIES_FIRST_END = new Date(SERIES_START.getTime() + HOUR_MS);
 const SERIES_UNTIL = new Date(Date.now() - FIVE_MONTHS_MS);
@@ -56,13 +49,7 @@ interface RequestedRange {
   start: string;
 }
 
-/*
- * Emulates the CalDAV server: a REPORT with a time-range filter expands
- * recurrence and only returns objects with an occurrence overlapping the
- * requested range. This series' last occurrence ended five months ago, so a
- * default-window (one month historic) request excludes it. Upstream never
- * changes.
- */
+/* Emulates the server's time-range REPORT: recurrence-expanded overlap only. */
 vi.mock("../../../../src/providers/caldav/shared/client", () => ({
   CalDAVClient: function CalDAVClient() {
     return {
@@ -128,12 +115,7 @@ const SOURCE_ROW = {
   userId: "user-1",
 };
 
-/*
- * Replays exactly what the cron ingest stores for this calendar: the plan is
- * built from createRequiredSourceRanges over the calendar's destinations
- * (services/cron/src/jobs/ingest-sources.ts), the fetch is partitioned by that
- * widened window, and the rows land via buildEventStateInsertRow.
- */
+/* Replays what the cron ingest stores: a fetch partitioned by the destination-widened window. */
 const buildCronStoredRows = (): Record<string, unknown>[] => {
   const ranges = createRequiredSourceRanges([
     { syncFutureRange: "2_years", syncHistoricRange: "12_months" },
@@ -244,9 +226,7 @@ const createFakeDatabase = (storedRows: Record<string, unknown>[]): FakeDatabase
 describe("a CalDAV provider-path sync over a stored recurring series outside the default window", () => {
   it("does not delete the series the cron stored inside the required window when upstream is unchanged", async () => {
     const storedRows = buildCronStoredRows();
-    /* Premise: the cron pass really did ingest the ended series' master. */
     expect(storedRows).toHaveLength(1);
-    /* Premise: the stored master row parses cleanly, so any removal below is a diff removal, not invalid-row recovery. */
     const parsedStored = parseStoredSourceEventStatesRecoveringInvalid(
       storedRows as Parameters<typeof parseStoredSourceEventStatesRecoveringInvalid>[0],
     );
@@ -261,15 +241,8 @@ describe("a CalDAV provider-path sync over a stored recurring series outside the
     const result = await provider.syncSource(CALENDAR_ID);
 
     expect(fake.swallowedErrors).toEqual([]);
-    /* The sync must have reached the event_states diff, not errored earlier. */
     expect(fake.eventStateSelects()).toBe(1);
-    /*
-     * Upstream is byte-identical to what the cron ingested, so this sync must
-     * be a no-op. isCalDAVEventInSyncWindow returns true for any stored row
-     * with a recurrence rule, so the ended series stays a removal candidate
-     * even though the default-window fetch could not have seen it — the diff
-     * deletes the master, and the next cron pass re-adds it, forever.
-     */
+    /* Upstream is byte-identical to what the cron ingested, so this sync must be a no-op. */
     expect(fake.flushDeleteCalls()).toBe(0);
     expect(result.eventsRemoved).toBe(0);
   });

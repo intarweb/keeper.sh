@@ -160,11 +160,7 @@ interface EventStateRescheduleClient {
   };
 }
 
-/*
- * Every column the legacy conflict update rewrites, with absent values coerced
- * to null so a field cleared upstream (a removed location, say) cannot survive
- * the in-place reschedule.
- */
+/* Absent values coerce to null so a field cleared upstream cannot survive the rewrite. */
 const buildRescheduleUpdateValues = (
   row: EventStateInsertRow,
 ): Record<string, Date | boolean | string | null> => ({
@@ -184,20 +180,6 @@ const buildRescheduleUpdateValues = (
   title: row.title ?? null,
 });
 
-/*
- * A rescheduled one-off legacy event — or a rescheduled recurring series
- * master (RRULE, no RECURRENCE-ID) — changes its storage identity (the
- * non-recurring unique index includes start and end), so its insert cannot hit
- * the stored row via ON CONFLICT — it would create a second row for the same
- * event. When the batch carries exactly one row for a UID and exactly one
- * stored legacy row without a provider id or RECURRENCE-ID holds that UID,
- * rewrite that row in place (preserving its id, and with it the event mapping
- * that references it) and withhold the insert. Anything ambiguous — duplicate
- * UIDs in the batch or in storage, override rows — falls through to the plain
- * insert path unchanged.
- * Clients without select/update capability (narrow test doubles) skip the
- * probe; both production writers pass full transaction clients.
- */
 interface ReschedulePartition {
   candidateRowsByCalendar: Map<string, EventStateInsertRow[]>;
   remainingRows: EventStateInsertRow[];
@@ -212,13 +194,13 @@ const partitionRescheduleCandidates = (rows: EventStateInsertRow[]): RescheduleP
     batchUidCounts.set(row.sourceEventUid, (batchUidCounts.get(row.sourceEventUid) ?? 0) + 1);
   }
 
+  const isSoleRowForItsUidInBatch = (row: EventStateInsertRow): boolean =>
+    typeof row.sourceEventUid === "string" && batchUidCounts.get(row.sourceEventUid) === 1;
+
   const candidateRowsByCalendar = new Map<string, EventStateInsertRow[]>();
   const remainingRows: EventStateInsertRow[] = [];
   for (const row of rows) {
-    if (
-      typeof row.sourceEventUid === "string"
-      && batchUidCounts.get(row.sourceEventUid) === 1
-    ) {
+    if (isSoleRowForItsUidInBatch(row)) {
       const candidates = candidateRowsByCalendar.get(row.calendarId) ?? [];
       candidates.push(row);
       candidateRowsByCalendar.set(row.calendarId, candidates);
@@ -264,7 +246,7 @@ const readStoredLegacyRowIdsByUid = async (
   return storedRowIdsByUid;
 };
 
-const resolveOnlyStoredRowId = (
+const resolveSoleStoredRowIdForUid = (
   row: EventStateInsertRow,
   storedRowIdsByUid: Map<string, string[]>,
 ): string | null => {
@@ -272,23 +254,37 @@ const resolveOnlyStoredRowId = (
     return null;
   }
   const storedRowIds = storedRowIdsByUid.get(row.sourceEventUid) ?? [];
-  const [onlyStoredRowId] = storedRowIds;
-  if (storedRowIds.length === 1 && onlyStoredRowId) {
-    return onlyStoredRowId;
+  const [soleStoredRowId] = storedRowIds;
+  if (storedRowIds.length === 1 && soleStoredRowId) {
+    return soleStoredRowId;
   }
   return null;
 };
 
+const resolveRescheduleClient = (
+  database: EventStateInsertClient,
+): (EventStateInsertClient & EventStateRescheduleClient) | null => {
+  const client = database as EventStateInsertClient & Partial<EventStateRescheduleClient>;
+  if (typeof client.select !== "function" || typeof client.update !== "function") {
+    return null;
+  }
+  return client as EventStateInsertClient & EventStateRescheduleClient;
+};
+
+/*
+ * A rescheduled legacy row changes its storage identity — the non-recurring unique
+ * index includes start and end — so ON CONFLICT cannot reach it and the insert would
+ * strand a second row for the same event, severing the mapping that referenced it.
+ */
 const applyLegacyNonRecurringReschedules = async (
   database: EventStateInsertClient,
   rows: EventStateInsertRow[],
   onStatement?: () => void,
 ): Promise<EventStateInsertRow[]> => {
-  const client = database as EventStateInsertClient & Partial<EventStateRescheduleClient>;
-  if (typeof client.select !== "function" || typeof client.update !== "function") {
+  const rescheduleClient = resolveRescheduleClient(database);
+  if (!rescheduleClient) {
     return rows;
   }
-  const rescheduleClient = client as EventStateInsertClient & EventStateRescheduleClient;
 
   const { candidateRowsByCalendar, remainingRows } = partitionRescheduleCandidates(rows);
   if (candidateRowsByCalendar.size === EMPTY_ROW_COUNT) {
@@ -310,7 +306,7 @@ const applyLegacyNonRecurringReschedules = async (
     );
 
     for (const row of candidateRows) {
-      const updatedRowId = resolveOnlyStoredRowId(row, storedRowIdsByUid);
+      const updatedRowId = resolveSoleStoredRowIdForUid(row, storedRowIdsByUid);
       if (updatedRowId === null) {
         remainingRows.push(row);
         continue;

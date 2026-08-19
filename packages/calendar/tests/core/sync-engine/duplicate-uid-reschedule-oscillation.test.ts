@@ -12,11 +12,8 @@ import {
 } from "../../../src/core/source/write-event-states";
 
 /*
- * Convergence probe: a feed that legitimately carries two one-off VEVENTs
- * sharing a UID (broken exporters do this; RFC 5545 discourages but the
- * parser accepts it, and storage models it with the per-slot unique index
- * `event_states_non_recurring_instance_idx`). Once the upstream stops
- * changing, repeated ingest over the byte-identical feed must be a no-op.
+ * Broken exporters emit two one-off VEVENTs sharing a UID, which storage models
+ * per slot. Once upstream stops changing, repeat ingest must be a no-op.
  */
 
 const CALENDAR_ID = "calendar-duplicate-uid";
@@ -87,10 +84,7 @@ const matchesConflictTarget = (stored: StoredRow, incoming: EventStateInsertRow)
 
 const applyConflictUpdate = (stored: StoredRow, incoming: EventStateInsertRow): void => {
   for (const column of CONFLICT_UPDATE_COLUMNS) {
-    /*
-     * Postgres `excluded."column"` semantics: the value the insert attempted,
-     * with omitted columns landing as NULL.
-     */
+    /* Postgres `excluded."column"`: the attempted value, omitted columns as NULL. */
     (stored as unknown as Record<string, unknown>)[column] =
       (incoming as Record<string, unknown>)[column] ?? null;
   }
@@ -111,13 +105,7 @@ const extractStringParameter = (condition: unknown): string => {
   throw new Error("No string parameter found in SQL condition");
 };
 
-/*
- * A faithful in-memory stand-in for the real transaction client the flush
- * hands to insertEventStatesWithConflictResolution: upserts honour the three
- * partial unique indexes, the reschedule probe's select sees every stored
- * legacy row of the calendar, and its update rewrites the addressed row in
- * place.
- */
+/* Upserts honour the three partial unique indexes the real schema declares. */
 const createFakeDatabase = (store: StoredRow[]) => ({
   insert: (_table: typeof eventStatesTable) => ({
     values: (value: EventStateInsertRow | EventStateInsertRow[]) => ({
@@ -226,25 +214,16 @@ describe("ingest convergence — duplicate-UID one-off events", () => {
 
     const store: StoredRow[] = [];
 
-    // Baseline: the feed holds one event; ingest it and settle.
     await runIngestRound(store, [original]);
     const settled = await runIngestRound(store, [original]);
     expect(settled.added).toBe(0);
     expect(settled.removed).toBe(0);
 
-    /*
-     * Perturbation: the upstream client duplicates the event, reusing its UID
-     * at a new slot. The first pass over the changed feed may legitimately
-     * insert the new copy once.
-     */
+    /* Upstream duplicates the event at a new slot, reusing its UID. */
     const perturbedFeed = [original, duplicate];
     await runIngestRound(store, perturbedFeed);
 
-    /*
-     * From here the upstream never changes again: every further pass reads a
-     * byte-identical feed, so every further pass must be a no-op that leaves
-     * both slots stored.
-     */
+    /* Upstream never changes again, so every further pass must be a no-op. */
     const expectedSlots = [
       "2026-09-01T09:00:00.000Z/2026-09-01T10:00:00.000Z",
       "2026-09-03T14:00:00.000Z/2026-09-03T15:00:00.000Z",

@@ -11,11 +11,8 @@ import type {
 import type { StoredSourceEventState } from "../../../src/core/source/stored-event-state";
 
 /*
- * A user reschedules a plain one-off CalDAV event upstream: same UID, new
- * start/end. Nothing else about the event changed. The CalDAV source path
- * builds SourceEvents with no sourceEventId (providers/caldav/source/window.ts
- * toSourceEvent), so storage identity is the slot instance key
- * `slot|uid|start|end`, which the reschedule changes.
+ * A rescheduled one-off CalDAV event keeps its UID but changes its slot instance
+ * key `slot|uid|start|end`, which is its whole storage identity.
  */
 const EVENT_UID = "standup@example.com";
 const SOURCE_CALENDAR_ID = "source-cal-reschedule";
@@ -77,11 +74,8 @@ describe("rescheduling a non-recurring CalDAV event", () => {
     const changes = await runRescheduleIngest();
 
     /*
-     * One upstream reschedule of one event should be carried as one in-place
-     * change to the stored state. Deleting the old row and inserting a new one
-     * gives the replacement row a fresh id, which severs the event mapping
-     * (event_mappings.eventStateId is onDelete: "set null") and cascades into
-     * destination delete+create churn, proven by the next test.
+     * A fresh row id severs the event mapping (event_mappings.eventStateId is
+     * onDelete: "set null"), which cascades into destination churn.
      */
     expect(changes.deletes).toHaveLength(0);
   });
@@ -89,11 +83,6 @@ describe("rescheduling a non-recurring CalDAV event", () => {
   it("reaches the destination as one in-place replace, not delete+create", async () => {
     const changes = await runRescheduleIngest();
 
-    /*
-     * Apply the flush the way persistence does. The inserted replacement row
-     * gets a fresh id; deleting the old row nulls eventStateId on the mapping
-     * that mirrors this event (packages/database schema: onDelete "set null").
-     */
     const [insertedEvent] = changes.inserts;
     if (!insertedEvent) {
       throw new Error("Reschedule ingest inserted no replacement state");
@@ -103,7 +92,6 @@ describe("rescheduling a non-recurring CalDAV event", () => {
       mappingEventStateId = null;
     }
 
-    // The materialized local read after the flush: id is the event_states row id.
     const localEvents: MaterializedSyncableEvent[] = [
       {
         calendarId: SOURCE_CALENDAR_ID,
@@ -118,7 +106,6 @@ describe("rescheduling a non-recurring CalDAV event", () => {
       },
     ];
 
-    // The mapping and destination copy written when the event was first synced.
     const existingMappings: EventMapping[] = [
       {
         calendarId: "destination-cal",
@@ -154,12 +141,7 @@ describe("rescheduling a non-recurring CalDAV event", () => {
       { authoritativeWindow: window, requestedWindow: window },
     );
 
-    /*
-     * The destination already holds this event; a moved start time should be
-     * pushed as a single in-place replace reusing the existing destination
-     * UID. A remove+add pair recreates the event at the destination, which is
-     * attendee-visible churn (cancellation plus fresh invite).
-     */
+    /* A remove+add pair is attendee-visible churn: a cancellation plus a fresh invite. */
     const operationTypes = operations
       .map((operation) => operation.type)
       .toSorted();

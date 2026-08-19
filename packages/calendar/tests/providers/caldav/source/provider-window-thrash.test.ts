@@ -2,13 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 
 /*
- * The cron ingest for a calendar fetches under getRequiredSourceRanges, which
- * widens the source window to the widest destination-configured range (up to
- * 12_months historic). The CalDAV provider persist path syncs the SAME
- * calendar. Any event the cron legitimately stored inside the required window
- * must therefore survive a provider-path sync over an unchanged upstream:
- * otherwise every writer alternation deletes the out-of-default-window events
- * and the next cron pass re-adds them, forever.
+ * The cron ingest fetches this calendar under a destination-widened window, so an
+ * event it stored outside the provider's narrower default window must survive a
+ * provider-path sync — otherwise the two writers delete and re-add it forever.
  */
 
 const DAY_MS = 86_400_000;
@@ -52,10 +48,7 @@ interface RequestedRange {
 
 const requestedRanges: RequestedRange[] = [];
 
-/*
- * Emulates the CalDAV server: a REPORT with a time-range filter only returns
- * objects overlapping the requested range. Upstream never changes.
- */
+/* Emulates the server's time-range REPORT: only objects overlapping the range. */
 vi.mock("../../../../src/providers/caldav/shared/client", () => ({
   CalDAVClient: function CalDAVClient() {
     return {
@@ -119,12 +112,7 @@ const SOURCE_ROW = {
   userId: "user-1",
 };
 
-/*
- * Replays exactly what the cron ingest stores for this calendar: the plan is
- * built from createRequiredSourceRanges over the calendar's destinations
- * (services/cron/src/jobs/ingest-sources.ts), the fetch is partitioned by that
- * widened window, and the rows land via buildEventStateInsertRow.
- */
+/* Replays what the cron ingest stores: a fetch partitioned by the destination-widened window. */
 const buildCronStoredRows = (): Record<string, unknown>[] => {
   const ranges = createRequiredSourceRanges([
     { syncFutureRange: "2_years", syncHistoricRange: "12_months" },
@@ -235,7 +223,6 @@ const createFakeDatabase = (storedRows: Record<string, unknown>[]): FakeDatabase
 describe("a CalDAV provider-path sync after a cron ingest under destination-widened ranges", () => {
   it("does not delete events the cron stored inside the required window when upstream is unchanged", async () => {
     const storedRows = buildCronStoredRows();
-    /* Premise: the cron pass really did ingest the five-months-old event. */
     expect(storedRows).toHaveLength(1);
 
     const fake = createFakeDatabase(storedRows);
@@ -247,14 +234,8 @@ describe("a CalDAV provider-path sync after a cron ingest under destination-wide
     const result = await provider.syncSource(CALENDAR_ID);
 
     expect(fake.swallowedErrors).toEqual([]);
-    /* The sync must have reached the event_states diff, not errored earlier. */
     expect(fake.eventStateSelects()).toBe(1);
-    /*
-     * Upstream is byte-identical to what the cron ingested, so this sync must
-     * be a no-op. Under the hardcoded default 1_month window the provider's
-     * fetch excludes the event and the snapshot diff deletes its stored row —
-     * which the next cron pass re-adds: perpetual add/remove thrash.
-     */
+    /* Upstream is byte-identical to what the cron ingested, so this sync must be a no-op. */
     expect(fake.flushDeleteCalls()).toBe(0);
     expect(result.eventsRemoved).toBe(0);
   });

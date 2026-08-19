@@ -5,17 +5,7 @@ import type { IcsRecurrenceRule } from "ts-ics";
 import { isKeeperEvent } from "../../../core/events/identity";
 import { overlapsTimeWindow } from "../../../core/events/time-range";
 
-/*
- * The CalDAV time-range filter matches masters through recurrence expansion
- * (RFC 4791 §9.9), so a series counts as in-window only while it can still
- * produce an occurrence overlapping the window: it must start before the
- * window ends, and an UNTIL-terminated series must not have finished before
- * the window starts. COUNT-terminated and open-ended rules have no end bound
- * short of expansion, so they stay treated as live. Removal scoping shares
- * this predicate: a series whose occurrences all lie outside the window is
- * invisible to the fetch, not removed upstream, and must never become a
- * removal candidate.
- */
+/* The CalDAV time-range filter matches masters through recurrence expansion (RFC 4791 §9.9). */
 const isRecurringSeriesInSyncWindow = (
   event: { endTime: Date; startTime: Date },
   recurrenceRule: IcsRecurrenceRule,
@@ -25,6 +15,7 @@ const isRecurringSeriesInSyncWindow = (
     return false;
   }
   const { until } = recurrenceRule;
+  /* COUNT-terminated and open-ended rules have no end bound short of full expansion. */
   if (!until) {
     return true;
   }

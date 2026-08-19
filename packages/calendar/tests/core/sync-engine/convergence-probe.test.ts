@@ -90,7 +90,6 @@ const buildResources = (overrides: {
       url: "/cal/timed-1.ics",
     },
     {
-      // Infinite weekly series crossing the horizon, with EXDATE and an override.
       data: wrap([
         "BEGIN:VEVENT",
         "UID:series-1",
@@ -113,7 +112,6 @@ const buildResources = (overrides: {
       url: "/cal/series-1.ics",
     },
     {
-      // All-day weekly recurring series.
       data: wrap([
         "BEGIN:VEVENT",
         "UID:allday-series-1",
@@ -193,7 +191,7 @@ const mockResources = (resources: ReturnType<typeof buildResources>): void => {
   );
 };
 
-describe("round-2 convergence probe", () => {
+describe("convergence probe", () => {
   beforeEach(() => {
     nextRowId = 0;
     vi.clearAllMocks();
@@ -230,7 +228,6 @@ describe("round-2 convergence probe", () => {
       },
     ).toEqual({ added: 1, removed: 0, deletedIds: [], insertedUids: ["timed-1"] });
 
-    // And it settles afterwards.
     mockResources(buildResources({ timedSummary: "Timed renamed" }));
     const third = await runRound(second.store);
     expect({ added: third.added, removed: third.removed }).toEqual({ added: 0, removed: 0 });

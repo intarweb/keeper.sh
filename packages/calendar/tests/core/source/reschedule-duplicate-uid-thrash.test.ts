@@ -13,19 +13,8 @@ import {
 import { parseStoredSourceEventStatesRecoveringInvalid } from "../../../src/core/source/stored-event-state";
 
 /*
- * The diff decides whether a one-off legacy event is an unambiguous reschedule
- * by counting same-UID candidates across the WHOLE incoming feed
- * (event-diff.ts isUnambiguousReschedule), but the write path re-derives that
- * decision by counting only the rows in the INSERT BATCH
- * (write-event-states.ts partitionRescheduleCandidates). A feed carrying two
- * one-off events with the same UID at different times — duplicate-UID feeds
- * exist in the wild — makes the two disagree: the unchanged copy never enters
- * the batch, so the batch count is one, the write path treats the genuinely
- * NEW second event as a reschedule of the stored first one, and rewrites the
- * stored row in place. Every subsequent ingest over the byte-identical feed
- * then re-adds whichever copy was just destroyed and destroys the other:
- * permanent alternation, never a no-op, with one of the two events always
- * missing.
+ * Duplicate-UID feeds exist in the wild. Repeat ingest over one must converge
+ * rather than alternate which of the two same-UID copies is stored.
  */
 
 const CALENDAR_ID = "calendar-1";
@@ -53,13 +42,7 @@ interface StoredRow extends EventStateInsertRow {
 const isLegacyNonRecurringRow = (row: StoredRow): boolean =>
   !row.sourceEventId && !row.recurrenceId;
 
-/*
- * Postgres stores every absent optional column as NULL, so the fake store
- * normalizes rows the same way regardless of whether they arrived via the
- * insert path (absent keys) or the in-place update path (explicit nulls).
- * Without this the two paths would produce spuriously different identity
- * keys on the next pass — an artifact no real database exhibits.
- */
+/* Postgres reads every absent optional column back as NULL. */
 const toStoredShape = (row: EventStateInsertRow): EventStateInsertRow => ({
   ...row,
   availability: row.availability ?? null,
@@ -80,13 +63,7 @@ describe("repeat ingest of a feed holding two same-UID one-off events", () => {
     let stored: StoredRow[] = [];
     let nextRowId = 0;
 
-    /*
-     * In-memory stand-in for the flush transaction client: upserts honour the
-     * legacy non-recurring unique index (calendarId, uid, startTime, endTime),
-     * the reschedule probe select returns the legacy rows the real query
-     * matches, and the in-place update lands on the row the probe resolved
-     * (the only legacy row holding that UID).
-     */
+    /* Upserts honour the legacy non-recurring unique index (calendarId, uid, startTime, endTime). */
     const fakeClient = {
       insert: () => ({
         values: (value: EventStateInsertRow | EventStateInsertRow[]) => ({
@@ -174,20 +151,13 @@ describe("repeat ingest of a feed holding two same-UID one-off events", () => {
       return { added: eventsToAdd.length, removed: eventStateIdsToRemove.length };
     };
 
-    /* The feed first carries one copy, then upstream adds the duplicate-UID second copy. */
     await runIngestPass([FIRST_COPY]);
     expect(stored).toHaveLength(1);
-    /* Harness fidelity premise: a repeat of an already-converged feed is a no-op. */
     const convergedRepeat = await runIngestPass([FIRST_COPY]);
     expect(convergedRepeat).toEqual({ added: 0, removed: 0 });
     await runIngestPass([FIRST_COPY, SECOND_COPY]);
 
-    /*
-     * From here on the upstream feed never changes, so ingest must converge:
-     * both copies stored, and the next identical pass a no-op. Instead the
-     * write path rewrites the lone stored row to whichever copy is currently
-     * missing, so every pass "adds" one event and silently destroys the other.
-     */
+    /* Upstream never changes from here, so every further pass must be a no-op. */
     const repeatPass = await runIngestPass([FIRST_COPY, SECOND_COPY]);
     expect(stored).toHaveLength(2);
     expect(repeatPass.added).toBe(0);

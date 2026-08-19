@@ -394,7 +394,6 @@ const ingestFlushWriter = createSerialFlushWorker(
 
 flushDrainRegistry.register(() => ingestFlushWriter.close());
 
-/* One per process: every ingest lane shares it, so each sees the others' commits. */
 const ingestFlushGenerations = createFlushGenerationTracker();
 
 type IngestFlushReservation = FlushReservation<() => Promise<IngestionResult>, IngestionResult>;

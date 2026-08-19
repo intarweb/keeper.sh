@@ -5,28 +5,9 @@ import type { StoredSourceEventState } from "../../../src/core/source/stored-eve
 import type { SourceEvent } from "../../../src/core/types";
 
 /*
- * Ingest.ts wraps the persistence flush as:
- *
- *   const flush = async (changes) => {
- *     await commitChanges(changes);
- *     bumpFlushGeneration(calendarId);
- *   };
- *
- * In the cron persistence transaction (ingest-sources.ts
- * createIngestionPersistenceTransaction) `commitChanges` only ISSUES the
- * statements inside a still-open flushDatabase.transaction. The transaction
- * commits after the work callback returns — and it can still roll back after
- * commitChanges resolved: the post-work `signal.throwIfAborted()` fires when
- * the source deadline expired during the final write batch, or COMMIT itself
- * fails. In every such case nothing was persisted, yet the calendar's flush
- * generation was already bumped.
- *
- * Invariant under attack: the generation may only advance when a snapshot
- * actually became durable. A phantom bump makes the next queued flush — a
- * FRESHER fetch — probe `isFlushSuperseded` against a generation that
- * corresponds to no committed data, discard its snapshot as superseded, and
- * report success ("superseded" is not an error, applies no backoff), so an
- * upstream removal silently fails to land.
+ * The flush generation may only advance once a snapshot became durable. A bump from
+ * a rolled-back transaction would mark the next, fresher flush superseded — reported
+ * as success, with no backoff, so an upstream removal silently fails to land.
  */
 
 const CALENDAR_ID = "calendar-rolled-back-flush-generation";
@@ -75,7 +56,6 @@ describe("flush generation across a rolled-back transaction", () => {
     const eventX = makeEvent("event-x", 9);
     const eventY = makeEvent("event-y", 13);
 
-    /* Committed state and upstream both start as [X, Y]. */
     const store: Store = { rows: [toStored(eventX), toStored(eventY)] };
 
     const { promise: fetchGate, resolve: releaseFetch } =
@@ -83,11 +63,6 @@ describe("flush generation across a rolled-back transaction", () => {
     const { promise: fetchStarted, resolve: markFetchStarted } =
       Promise.withResolvers<null>();
 
-    /*
-     * Run B captures its observed flush generation, then parks in its provider
-     * fetch (its fetch will return the FRESH snapshot [X] — upstream removed Y
-     * while B's request was in flight).
-     */
     const freshRun = ingestSource({
       calendarId: CALENDAR_ID,
       fetchEvents: async () => {
@@ -105,13 +80,9 @@ describe("flush generation across a rolled-back transaction", () => {
     await fetchStarted;
 
     /*
-     * Run A: an overlapping run of the same calendar (timeout-abandoned run
-     * from the previous pass, or drain-pending-ingest against the cron pass).
-     * Its fetch sees the unchanged snapshot [X, Y] plus a snapshot/token write,
-     * so it flushes. The statements are issued (commitChanges resolves, the
-     * generation is bumped), then the transaction ROLLS BACK: the post-work
-     * signal.throwIfAborted() in createIngestionPersistenceTransaction fires,
-     * or COMMIT fails. Nothing became durable.
+     * Run A issues its statements, then the transaction rolls back: the post-work
+     * signal.throwIfAborted() in createIngestionPersistenceTransaction fires, or
+     * COMMIT itself fails.
      */
     const rolledBack = await ingestSource({
       calendarId: CALENDAR_ID,
@@ -128,20 +99,13 @@ describe("flush generation across a rolled-back transaction", () => {
       },
     }).catch((error: unknown) => error);
     expect(rolledBack).toBeInstanceOf(Error);
-    /* Rollback means the committed state is untouched. */
     expect(store.rows.map((row) => row.sourceEventUid).toSorted())
       .toEqual(["event-x", "event-y"]);
 
-    /* B's fetch completes with the fresh snapshot [X] and its flush runs. */
     releaseFetch(null);
     const freshResult = await freshRun;
 
-    /*
-     * The fresh snapshot must land: upstream removed Y, and no other writer
-     * committed anything since B's fetch began. If the rolled-back run's
-     * phantom generation bump marks B superseded, Y survives in the database
-     * with no upstream change backing it.
-     */
+    /* No writer committed since B's fetch began, so B's fresh snapshot must land. */
     expect(freshResult.eventsRemoved).toBe(1);
     expect(store.rows.map((row) => row.sourceEventUid)).toEqual(["event-x"]);
   });
