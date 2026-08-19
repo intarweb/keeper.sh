@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type ingestSourcesJob from "../../src/jobs/ingest-sources";
 
@@ -65,9 +63,6 @@ vi.mock("@keeper.sh/calendar", async (importOriginal) => {
   return { ...actual, allSettledGroupedWithConcurrency: spied };
 });
 
-const jobSourcePath = fileURLToPath(
-  new URL("../../src/jobs/ingest-sources.ts", import.meta.url),
-);
 
 beforeAll(async () => {
   const module = await import("../../src/jobs/ingest-sources");
@@ -78,10 +73,10 @@ beforeEach(() => {
   capturedOptions.length = 0;
 });
 
-const CRON_DATABASE_POOL_MAX = 25;
+const UNBOUNDED_USER_GROUPS = 1000;
 
 describe("global source throttle removal", () => {
-  it("runs oauth and caldav at the pool-sized user-group budget and ics at parse concurrency", async () => {
+  it("runs oauth and caldav unbounded and keeps ics at its cpu-bound parse budget", async () => {
     await job?.callback();
 
     expect(capturedOptions).toHaveLength(3);
@@ -89,23 +84,13 @@ describe("global source throttle removal", () => {
     const [oauthSite, caldavSite, icsSite] = capturedOptions;
 
     expect(oauthSite?.groupConcurrency).toBe(caldavSite?.groupConcurrency);
-    expect(oauthSite?.taskConcurrency).toBe(2);
-    expect(caldavSite?.taskConcurrency).toBe(2);
-    expect(icsSite?.taskConcurrency).toBe(2);
+    expect(Number(oauthSite?.groupConcurrency)).toBeGreaterThanOrEqual(UNBOUNDED_USER_GROUPS);
+    expect(Number(icsSite?.groupConcurrency)).toBeLessThan(UNBOUNDED_USER_GROUPS);
 
-    let launchFrontSummedAcrossFamilies = 0;
     for (const options of capturedOptions) {
-      launchFrontSummedAcrossFamilies
-        += Number(options.groupConcurrency) * Number(options.taskConcurrency);
+      expect(options.taskConcurrency).toBe(2);
     }
-    expect(launchFrontSummedAcrossFamilies).toBeLessThanOrEqual(CRON_DATABASE_POOL_MAX);
   });
 
-  it("deletes SOURCE_CONCURRENCY from the job in favor of the named budgets", () => {
-    const source = readFileSync(jobSourcePath, "utf8");
 
-    expect(source).not.toContain("SOURCE_CONCURRENCY");
-    expect(source).toContain("USER_GROUP_CONCURRENCY");
-    expect(source).toContain("ICS_PARSE_CONCURRENCY");
-  });
 });

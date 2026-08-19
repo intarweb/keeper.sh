@@ -8,6 +8,7 @@ import {
   createMicrosoftTokenRefresher,
   createCoordinatedRefresher,
   createGoogleUserRateLimiter,
+  createConcurrencyGate,
   createSerialFlushWorker,
   createHostRateLimiter,
   createOutlookAccountSemaphore,
@@ -100,11 +101,18 @@ const ADVISORY_LOCK_WAIT_BOUND_MS = 5000;
  */
 const USER_CALENDAR_CONCURRENCY = 2;
 const DEFAULT_DATABASE_POOL_MAX = 10;
-const CONCURRENTLY_RUNNING_INGEST_FAMILIES = 3;
 const CRON_DATABASE_POOL_MAX = env.DATABASE_POOL_MAX ?? DEFAULT_DATABASE_POOL_MAX;
-const USER_GROUP_CONCURRENCY = Math.floor(
-  CRON_DATABASE_POOL_MAX
-  / (CONCURRENTLY_RUNNING_INGEST_FAMILIES * USER_CALENDAR_CONCURRENCY),
+const POOL_CONNECTIONS_RESERVED_FOR_OTHER_JOBS = 5;
+const UNBOUNDED_USER_GROUPS = 100_000;
+const USER_GROUP_CONCURRENCY = UNBOUNDED_USER_GROUPS;
+
+/*
+ * Sources fan out unbounded and spend almost all of their time in provider I/O, but each
+ * still makes a handful of short pooled reads before the weighted reserve can park it.
+ * Gating those keeps concurrent queries inside the pool no matter how wide the fan-out.
+ */
+const pooledQueryGate = createConcurrencyGate(
+  CRON_DATABASE_POOL_MAX - POOL_CONNECTIONS_RESERVED_FOR_OTHER_JOBS,
 );
 /*
  * ICS keeps a small dedicated group budget: parsing is CPU-bound and starves
@@ -147,14 +155,20 @@ const measureDatabaseRead = async <TResult>(
   read: () => PromiseLike<TResult>,
 ): Promise<TResult> => {
   widelog.count("db.read_count", 1);
-  return await measureSegment("work.db_read_ms", async () => await read());
+  return await measureSegment(
+    "work.db_read_ms",
+    async () => await pooledQueryGate.run(async () => await read()),
+  );
 };
 
 const measureDatabaseWrite = async <TResult>(
   write: () => PromiseLike<TResult>,
 ): Promise<TResult> => {
   widelog.count("db.write_count", 1);
-  return await measureSegment("work.db_write_ms", async () => await write());
+  return await measureSegment(
+    "work.db_write_ms",
+    async () => await pooledQueryGate.run(async () => await write()),
+  );
 };
 
 const resetIngestBackoff = async (calendarId: string): Promise<void> => {
@@ -404,10 +418,10 @@ const reserveIngestFlushWeight = async (
   const weight = await estimateIngestWeight(
     {
       countStoredEvents: async (targetCalendarId: string): Promise<number> => {
-        const rows = await database
+        const rows = await measureDatabaseRead(() => database
           .select({ count: count() })
           .from(eventStatesTable)
-          .where(eq(eventStatesTable.calendarId, targetCalendarId));
+          .where(eq(eventStatesTable.calendarId, targetCalendarId)));
         return rows[0]?.count ?? 0;
       },
     },
@@ -923,7 +937,7 @@ const applyReauthenticationDemands = async (
           widelog.set("outcome", "skipped");
           return;
         }
-        const written = await database
+        const written = await measureDatabaseWrite(() => database
           .update(calendarAccountsTable)
           .set({
             needsReauthentication,
@@ -933,7 +947,7 @@ const applyReauthenticationDemands = async (
             eq(calendarAccountsTable.id, accountId),
             ne(calendarAccountsTable.needsReauthentication, needsReauthentication),
           ))
-          .returning({ id: calendarAccountsTable.id });
+          .returning({ id: calendarAccountsTable.id }));
         const transitioned = written.length > 0;
         recordReauthenticationDemandFields(buildReauthenticationDemandFields({
           accountId,
