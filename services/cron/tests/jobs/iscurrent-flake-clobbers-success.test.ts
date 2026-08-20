@@ -21,8 +21,11 @@ const harness = vi.hoisted(() => {
     calendarId: "calendar-1",
     expiresAt: new Date(Date.now() + FUTURE_EXPIRY_MS),
     externalCalendarId: "external-calendar-1",
+    // A non-zero count is what routes the success path through the probe.
+    ingestFailureCount: 1,
     ingestFutureRange: "6m",
     ingestHistoricRange: "1m",
+    ingestNextAttemptAt: null,
     ingestWindowEnd: null,
     ingestWindowRecordedAt: null,
     ingestWindowStart: null,

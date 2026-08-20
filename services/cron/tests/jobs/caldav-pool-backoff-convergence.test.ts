@@ -80,7 +80,11 @@ const resolveSelect = (projection: Record<string, unknown>): unknown[] => {
     return [];
   }
   if (keys.has("encryptedPassword")) {
-    return [CALDAV_SOURCE];
+    return [{
+      ...CALDAV_SOURCE,
+      ingestFailureCount: backoffRow.failureCount,
+      ingestNextAttemptAt: backoffRow.nextAttemptAt,
+    }];
   }
   if (keys.has("failureCount") && keys.has("nextAttemptAt")) {
     return [{ ...backoffRow }];

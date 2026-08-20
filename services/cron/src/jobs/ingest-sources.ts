@@ -275,12 +275,26 @@ const wasSuperseded = async (isCurrent: () => Promise<boolean>): Promise<boolean
   }
 };
 
-const runSourceIngest = async <TResult>(
+/*
+ * Every family's post-lock read carries the backoff gate fields alongside its own source
+ * data, so one gated read serves both: a second calendars-row read would queue at the
+ * lane permit pool again for data the merged read already fetched.
+ */
+interface SourceIngestAttemptGate {
+  ingestFailureCount: number;
+  ingestNextAttemptAt: Date | null;
+}
+
+const runSourceIngest = async <TSource extends SourceIngestAttemptGate, TResult>(
   lane: IngestLane,
   acquisition: SyncLockAcquisition,
   calendarId: string,
   signal: AbortSignal,
-  work: (isCurrent: () => Promise<boolean>) => Promise<TResult>,
+  readCurrentSource: () => Promise<TSource | undefined>,
+  work: (
+    currentSource: TSource,
+    isCurrent: () => Promise<boolean>,
+  ) => Promise<TResult>,
   shouldApplyBackoff: (error: unknown) => boolean,
 ): Promise<TResult | null> => {
   const lockResult = await measureSegment("wait.source_lock_ms", () =>
@@ -296,19 +310,16 @@ const runSourceIngest = async <TResult>(
     return null;
   }
   try {
-    const [attempt] = await measureDatabaseRead(lane, () => database
-      .select({
-        failureCount: calendarsTable.ingestFailureCount,
-        nextAttemptAt: calendarsTable.ingestNextAttemptAt,
-      })
-      .from(calendarsTable)
-      .where(eq(calendarsTable.id, calendarId))
-      .limit(1));
-    if (!attempt || attempt.nextAttemptAt && attempt.nextAttemptAt > new Date()) {
+    /* The freshness invariant: work sees this post-lock row, never the pre-fan-out listing. */
+    const currentSource = await readCurrentSource();
+    if (
+      !currentSource
+      || currentSource.ingestNextAttemptAt && currentSource.ingestNextAttemptAt > new Date()
+    ) {
       return null;
     }
     try {
-      const result = await work(lockResult.handle.isCurrent);
+      const result = await work(currentSource, lockResult.handle.isCurrent);
       /*
        * A superseded pass flushed nothing, so it is neither a pass over the calendar nor a
        * provider failure: it takes the skipped path, leaving the coverage bookkeeping and the
@@ -318,13 +329,15 @@ const runSourceIngest = async <TResult>(
         widelog.set("ingest.superseded", true);
         return null;
       }
-      if (attempt.failureCount > 0) {
+      if (currentSource.ingestFailureCount > 0) {
         await resetIngestBackoffIfCurrent(lane, calendarId, lockResult.handle.isCurrent);
       }
       return result;
     } catch (error) {
       if (shouldApplyBackoff(error)) {
-        logIngestBackoff(await applyIngestBackoff(lane, calendarId, attempt.failureCount));
+        logIngestBackoff(
+          await applyIngestBackoff(lane, calendarId, currentSource.ingestFailureCount),
+        );
       }
       throw error;
     }
@@ -1237,15 +1250,17 @@ const ingestOAuthSources = async (
 
           try {
             const result = await widelog.time.measure("duration_ms", () =>
-              runSourceIngest(lane, acquisition, source.calendarId, signal, async (isCurrent) => {
+              runSourceIngest(lane, acquisition, source.calendarId, signal, async () => {
                 const [currentSource] = await measureDatabaseRead(lane, () => database
                   .select({
                     accountId: calendarAccountsTable.id,
                     accessToken: oauthCredentialsTable.accessToken,
                     expiresAt: oauthCredentialsTable.expiresAt,
                     externalCalendarId: calendarsTable.externalCalendarId,
+                    ingestFailureCount: calendarsTable.ingestFailureCount,
                     ingestFutureRange: calendarsTable.ingestFutureRange,
                     ingestHistoricRange: calendarsTable.ingestHistoricRange,
+                    ingestNextAttemptAt: calendarsTable.ingestNextAttemptAt,
                     ingestWindowEnd: calendarsTable.ingestWindowEnd,
                     ingestWindowRecordedAt: calendarsTable.ingestWindowRecordedAt,
                     ingestWindowStart: calendarsTable.ingestWindowStart,
@@ -1270,7 +1285,9 @@ const ingestOAuthSources = async (
                     arrayContains(calendarsTable.capabilities, ["pull"]),
                   ))
                   .limit(1));
-                if (!currentSource?.externalCalendarId) {
+                return currentSource;
+              }, async (currentSource, isCurrent) => {
+                if (!currentSource.externalCalendarId) {
                   return createSkippedIngestionResult(source.userId);
                 }
 
@@ -1481,14 +1498,16 @@ const ingestCalDAVSources = async (lane: IngestLane): Promise<IngestionBatchResu
 
           try {
             const result = await widelog.time.measure("duration_ms", () =>
-              runSourceIngest(lane, "background", source.calendarId, signal, async (isCurrent) => {
+              runSourceIngest(lane, "background", source.calendarId, signal, async () => {
                 const [currentSource] = await measureDatabaseRead(lane, () => database
                   .select({
                     accountId: calendarAccountsTable.id,
                     calendarUrl: calendarsTable.calendarUrl,
                     encryptedPassword: caldavCredentialsTable.encryptedPassword,
+                    ingestFailureCount: calendarsTable.ingestFailureCount,
                     ingestFutureRange: calendarsTable.ingestFutureRange,
                     ingestHistoricRange: calendarsTable.ingestHistoricRange,
+                    ingestNextAttemptAt: calendarsTable.ingestNextAttemptAt,
                     ingestWindowRecordedAt: calendarsTable.ingestWindowRecordedAt,
                     provider: calendarAccountsTable.provider,
                     serverUrl: caldavCredentialsTable.serverUrl,
@@ -1510,9 +1529,8 @@ const ingestCalDAVSources = async (lane: IngestLane): Promise<IngestionBatchResu
                     arrayContains(calendarsTable.capabilities, ["pull"]),
                   ))
                   .limit(1));
-                if (!currentSource) {
-                  return createSkippedIngestionResult(source.userId);
-                }
+                return currentSource;
+              }, async (currentSource, isCurrent) => {
                 const ranges = await getRequiredSourceRanges(lane, source.calendarId);
                 const rateLimiter = resolveRateLimiter(currentSource.provider, {
                   accountId: currentSource.accountId,
@@ -1675,11 +1693,13 @@ const ingestIcsSources = async (lane: IngestLane): Promise<IngestionBatchResult>
 
           try {
             const result = await widelog.time.measure("duration_ms", () =>
-              runSourceIngest(lane, "background", source.calendarId, signal, async (isCurrent) => {
+              runSourceIngest(lane, "background", source.calendarId, signal, async () => {
                 const [currentSource] = await measureDatabaseRead(lane, () => database
                   .select({
+                    ingestFailureCount: calendarsTable.ingestFailureCount,
                     ingestFutureRange: calendarsTable.ingestFutureRange,
                     ingestHistoricRange: calendarsTable.ingestHistoricRange,
+                    ingestNextAttemptAt: calendarsTable.ingestNextAttemptAt,
                     ingestWindowRecordedAt: calendarsTable.ingestWindowRecordedAt,
                     treatFullDayTimedEventsAsAllDay:
                       calendarsTable.treatFullDayTimedEventsAsAllDay,
@@ -1693,7 +1713,9 @@ const ingestIcsSources = async (lane: IngestLane): Promise<IngestionBatchResult>
                     eq(calendarsTable.disabled, false),
                   ))
                   .limit(1));
-                if (!currentSource?.url) {
+                return currentSource;
+              }, async (currentSource, isCurrent) => {
+                if (!currentSource.url) {
                   return createSkippedIngestionResult(source.userId);
                 }
                 const ranges = await getRequiredSourceRanges(lane, source.calendarId);

@@ -118,11 +118,19 @@ const resolveSelect = (
   }
   if (keys.has("encryptedPassword")) {
     const calendarId = findCalendarId(calls);
+    if (!calendarId) {
+      return [];
+    }
+    const backoffRow = backoff.get(calendarId) ?? { failureCount: 0, nextAttemptAt: null };
+    const mergedBackoffFields = {
+      ingestFailureCount: backoffRow.failureCount,
+      ingestNextAttemptAt: backoffRow.nextAttemptAt,
+    };
     if (calendarId === DELETED_CALENDAR_ID) {
-      return [DELETED_CALENDAR];
+      return [{ ...DELETED_CALENDAR, ...mergedBackoffFields }];
     }
     if (calendarId === PERSONAL_CALENDAR_ID) {
-      return [PERSONAL_CALENDAR];
+      return [{ ...PERSONAL_CALENDAR, ...mergedBackoffFields }];
     }
     return [];
   }
