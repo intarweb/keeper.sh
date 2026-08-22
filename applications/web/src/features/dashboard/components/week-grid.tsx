@@ -9,7 +9,12 @@ import { Text } from "@/components/ui/primitives/text";
 import { CalendarFrame } from "./calendar-frame";
 import { DayColumn } from "./day-column";
 import { EventPill, EventPillOverflow } from "./event-card";
-import { EVENT_PILL_GAP_PX, EVENT_PILL_HEIGHT_PX, resolveVisiblePillCount } from "./event-layout";
+import {
+  EVENT_PILL_GAP_PX,
+  EVENT_PILL_HEIGHT_PX,
+  resolveVisiblePillCount,
+  timeOfDayFraction,
+} from "./event-layout";
 import type { DayEvents } from "./event-layout";
 import {
   addDays,
@@ -134,14 +139,11 @@ export function WeekGrid({ anchor, eventsByDay, onCenterDayChange, toolbar }: We
   const columnsTemplate = `repeat(${stripDays.length}, minmax(0, 1fr))`;
 
   // Resolve the current-time line on the client only, so SSR and hydration
-  // agree (the server has no stable "now").
+  // agree (the server has no stable "now"). Placed by the wall clock, like
+  // the event cards, so the line stays on its hour through a DST day.
   const [nowFraction, setNowFraction] = useState<number | null>(null);
   useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      setNowFraction((now.getTime() - startOfDay.getTime()) / MS_PER_DAY);
-    };
+    const update = () => setNowFraction(timeOfDayFraction(new Date()));
     update();
     const interval = globalThis.setInterval(update, 60_000);
     return () => globalThis.clearInterval(interval);
