@@ -96,7 +96,6 @@ export const DayColumn = memo(function DayColumn({
           event={item.event}
           past={isEventPast(item.event.endTime)}
           layout="grid"
-          className="absolute"
           style={resolveCardStyle(item)}
         />
       ))}
