@@ -4,14 +4,17 @@ import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { cn } from "@/utils/cn";
 import { Text } from "@/components/ui/primitives/text";
+import { useEventsInRange } from "@/hooks/use-events";
 import { MonthGrid } from "./month-grid";
 import { WeekGrid } from "./week-grid";
+import { bucketEventsByDay } from "./event-layout";
 import {
   addDays,
   addMonths,
   formatMonthTitle,
   formatWeekTitle,
   getMonthGridDays,
+  getWeekFetchRange,
 } from "./calendar-helpers";
 
 type CalendarViewMode = "week" | "month";
@@ -24,16 +27,30 @@ const navButton =
 /**
  * The dashboard's calendar pane. Owns the active `view` and its `anchor` — the
  * day the week view centres on (today on entry), or any day inside the month
- * the month view shows — and lets the user page the range. Renders
- * the toolbar and hands it to the active grid, which places it in the header
- * card above its own column labels (see `CalendarFrame`). Skeleton only: no
- * events yet.
+ * the month view shows — and lets the user page the range. Fetches the
+ * events for a window around the active range and hands each grid its days'
+ * events, so the grids stay presentational. Renders the toolbar and hands it
+ * to the active grid, which places it in the header card above its own
+ * column labels (see `CalendarFrame`).
  */
 export function CalendarView() {
   const [view, setView] = useState<CalendarViewMode>("week");
   const [anchor, setAnchor] = useState(() => new Date());
 
   const monthDays = useMemo(() => getMonthGridDays(anchor), [anchor]);
+
+  const fetchRange = getWeekFetchRange(anchor);
+  const { events } = useEventsInRange(fetchRange.start, fetchRange.end);
+  // Keyed on the window's instants rather than `anchor`: the anchor changes
+  // on every scroll step, the window only when a week boundary is crossed,
+  // and the day buckets — and so each memoised column's `events` identity —
+  // should only change with the data or the window.
+  const fetchStartMs = fetchRange.start.getTime();
+  const fetchEndMs = fetchRange.end.getTime();
+  const eventsByDay = useMemo(
+    () => bucketEventsByDay(events, new Date(fetchStartMs), new Date(fetchEndMs)),
+    [events, fetchStartMs, fetchEndMs],
+  );
 
   const title = view === "month" ? formatMonthTitle(anchor) : formatWeekTitle(anchor);
 
@@ -109,6 +126,11 @@ export function CalendarView() {
   return view === "month" ? (
     <MonthGrid anchor={anchor} days={monthDays} toolbar={toolbar} />
   ) : (
-    <WeekGrid anchor={anchor} onCenterDayChange={setAnchor} toolbar={toolbar} />
+    <WeekGrid
+      anchor={anchor}
+      eventsByDay={eventsByDay}
+      onCenterDayChange={setAnchor}
+      toolbar={toolbar}
+    />
   );
 }

@@ -116,6 +116,24 @@ export function formatWeekTitle(anchor: Date): string {
   return `${startMonth} ${start.getDate()}, ${start.getFullYear()} – ${endMonth} ${end.getDate()}, ${end.getFullYear()}`;
 }
 
+/** Weeks fetched ahead of the week holding the first visible day, and the
+ * window's total length in weeks. */
+const FETCH_WEEKS_BEFORE = 1;
+const FETCH_WEEKS = 4;
+
+/** The event-fetch window for the week view centred on `anchor`, as a
+ * half-open `[start, end)`: from `WEEK_STARTS_ON` a week before the week
+ * holding the first visible day, for four weeks. Quantised to calendar weeks
+ * so scrolling inside the window never changes the request. The seven visible
+ * days straddle at most two weeks, so they sit in `[start + 7, start + 19]` —
+ * a page in either direction (±7 days) or a single-day step stays inside the
+ * *previous* window too, and the grid keeps showing that window's events
+ * while the next one loads. */
+export function getWeekFetchRange(anchor: Date): { start: Date; end: Date } {
+  const start = addDays(startOfWeek(startOfVisibleWeek(anchor)), -FETCH_WEEKS_BEFORE * 7);
+  return { start, end: addDays(start, FETCH_WEEKS * 7) };
+}
+
 /** Hours of the day (0–23) for the week-view time gutter and gridlines. */
 export const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 

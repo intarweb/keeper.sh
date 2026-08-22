@@ -7,6 +7,7 @@ import type { CalendarEvent } from "@/hooks/use-events";
 import { Text } from "@/components/ui/primitives/text";
 import { CalendarFrame } from "./calendar-frame";
 import { DayColumn } from "./day-column";
+import type { DayEvents } from "./event-layout";
 import {
   addDays,
   formatHourLabel,
@@ -32,8 +33,9 @@ const BUFFER_WEEKS = 26;
 
 const MS_PER_DAY = 86_400_000;
 
-/** No events flow into the grid yet: every column gets this same empty list.
- * A module constant, so the memoised columns see a stable identity. */
+/** The list handed to days without events. A module constant, so the
+ * memoised columns see one stable identity rather than a fresh `[]` each
+ * render. */
 const NO_EVENTS: CalendarEvent[] = [];
 
 /** The day-column rules: a 1px line at the left edge of every column, tiled
@@ -69,6 +71,9 @@ interface WeekGridProps {
   /** The day to centre the visible range on; drives the horizontal scroll
    * position. Today on entry, so today sits in the middle column. */
   anchor: Date;
+  /** The fetched window's events, keyed by local-midnight `getTime()` (see
+   * `bucketEventsByDay`); days outside the window are simply absent. */
+  eventsByDay: Map<number, DayEvents>;
   /** Reports the day now in the centre column after manual horizontal
    * scrolling, so the pane title and paging stay in sync with the strip. */
   onCenterDayChange: (centerDay: Date) => void;
@@ -87,7 +92,7 @@ interface WeekGridProps {
  * Each day is a `DayColumn`, which lays out the day's event cards and marks
  * today with a current-time line.
  */
-export function WeekGrid({ anchor, onCenterDayChange, toolbar }: WeekGridProps) {
+export function WeekGrid({ anchor, eventsByDay, onCenterDayChange, toolbar }: WeekGridProps) {
   const today = useStartOfToday();
   const router = useRouter();
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -367,7 +372,7 @@ export function WeekGrid({ anchor, onCenterDayChange, toolbar }: WeekGridProps) 
                 day={day}
                 isToday={isToday}
                 nowFraction={isToday ? nowFraction : null}
-                events={NO_EVENTS}
+                events={eventsByDay.get(day.getTime())?.timed ?? NO_EVENTS}
               />
             );
           })}
