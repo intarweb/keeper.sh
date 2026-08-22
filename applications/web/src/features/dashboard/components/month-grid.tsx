@@ -1,9 +1,15 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/utils/cn";
 import { useStartOfToday } from "@/hooks/use-start-of-today";
+import { isEventPast } from "@/lib/time";
+import type { CalendarEvent } from "@/hooks/use-events";
 import { Text } from "@/components/ui/primitives/text";
 import { CalendarFrame } from "./calendar-frame";
 import { isSameDay, isSameMonth, WEEKDAY_LABELS } from "./calendar-helpers";
+import { EventPill, EventPillOverflow } from "./event-card";
+import { EVENT_PILL_GAP_PX, resolvePillRows, resolveVisiblePillCount } from "./event-layout";
+import type { DayEvents } from "./event-layout";
 
 const COLUMNS = 7;
 const ROWS = 6;
@@ -45,18 +51,40 @@ interface MonthGridProps {
   anchor: Date;
   /** The 42 days of the 6×7 grid, from `getMonthGridDays`. */
   days: Date[];
+  /** The fetched window's events, keyed by local-midnight `getTime()` (see
+   * `bucketEventsByDay`); days outside the window are simply absent. */
+  eventsByDay: Map<number, DayEvents>;
   /** The pane's toolbar, rendered in the header card above the weekday row. */
   toolbar: ReactNode;
 }
 
+const NO_EVENTS: CalendarEvent[] = [];
+
 /**
- * The month view skeleton: a weekday label row in the header card over a bare
- * 6×7 grid of day cells whose rules fade out toward the edges. Presentational
- * only — no events are rendered yet; each cell reserves space where event
- * pills will later go.
+ * The month view: a weekday label row in the header card over a 6×7 grid of
+ * day cells whose rules fade out toward the edges. Each cell lists its day's
+ * events as pills — all-day first — in as many rows as the cell has room
+ * for, folding the rest into a "+N more" row.
  */
-export function MonthGrid({ anchor, days, toolbar }: MonthGridProps) {
+export function MonthGrid({ anchor, days, eventsByDay, toolbar }: MonthGridProps) {
   const today = useStartOfToday();
+  /** The first cell's pill area. Every cell is the same height, so one
+   * measurement sets the row budget for all of them. */
+  const pillAreaRef = useRef<HTMLDivElement>(null);
+  const [pillRows, setPillRows] = useState(0);
+
+  // Measure the row budget once the grid is laid out, and again whenever the
+  // pane resizes. The observer reports once on `observe`, so the first read
+  // happens in its callback rather than as a synchronous set in the effect.
+  useLayoutEffect(() => {
+    const pillArea = pillAreaRef.current;
+    if (!pillArea || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setPillRows(resolvePillRows(entry.contentRect.height));
+    });
+    observer.observe(pillArea);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <CalendarFrame
@@ -81,9 +109,14 @@ export function MonthGrid({ anchor, days, toolbar }: MonthGridProps) {
         {/* Cell rules, behind the cells and faded toward the edges. */}
         <div aria-hidden className="pointer-events-none absolute inset-0" style={RULE_LAYER_STYLE} />
         <div className="relative grid h-full grid-cols-7 grid-rows-6">
-          {days.map((day) => {
+          {days.map((day, index) => {
             const inMonth = isSameMonth(day, anchor);
             const isToday = isSameDay(day, today);
+            const dayEvents = eventsByDay.get(day.getTime());
+            // All-day first, then the timed events as they fall (the buckets
+            // keep each list in start order).
+            const pills = dayEvents ? [...dayEvents.allDay, ...dayEvents.timed] : NO_EVENTS;
+            const { visibleCount, hiddenCount } = resolveVisiblePillCount(pills.length, pillRows);
             return (
               <div
                 key={day.getTime()}
@@ -99,8 +132,16 @@ export function MonthGrid({ anchor, days, toolbar }: MonthGridProps) {
                 >
                   {day.getDate()}
                 </span>
-                {/* Event pills will render here in a later stage. */}
-                <div className="min-h-0 flex-1" />
+                <div
+                  ref={index === 0 ? pillAreaRef : undefined}
+                  className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                  style={{ gap: EVENT_PILL_GAP_PX }}
+                >
+                  {pills.slice(0, visibleCount).map((event) => (
+                    <EventPill key={event.id} event={event} past={isEventPast(event.endTime)} />
+                  ))}
+                  {hiddenCount > 0 && <EventPillOverflow count={hiddenCount} />}
+                </div>
               </div>
             );
           })}

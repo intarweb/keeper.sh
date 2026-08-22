@@ -13,6 +13,7 @@ import {
   addMonths,
   formatMonthTitle,
   formatWeekTitle,
+  getMonthFetchRange,
   getMonthGridDays,
   getWeekFetchRange,
 } from "./calendar-helpers";
@@ -39,7 +40,8 @@ export function CalendarView() {
 
   const monthDays = useMemo(() => getMonthGridDays(anchor), [anchor]);
 
-  const fetchRange = getWeekFetchRange(anchor);
+  // One fetch for the pane, windowed by the active view.
+  const fetchRange = view === "month" ? getMonthFetchRange(anchor) : getWeekFetchRange(anchor);
   const { events } = useEventsInRange(fetchRange.start, fetchRange.end);
   // Keyed on the window's instants rather than `anchor`: the anchor changes
   // on every scroll step, the window only when a week boundary is crossed,
@@ -124,7 +126,7 @@ export function CalendarView() {
   );
 
   return view === "month" ? (
-    <MonthGrid anchor={anchor} days={monthDays} toolbar={toolbar} />
+    <MonthGrid anchor={anchor} days={monthDays} eventsByDay={eventsByDay} toolbar={toolbar} />
   ) : (
     <WeekGrid
       anchor={anchor}

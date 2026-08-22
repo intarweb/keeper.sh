@@ -134,6 +134,15 @@ export function getWeekFetchRange(anchor: Date): { start: Date; end: Date } {
   return { start, end: addDays(start, FETCH_WEEKS * 7) };
 }
 
+/** The event-fetch window for the month view: exactly the 6×7 grid's days,
+ * as a half-open `[start, end)`. Month paging is discrete, so there is no
+ * scroll position to keep stable; the days the old and new grids share stay
+ * populated from the previous data while the next window loads. */
+export function getMonthFetchRange(anchor: Date): { start: Date; end: Date } {
+  const days = getMonthGridDays(anchor);
+  return { start: days[0], end: addDays(days[days.length - 1], 1) };
+}
+
 /** Hours of the day (0–23) for the week-view time gutter and gridlines. */
 export const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
