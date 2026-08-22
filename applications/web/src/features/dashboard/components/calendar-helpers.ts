@@ -119,6 +119,9 @@ export function formatWeekTitle(anchor: Date): string {
 /** Hours of the day (0–23) for the week-view time gutter and gridlines. */
 export const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
+/** Height of a single hour row in the week view, in pixels. */
+export const HOUR_HEIGHT = 48;
+
 /** Short hour label for the gutter, e.g. "1am", "12pm". */
 export function formatHourLabel(hour: number): string {
   return new Date(2023, 0, 1, hour)

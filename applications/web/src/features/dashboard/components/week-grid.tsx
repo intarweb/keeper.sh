@@ -3,11 +3,14 @@ import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { cn } from "@/utils/cn";
 import { useStartOfToday } from "@/hooks/use-start-of-today";
+import type { CalendarEvent } from "@/hooks/use-events";
 import { Text } from "@/components/ui/primitives/text";
 import { CalendarFrame } from "./calendar-frame";
+import { DayColumn } from "./day-column";
 import {
   addDays,
   formatHourLabel,
+  HOUR_HEIGHT,
   HOURS,
   isSameDay,
   startOfDay,
@@ -17,8 +20,6 @@ import {
 
 /** Width of the left time gutter, in pixels. */
 const GUTTER_WIDTH = 52;
-/** Height of a single hour row, in pixels. */
-const HOUR_HEIGHT = 48;
 /** Height of the weekday/date header row, in pixels. */
 const HEADER_HEIGHT = 56;
 /** Visible day columns (a week). */
@@ -31,9 +32,9 @@ const BUFFER_WEEKS = 26;
 
 const MS_PER_DAY = 86_400_000;
 
-/** Colour of the hour rules across the grid: the column-rule token, faded so
- * the horizontal lines read as a secondary, quieter layer under the columns. */
-const HOUR_RULE_COLOR = "color-mix(in oklab, var(--color-border-elevated) 45%, transparent)";
+/** No events flow into the grid yet: every column gets this same empty list.
+ * A module constant, so the memoised columns see a stable identity. */
+const NO_EVENTS: CalendarEvent[] = [];
 
 /** The day-column rules: a 1px line at the left edge of every column, tiled
  * one column apart. They are painted on the *viewport* boxes (the grid's
@@ -83,7 +84,8 @@ interface WeekGridProps {
  * week, so "Today" puts today in the middle and paging keeps that alignment.
  * The day row lives in the header card above; it has no scroller of its own
  * and simply mirrors the grid's horizontal offset, so the two always line up.
- * Presentational only: no events; a current-time line marks today.
+ * Each day is a `DayColumn`, which lays out the day's event cards and marks
+ * today with a current-time line.
  */
 export function WeekGrid({ anchor, onCenterDayChange, toolbar }: WeekGridProps) {
   const today = useStartOfToday();
@@ -360,32 +362,13 @@ export function WeekGrid({ anchor, onCenterDayChange, toolbar }: WeekGridProps) 
           {stripDays.map((day) => {
             const isToday = isSameDay(day, today);
             return (
-              <div
+              <DayColumn
                 key={day.getTime()}
-                className="relative"
-                style={{ scrollSnapAlign: "start" }}
-              >
-                {/* Hour rules, painted per cell (one strip-wide layer is too
-                    large a box for some engines to paint a background on) and
-                    starting one row down, so neither the top nor the bottom
-                    edge of the grid carries a line. */}
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-0 bottom-0"
-                  style={{
-                    top: HOUR_HEIGHT,
-                    backgroundImage: `linear-gradient(to bottom, ${HOUR_RULE_COLOR} 0 1px, transparent 1px)`,
-                    backgroundSize: `100% ${HOUR_HEIGHT}px`,
-                  }}
-                />
-                {/* Event blocks will render here in a later stage. */}
-                {isToday && nowFraction != null && (
-                  <div
-                    className="pointer-events-none absolute inset-x-0 z-10 h-0.5 -translate-y-1/2 bg-red-500"
-                    style={{ top: `${nowFraction * 100}%` }}
-                  />
-                )}
-              </div>
+                day={day}
+                isToday={isToday}
+                nowFraction={isToday ? nowFraction : null}
+                events={NO_EVENTS}
+              />
             );
           })}
         </div>
