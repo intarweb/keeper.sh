@@ -83,12 +83,6 @@ export const WEEKDAY_LABELS = Array.from({ length: 7 }, (_, index) => {
   return day.toLocaleDateString("en-US", { weekday: "short" });
 });
 
-/** The 7 days of the week containing `anchor`, from `WEEK_STARTS_ON`. */
-export function getWeekDays(anchor: Date): Date[] {
-  const weekStart = startOfWeek(anchor);
-  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-}
-
 /** Toolbar title for a month, e.g. "August 2026". */
 export function formatMonthTitle(anchor: Date): string {
   return anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
