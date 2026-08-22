@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { cn } from "@/utils/cn";
@@ -51,18 +51,13 @@ const MS_PER_DAY = 86_400_000;
  * render. */
 const NO_EVENTS: CalendarEvent[] = [];
 
-/** The day-column rules: a 1px line at the left edge of every column, tiled
- * one column apart. They are painted on the *viewport* boxes (the grid's
- * scroller and the header's strip viewport) rather than on the day cells, so
- * they are pinned to the visible area and run its full height — through a
- * vertical overscroll bounce too, instead of stopping at the content's edge.
- * Horizontal scrolling is followed via `--strip-scroll`, which `handleScroll`
- * keeps equal to the scroller's `scrollLeft`. Both boxes use the same column
- * width expression, so header and grid lines coincide to the pixel. */
-const COLUMN_RULES: CSSProperties = {
-  backgroundImage: "linear-gradient(to right, var(--color-border-elevated) 0 1px, transparent 1px)",
-  backgroundRepeat: "repeat-x",
-};
+/** Whether the header's day row can follow the grid's scroll through a CSS
+ * scroll timeline (see `.calendar-strip-row` in index.css). The same feature
+ * the stylesheet gates on, so the JS mirror below only runs where the CSS
+ * does not — both moving the row would scroll it twice. Resolved once: it
+ * only varies by engine, and on the server it is false without effect. */
+const HEADER_FOLLOWS_SCROLL_TIMELINE =
+  typeof CSS !== "undefined" && CSS.supports("animation-timeline", "scroll()");
 
 /** Fades the header's column rules out toward the top, so they dissolve into
  * the toolbar above instead of meeting it at a hard corner. */
@@ -79,6 +74,64 @@ const GRID_EDGE_FADE_SIZE = 24;
  * vertical overscroll bounce too. Vertical only: a horizontal fade would dim
  * the time gutter's labels and the outermost day column. */
 const GRID_EDGE_FADE = `linear-gradient(to bottom, transparent, black ${GRID_EDGE_FADE_SIZE}px, black calc(100% - ${GRID_EDGE_FADE_SIZE}px), transparent)`;
+
+interface DayHeaderCellProps {
+  day: Date;
+  isToday: boolean;
+  /** The day's all-day events, identity-stable while unchanged. */
+  allDay: CalendarEvent[];
+  /** Rows the band currently shows; a day with more folds the rest away. */
+  bandRows: number;
+}
+
+/** One day of the header row: the weekday and date over the day's all-day
+ * pills. Memoised so a scroll-driven anchor change only re-renders the cells
+ * whose events or band actually changed. */
+const DayHeaderCell = memo(function DayHeaderCell({
+  day,
+  isToday,
+  allDay,
+  bandRows,
+}: DayHeaderCellProps) {
+  const { visibleCount, hiddenCount } = resolveVisiblePillCount(allDay.length, bandRows);
+
+  return (
+    <div className="relative flex flex-col overflow-hidden">
+      {/* The column's left rule, faded toward the top so it dissolves into the
+          toolbar above instead of meeting it at a hard corner. On the cell,
+          so it moves with the row. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 left-0 w-px bg-border-elevated"
+        style={{ maskImage: HEADER_RULE_FADE, WebkitMaskImage: HEADER_RULE_FADE }}
+      />
+      <div
+        className="flex shrink-0 flex-col items-center justify-center gap-1"
+        style={{ height: HEADER_HEIGHT }}
+      >
+        <Text as="span" size="xs" tone="muted" className="font-medium uppercase tracking-wide">
+          {day.toLocaleDateString("en-US", { weekday: "short" })}
+        </Text>
+        <span
+          className={cn(
+            "flex size-6 items-center justify-center text-xs font-medium tabular-nums",
+            isToday ? "rounded-full bg-emerald-400 text-neutral-950" : "text-foreground",
+          )}
+        >
+          {day.getDate()}
+        </span>
+      </div>
+      {allDay.length > 0 && (
+        <div className="flex flex-col px-0.5" style={{ gap: EVENT_PILL_GAP_PX }}>
+          {allDay.slice(0, visibleCount).map((event) => (
+            <EventPill key={event.id} event={event} past={isEventPast(event.endTime)} />
+          ))}
+          {hiddenCount > 0 && <EventPillOverflow count={hiddenCount} />}
+        </div>
+      )}
+    </div>
+  );
+});
 
 interface WeekGridProps {
   /** The day to centre the visible range on; drives the horizontal scroll
@@ -101,7 +154,10 @@ interface WeekGridProps {
  * range is a rolling seven days centred on `anchor` rather than a calendar
  * week, so "Today" puts today in the middle and paging keeps that alignment.
  * The day row lives in the header card above; it has no scroller of its own
- * and simply mirrors the grid's horizontal offset, so the two always line up.
+ * and follows the grid's horizontal scroll through a scroll timeline (or a
+ * mirrored offset where the engine has none), so the two always line up.
+ * The column rules are painted on the day cells, in the scrolling content,
+ * so the cards and the lines they sit against move as one.
  * Each day is a `DayColumn`, which lays out the day's event cards and marks
  * today with a current-time line. All-day events sit in a band under the day
  * row instead, sized to the visible days' pills so it stays collapsed until a
@@ -155,16 +211,15 @@ export function WeekGrid({ anchor, eventsByDay, onCenterDayChange, toolbar }: We
     return Math.max((el.clientWidth - GUTTER_WIDTH) / VISIBLE_COLUMNS, 1);
   }, []);
 
-  /** Mirrors the scroller's horizontal offset onto the header's day row, and
-   * into `--strip-scroll` on both boxes so their column rules follow along. */
+  /** Fallback for engines without scroll timelines: mirrors the scroller's
+   * horizontal offset onto the header strip from the scroll event, a frame
+   * behind the grid. A no-op where the row follows the timeline in CSS. */
   const syncHeaderStrip = useCallback(() => {
+    if (HEADER_FOLLOWS_SCROLL_TIMELINE) return;
     const scroller = scrollerRef.current;
     const headerStrip = headerStripRef.current;
     if (!scroller || !headerStrip) return;
     headerStrip.scrollLeft = scroller.scrollLeft;
-    const offset = `${scroller.scrollLeft}px`;
-    scroller.style.setProperty("--strip-scroll", offset);
-    headerStrip.style.setProperty("--strip-scroll", offset);
   }, []);
 
   /** Scrolls the strip so `centerDay` (midnight) sits in the middle column. */
@@ -305,58 +360,29 @@ export function WeekGrid({ anchor, eventsByDay, onCenterDayChange, toolbar }: We
       {/* Spacer over the grid's time gutter, keeping the columns aligned. */}
       <div className="shrink-0" style={{ width: GUTTER_WIDTH }} />
       <div ref={headerStripRef} className="relative min-w-0 flex-1 overflow-hidden">
-        {/* Column rules, pinned to the viewport and faded toward the top. */}
         <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            ...COLUMN_RULES,
-            backgroundSize: `calc(100% / ${VISIBLE_COLUMNS}) 100%`,
-            backgroundPositionX: "calc(0px - var(--strip-scroll, 0px))",
-            maskImage: HEADER_RULE_FADE,
-            WebkitMaskImage: HEADER_RULE_FADE,
-          }}
-        />
-        <div
-          className="relative grid h-full"
-          style={{
-            gridTemplateColumns: columnsTemplate,
-            width: `calc(${stripDays.length} * 100% / ${VISIBLE_COLUMNS})`,
-          }}
+          className="calendar-strip-row relative grid h-full"
+          style={
+            {
+              gridTemplateColumns: columnsTemplate,
+              width: `calc(${stripDays.length} * 100% / ${VISIBLE_COLUMNS})`,
+              // How far the row travels at full scroll — its own width less
+              // the viewport's, as a share of its width — for the scroll
+              // timeline in index.css. The same ratio as the grid's scroll
+              // range, so the two coincide to the pixel at every offset.
+              "--calendar-strip-travel": `calc(-100% * ${stripDays.length - VISIBLE_COLUMNS} / ${stripDays.length})`,
+            } as CSSProperties
+          }
         >
-          {stripDays.map((day) => {
-            const isToday = isSameDay(day, today);
-            const allDay = eventsByDay.get(day.getTime())?.allDay ?? NO_EVENTS;
-            const { visibleCount, hiddenCount } = resolveVisiblePillCount(allDay.length, bandRows);
-            return (
-              <div key={day.getTime()} className="flex flex-col overflow-hidden">
-                <div
-                  className="flex shrink-0 flex-col items-center justify-center gap-1"
-                  style={{ height: HEADER_HEIGHT }}
-                >
-                  <Text as="span" size="xs" tone="muted" className="font-medium uppercase tracking-wide">
-                    {day.toLocaleDateString("en-US", { weekday: "short" })}
-                  </Text>
-                  <span
-                    className={cn(
-                      "flex size-6 items-center justify-center text-xs font-medium tabular-nums",
-                      isToday ? "rounded-full bg-emerald-400 text-neutral-950" : "text-foreground",
-                    )}
-                  >
-                    {day.getDate()}
-                  </span>
-                </div>
-                {allDay.length > 0 && (
-                  <div className="flex flex-col px-0.5" style={{ gap: EVENT_PILL_GAP_PX }}>
-                    {allDay.slice(0, visibleCount).map((event) => (
-                      <EventPill key={event.id} event={event} past={isEventPast(event.endTime)} />
-                    ))}
-                    {hiddenCount > 0 && <EventPillOverflow count={hiddenCount} />}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {stripDays.map((day) => (
+            <DayHeaderCell
+              key={day.getTime()}
+              day={day}
+              isToday={isSameDay(day, today)}
+              allDay={eventsByDay.get(day.getTime())?.allDay ?? NO_EVENTS}
+              bandRows={bandRows}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -371,11 +397,8 @@ export function WeekGrid({ anchor, eventsByDay, onCenterDayChange, toolbar }: We
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
-        className="flex min-h-0 flex-1 items-start overflow-auto overscroll-x-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="calendar-strip-scroller flex min-h-0 flex-1 items-start overflow-auto overscroll-x-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{
-          ...COLUMN_RULES,
-          backgroundSize: `calc((100% - ${GUTTER_WIDTH}px) / ${VISIBLE_COLUMNS}) 100%`,
-          backgroundPositionX: `calc(${GUTTER_WIDTH}px - var(--strip-scroll, 0px))`,
           scrollSnapType: "x mandatory",
           scrollPaddingLeft: GUTTER_WIDTH,
           maskImage: GRID_EDGE_FADE,
