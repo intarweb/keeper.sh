@@ -34,9 +34,15 @@ describe("each hosted CalDAV provider carries its own budget", () => {
     );
   });
 
-  it("holds both hosted providers at the same 240 until telemetry says otherwise", () => {
+  it("holds iCloud at 240, where Apple demonstrably throttles", () => {
     expect(ICLOUD_ACCOUNT_REQUESTS_PER_MINUTE).toBe(240);
-    expect(FASTMAIL_ACCOUNT_REQUESTS_PER_MINUTE).toBe(240);
+  });
+
+  it("gives Fastmail the raised budget its throttle telemetry supports", () => {
+    expect(FASTMAIL_ACCOUNT_REQUESTS_PER_MINUTE).toBe(480);
+    expect(FASTMAIL_ACCOUNT_REQUESTS_PER_MINUTE).toBeGreaterThan(
+      ICLOUD_ACCOUNT_REQUESTS_PER_MINUTE,
+    );
   });
 
   it("meters each hosted account on its own key at its own resolved budget", async () => {
