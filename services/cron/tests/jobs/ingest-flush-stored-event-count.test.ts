@@ -30,10 +30,15 @@ const harness = vi.hoisted(() => {
       | null,
   };
 
+  const storedIngestSeq = 0;
+
+  const ingestSeqRows = (): unknown[] => [{ ingestSeq: storedIngestSeq }];
+
   const resolveLimited = (fields: Record<string, unknown>): unknown[] => {
     if ("url" in fields) {
       return state.icsRows.slice(0, 1).map((row) => ({
         failureCount: 0,
+        ingestSeq: storedIngestSeq,
         nextAttemptAt: null,
         ...row,
       }));
@@ -86,9 +91,19 @@ const harness = vi.hoisted(() => {
     callback: (transaction: unknown) => Promise<unknown>,
   ): Promise<unknown> => callback({
     execute: () => Promise.resolve([]),
-    select: () => ({
+    select: (fields: Record<string, unknown>) => ({
       from: () => ({
-        where: () => Promise.resolve(createExistingEventRows()),
+        where: () => {
+          const resolveRows = (): unknown[] => {
+            if ("ingestSeq" in fields) {
+              return ingestSeqRows();
+            }
+            return createExistingEventRows();
+          };
+          return Object.assign(Promise.resolve(resolveRows()), {
+            limit: () => Promise.resolve(resolveRows()),
+          });
+        },
       }),
     }),
     update: (table: unknown) => createUpdateBuilder(table, state.calendarUpdates),

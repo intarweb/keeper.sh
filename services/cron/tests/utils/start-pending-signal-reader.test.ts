@@ -39,7 +39,9 @@ const blockingRedisDouble = () => {
 };
 
 const scoreRedis = {
+  del: (...keys: string[]) => Promise.resolve(keys.length),
   hmget: () => Promise.resolve([]),
+  hsetnx: () => Promise.resolve(0),
   set: () => Promise.resolve("OK"),
   zscore: () => Promise.resolve(null),
 };
