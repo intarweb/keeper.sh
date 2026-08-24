@@ -112,6 +112,18 @@ const buildOidcPlugin = (
         clientSecret: input.clientSecret,
         scopes: input.scopes ?? ["openid", "profile", "email"],
         pkce: true,
+        mapProfileToUser: (profile) => {
+          const raw = profile as Record<string, unknown>;
+          const username =
+            (raw.preferred_username as string | undefined) ??
+            (raw.email as string | undefined)?.split("@")[0];
+
+          // Better-auth merges the mapped user into the base record, so `username` reaches the user-creation path once it is registered as an additional user field (see `user.additionalFields`). The type only admits core user fields, so cast the extra field through.
+          if (!username) {
+            return Promise.resolve({});
+          }
+          return Promise.resolve({ username } as Partial<User>);
+        },
       },
     ],
   });
@@ -400,6 +412,14 @@ const createAuth = (config: AuthConfig) => {
     socialProviders,
     trustedOrigins,
     user: {
+      additionalFields: {
+        username: {
+          input: true,
+          required: true,
+          type: "string",
+          unique: true,
+        },
+      },
       deleteUser: {
         afterDelete: async (user) => {
           if (!polarClient) {
